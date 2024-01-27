@@ -2,6 +2,7 @@ package zephr
 
 import "core:fmt"
 import "core:log"
+import "core:path/filepath"
 
 import gl "vendor:OpenGL"
 
@@ -54,7 +55,9 @@ init_freetype :: proc(font_path: cstring) -> i32 {
   }
 
   face: FT.Face
-  if (FT.New_Face(ft, font_path, 0, &face) != 0) {
+  err := FT.New_Face(ft, font_path, 0, &face)
+  if (err != 0) {
+    log.errorf("FT.New_Face returned: %d", err)
     return -2
   }
 
@@ -174,7 +177,7 @@ init_fonts :: proc(font_path: cstring) -> i32 {
     return res
   }
 
-  l_font_shader, success := create_shader("shaders/font.vert", "shaders/font.frag")
+  l_font_shader, success := create_shader(relative_path("shaders/font.vert"), relative_path("shaders/font.frag"))
 
   if (!success) {
     log.fatal("Failed to create font shader")

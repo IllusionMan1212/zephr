@@ -3,6 +3,7 @@ package zephr
 import "core:fmt"
 import "core:log"
 import "core:os"
+import "core:path/filepath"
 import "core:container/queue"
 
 import gl "vendor:OpenGL"
@@ -371,11 +372,6 @@ FNV_HASH32_PRIME :: 0x01000193
 INIT_UI_STACK_SIZE :: 256
 @private
 EVENT_QUEUE_INIT_CAP :: 128
-// TODO: This font is currently used for the UI elements, but we should allow the user to specify
-//       their own font for the UI elements.
-//       In the future, this font should only be used for the engine's editor.
-@private
-ENGINE_FONT_PATH :: "res/fonts/Rubik/Rubik-VariableFont_wght.ttf"
 
 when ODIN_DEBUG {
   @private
@@ -637,6 +633,14 @@ evdev_scancode_to_zephr_scancode_map := []Scancode {
 }
 
 @private
+engine_rel_path := filepath.dir(#file)
+// TODO: This font is currently used for the UI elements, but we should allow the user to specify
+//       their own font for the UI elements.
+//       In the future, this font should only be used for the engine's editor.
+@private
+engine_font_path := cstring(raw_data(relative_path("./res/fonts/Rubik/Rubik-VariableFont_wght.ttf")))
+
+@private
 zephr_ctx    : Context
 @private
 logger       : log.Logger
@@ -660,7 +664,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: Vec2, windo
 
     backend_init(window_title, window_size, icon_path, window_non_resizable)
 
-    ui_init(ENGINE_FONT_PATH)
+    ui_init(engine_font_path)
 
     zephr_ctx.ui.elements = make([dynamic]UiElement, INIT_UI_STACK_SIZE)
     zephr_ctx.mouse.pos = Vec2{-1, -1}
@@ -885,4 +889,9 @@ set_zephr_mods :: proc(scancode: Scancode, is_press: bool) -> KeyMod {
   zephr_ctx.keyboard.mods = mods
 
   return mods
+}
+
+@private
+relative_path :: proc(path: string) -> string {
+  return filepath.join([]string{engine_rel_path, path})
 }
