@@ -331,6 +331,7 @@ backend_init :: proc(window_title: cstring, window_size: Vec2, icon_path: cstrin
     window_title := win32.utf8_to_wstring(string(window_title))
 
     hInstance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
+    // TODO: what happens if icon_path is empty?
     hIcon := win32.LoadImageW(nil, win32.utf8_to_wstring(string(icon_path)), win32.IMAGE_ICON, 0, 0, win32.LR_DEFAULTSIZE | win32.LR_LOADFROMFILE)
     wc := win32.WNDCLASSEXW {
         cbSize        = size_of(win32.WNDCLASSEXW),

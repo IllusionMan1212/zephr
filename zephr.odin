@@ -371,6 +371,11 @@ FNV_HASH32_PRIME :: 0x01000193
 INIT_UI_STACK_SIZE :: 256
 @private
 EVENT_QUEUE_INIT_CAP :: 128
+// TODO: This font is currently used for the UI elements, but we should allow the user to specify
+//       their own font for the UI elements.
+//       In the future, this font should only be used for the engine's editor.
+@private
+ENGINE_FONT_PATH :: "res/fonts/Rubik/Rubik-VariableFont_wght.ttf"
 
 when ODIN_DEBUG {
   @private
@@ -644,7 +649,7 @@ logger       : log.Logger
 ///////////////////////////
 
 
-init :: proc(font_path: cstring, icon_path: cstring, window_title: cstring, window_size: Vec2, window_non_resizable: bool) {
+init :: proc(icon_path: cstring, window_title: cstring, window_size: Vec2, window_non_resizable: bool) {
     logger_init()
 
     // TODO: should I initalize the audio here or let the game handle that??
@@ -655,7 +660,7 @@ init :: proc(font_path: cstring, icon_path: cstring, window_title: cstring, wind
 
     backend_init(window_title, window_size, icon_path, window_non_resizable)
 
-    ui_init(font_path)
+    ui_init(ENGINE_FONT_PATH)
 
     zephr_ctx.ui.elements = make([dynamic]UiElement, INIT_UI_STACK_SIZE)
     zephr_ctx.mouse.pos = Vec2{-1, -1}
@@ -733,6 +738,20 @@ toggle_fullscreen :: proc() {
   backend_toggle_fullscreen(zephr_ctx.window.is_fullscreen)
 
   zephr_ctx.window.is_fullscreen = !zephr_ctx.window.is_fullscreen
+}
+
+load_font :: proc(font_path: cstring) {
+  // TODO: this function should be called from the game/future editor to load in new
+  // fonts that will be used in the game.
+  // TODO: I'm not sure how the path is supposed to be resolved since relative paths
+  // are relative to the engine repo dir and not the game's repo dir.
+
+  // Ideally we'd want to create a custom binary format for fonts when this is called that we can load in
+  // and use to render text after the initial loading. This would allow the engine users
+  // to select any font on their system and not have to include it in their game's repo.
+  // This also allows us to add any extra data about the fonts that want, i.e SDF data, atlas texture coords, etc.
+
+  // For now we'll just require that the ttf font file is included with the game.
 }
 
 @private
