@@ -12,7 +12,7 @@ load_texture :: proc(path: cstring) -> TextureId {
 
   texture_id: TextureId
   width, height, channels: i32
-  data := stb.load(path, &width, &height, &channels, 4) // RGBA
+  data := stb.load(path, &width, &height, &channels, 0)
   if data == nil {
     log.errorf("Failed to load texture: \"%s\"", path)
   }
@@ -35,6 +35,8 @@ load_texture :: proc(path: cstring) -> TextureId {
       break
   }
 
+  gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+
   gl.GenTextures(1, &texture_id)
   gl.BindTexture(gl.TEXTURE_2D, texture_id)
 
@@ -47,6 +49,8 @@ load_texture :: proc(path: cstring) -> TextureId {
   gl.TexImage2D(gl.TEXTURE_2D, 0, cast(i32)format, width, height, 0, cast(u32)format, gl.UNSIGNED_BYTE, data)
 
   gl.GenerateMipmap(gl.TEXTURE_2D)
+
+  gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
 
   return texture_id
 }

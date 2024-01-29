@@ -1,6 +1,7 @@
 package zephr
 
 import "core:fmt"
+import m "core:math/linalg/glsl"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
@@ -317,7 +318,7 @@ Event :: struct {
     },
     mouse: struct {
       button: MouseButton,
-      using pos: Vec2,
+      using pos: m.vec2,
       scroll_direction: MouseScrollDirection,
     },
     window: struct {
@@ -328,15 +329,18 @@ Event :: struct {
 }
 
 Mouse :: struct {
-  using pos: Vec2,
+  using pos: m.vec2,
+  pos_before_capture: m.vec2,
+  virtual_pos: m.vec2,
   pressed: bool,
   released: bool,
   button: MouseButton,
+  captured: bool,
 }
 
 Window :: struct {
-  size: Vec2,
-  pre_fullscreen_size: Vec2,
+  size: m.vec2,
+  pre_fullscreen_size: m.vec2,
   is_fullscreen: bool,
   non_resizable: bool,
 }
@@ -347,7 +351,7 @@ Keyboard :: struct {
 
 Context :: struct {
   should_quit: bool,
-  screen_size: Vec2,
+  screen_size: m.vec2,
   window: Window,
   font: Font,
   mouse: Mouse,
@@ -361,7 +365,7 @@ Context :: struct {
   /* XkbDescPtr xkb; */
   /* XIM xim; */
 
-  projection: Mat4,
+  projection: m.mat4,
 }
 
 @private
@@ -375,14 +379,15 @@ EVENT_QUEUE_INIT_CAP :: 128
 
 when ODIN_DEBUG {
   @private
+  TerminalLoggerOpts :: log.Default_Console_Logger_Opts
+} else {
+  @private
   TerminalLoggerOpts :: log.Options{
     .Level,
     .Terminal_Color,
     .Short_File_Path,
     .Line,
   }
-} else {
-  TerminalLoggerOpts :: log.Default_Console_Logger_Opts
 }
 
 COLOR_BLACK   :: Color{0, 0, 0, 255}
@@ -395,242 +400,6 @@ COLOR_MAGENTA :: Color{255, 0, 255, 255}
 COLOR_CYAN    :: Color{0, 255, 255, 255}
 COLOR_ORANGE  :: Color{255, 128, 0, 255}
 COLOR_PURPLE  :: Color{128, 0, 255, 255}
-
-evdev_scancode_to_zephr_scancode_map := []Scancode {
-  0 = .NULL,
-  1 = .ESCAPE,
-  2 = .KEY_1,
-  3 = .KEY_2,
-  4 = .KEY_3,
-  5 = .KEY_4,
-  6 = .KEY_5,
-  7 = .KEY_6,
-  8 = .KEY_7,
-  9 = .KEY_8,
-  10 = .KEY_9,
-  11 = .KEY_0,
-  12 = .MINUS,
-  13 = .EQUALS,
-  14 = .BACKSPACE,
-  15 = .TAB,
-  16 = .Q,
-  17 = .W,
-  18 = .E,
-  19 = .R,
-  20 = .T,
-  21 = .Y,
-  22 = .U,
-  23 = .I,
-  24 = .O,
-  25 = .P,
-  26 = .LEFT_BRACKET,
-  27 = .RIGHT_BRACKET,
-  28 = .ENTER,
-  29 = .LEFT_CTRL,
-  30 = .A,
-  31 = .S,
-  32 = .D,
-  33 = .F,
-  34 = .G,
-  35 = .H,
-  36 = .J,
-  37 = .K,
-  38 = .L,
-  39 = .SEMICOLON,
-  40 = .APOSTROPHE,
-  41 = .GRAVE,
-  42 = .LEFT_SHIFT,
-  43 = .BACKSLASH,
-  44 = .Z,
-  45 = .X,
-  46 = .C,
-  47 = .V,
-  48 = .B,
-  49 = .N,
-  50 = .M,
-  51 = .COMMA,
-  52 = .PERIOD,
-  53 = .SLASH,
-  54 = .RIGHT_SHIFT,
-  55 = .KP_MULTIPLY,
-  56 = .LEFT_ALT,
-  57 = .SPACE,
-  58 = .CAPS_LOCK,
-  59 = .F1,
-  60 = .F2,
-  61 = .F3,
-  62 = .F4,
-  63 = .F5,
-  64 = .F6,
-  65 = .F7,
-  66 = .F8,
-  67 = .F9,
-  68 = .F10,
-  69 = .NUM_LOCK_OR_CLEAR,
-  70 = .SCROLL_LOCK,
-  71 = .KP_7,
-  72 = .KP_8,
-  73 = .KP_9,
-  74 = .KP_MINUS,
-  75 = .KP_4,
-  76 = .KP_5,
-  77 = .KP_6,
-  78 = .KP_PLUS,
-  79 = .KP_1,
-  80 = .KP_2,
-  81 = .KP_3,
-  82 = .KP_0,
-  83 = .KP_PERIOD,
-  // 84
-  85 = .LANG5, // KEY_ZENKAKUHANKAKU
-  86 = .NON_US_BACKSLASH, // KEY_102ND
-  87 = .F11,
-  88 = .F12,
-  89 = .INTERNATIONAL1, // KEY_RO,
-  90 = .LANG3, // KEY_KATAKANA
-  91 = .LANG4, // KEY_HIRAGANA
-  92 = .INTERNATIONAL4, // KEY_HENKAN
-  93 = .INTERNATIONAL2, // KEY_KATAKANAHIRAGANA
-  94 = .INTERNATIONAL5, // KEY_MUHENKAN
-  95 = .INTERNATIONAL5, // KEY_KPJOCOMMA
-  96 = .KP_ENTER,
-  97 = .RIGHT_CTRL,
-  98 = .KP_DIVIDE,
-  99 = .SYSREQ,
-  100 = .RIGHT_ALT,
-  101 = .NULL, // KEY_LINEFEED
-  102 = .HOME,
-  103 = .UP,
-  104 = .PAGE_UP,
-  105 = .LEFT,
-  106 = .RIGHT,
-  107 = .END,
-  108 = .DOWN,
-  109 = .PAGE_DOWN,
-  110 = .INSERT,
-  111 = .DELETE,
-  112 = .NULL, // KEY_MACRO
-  113 = .MUTE,
-  114 = .VOLUME_DOWN,
-  115 = .VOLUME_UP,
-  116 = .POWER,
-  117 = .KP_EQUALS,
-  118 = .KP_PLUS_MINUS,
-  119 = .PAUSE,
-  // 120
-  121 = .KP_COMMA,
-  122 = .LANG1, // KEY_HANGUEL
-  123 = .LANG2, // KEY_HANJA
-  124 = .INTERNATIONAL3, // KEY_YEN
-  125 = .LEFT_META,
-  126 = .RIGHT_META,
-  127 = .APPLICATION, // KEY_COMPOSE
-  128 = .STOP,
-  129 = .AGAIN,
-  130 = .NULL, // KEY_PROPS
-  131 = .UNDO,
-  132 = .NULL, // KEY_FRONT
-  133 = .COPY,
-  134 = .NULL, // KEY_OPEN
-  135 = .PASTE,
-  136 = .FIND,
-  137 = .CUT,
-  138 = .HELP,
-  139 = .MENU,
-  140 = .NULL, // CALCULATOR
-  141 = .NULL, // KEY_SETUP
-  142 = .NULL, // SLEEP
-  143 = .NULL, // KEY_WAKEUP
-  144 = .NULL, // KEY_FILE
-  145 = .NULL, // KEY_SENDFILE
-  146 = .NULL, // KEY_DELETEFILE
-  147 = .NULL, // KEY_XFER
-  148 = .NULL, // KEY_PROG1
-  149 = .NULL, // KEY_PROG2
-  150 = .NULL, // WWW
-  151 = .NULL, // KEY_MSDOS
-  152 = .NULL, // KEY_COFFEE
-  153 = .NULL, // KEY_DIRECTION
-  154 = .NULL, // KEY_CYCLEWINDOWS
-  155 = .NULL, // MAIL
-  156 = .NULL, // AC_BOOKMARKS
-  157 = .NULL, // COMPUTER
-  158 = .NULL, // AC_BACK
-  159 = .NULL, // AC_FORWARD
-  160 = .NULL, // KEY_CLOSECD
-  161 = .NULL, // EJECT
-  162 = .NULL, // KEY_EJECTCLOSECD
-  163 = .NULL, // AUDIO_NEXT
-  164 = .NULL, // AUDIO_PLAY
-  165 = .NULL, // AUDIO_PREV
-  166 = .NULL, // AUDIO_STOP
-  167 = .NULL, // KEY_RECORD
-  168 = .NULL, // AUDIO_REWIND
-  169 = .NULL, // KEY_PHONE
-  170 = .NULL, // KEY_ISO
-  171 = .NULL, // KEY_CONFIG
-  172 = .NULL, // AC_HOME
-  173 = .NULL, // AC_REFRESH
-  174 = .NULL, // KEY_EXIT
-  175 = .NULL, // KEY_MOVE
-  176 = .NULL, // KEY_EDIT
-  177 = .NULL, // KEY_SCROLLUP
-  178 = .NULL, // KEY_SCROLLDOWN
-  179 = .KP_LEFT_PAREN,
-  180 = .KP_RIGHT_PAREN,
-  181 = .NULL, // KEY_NEW
-  182 = .NULL, // KEY_REDO
-  183 = .F13,
-  184 = .F14,
-  185 = .F15,
-  186 = .F16,
-  187 = .F17,
-  188 = .F18,
-  189 = .F19,
-  190 = .F20,
-  191 = .F21,
-  192 = .F22,
-  193 = .F23,
-  194 = .F24,
-  // 195-199
-  200 = .NULL, // KEY_PLAYCD
-  201 = .NULL, // KEY_PAUSECD
-  202 = .NULL, // KEY_PROG3
-  203 = .NULL, // KEY_PROG4
-  // 204
-  205 = .NULL, // KEY_SUSPEND
-  206 = .NULL, // KEY_CLOSE
-  207 = .NULL, // KEY_PLAY
-  208 = .NULL, // AUDIO_FASTFORWARD
-  209 = .NULL, // KEY_BASSBOOST
-  210 = .NULL, // KEY_PRINT
-  211 = .NULL, // KEY_HP
-  212 = .NULL, // KEY_CAMERA
-  213 = .NULL, // KEY_SOUND
-  214 = .NULL, // KEY_QUESTION
-  215 = .NULL, // KEY_EMAIL
-  216 = .NULL, // KEY_CHAT
-  217 = .NULL, // AC_SEARCH
-  218 = .NULL, // KEY_CONNECT
-  219 = .NULL, // KEY_FINANCE
-  220 = .NULL, // KEY_SPORT
-  221 = .NULL, // KEY_SHOP
-  222 = .ALT_ERASE,
-  223 = .CANCEL,
-  224 = .NULL, // BRIGHTNESS_DOWN
-  225 = .NULL, // BRIGHNESS_UP
-  226 = .NULL, // KEY_MEDIA
-  227 = .NULL, // DISPLAY_SWITCH
-  228 = .NULL, // KBD_ILLUM_TOGGLE
-  229 = .NULL, // KBD_ILLUM_DOWN
-  230 = .NULL, // KBD_ILLUM_UP
-  231 = .NULL, // KEY_SEND
-  232 = .NULL, // KEY_REPLY
-  233 = .NULL, // KEY_FORWARDEMAIL
-  234 = .NULL, // KEY_SAVE
-  235 = .NULL, // KEY_DOCUMENTS
-  236 = .NULL, // KEY_BATTERY
-}
 
 @private
 engine_rel_path := filepath.dir(#file)
@@ -653,7 +422,7 @@ logger       : log.Logger
 ///////////////////////////
 
 
-init :: proc(icon_path: cstring, window_title: cstring, window_size: Vec2, window_non_resizable: bool) {
+init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, window_non_resizable: bool) {
     logger_init()
 
     // TODO: should I initalize the audio here or let the game handle that??
@@ -667,7 +436,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: Vec2, windo
     ui_init(engine_font_path)
 
     zephr_ctx.ui.elements = make([dynamic]UiElement, INIT_UI_STACK_SIZE)
-    zephr_ctx.mouse.pos = Vec2{-1, -1}
+    zephr_ctx.mouse.pos = m.vec2{-1, -1}
     zephr_ctx.window.size = window_size
     zephr_ctx.window.non_resizable = window_non_resizable
     zephr_ctx.projection = orthographic_projection_2d(0, window_size.x, window_size.y, 0)
@@ -687,7 +456,7 @@ deinit :: proc() {
 
 should_quit :: proc() -> bool {
   gl.ClearColor(0, 0, 0, 1)
-  gl.Clear(gl.COLOR_BUFFER_BIT)
+  gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
   zephr_ctx.cursor = .ARROW
   zephr_ctx.mouse.released = false
@@ -734,7 +503,7 @@ iter_events :: proc(e_out: ^Event) -> bool {
   return backend_get_os_events(e_out)
 }
 
-get_window_size :: proc() -> Vec2 {
+get_window_size :: proc() -> m.vec2 {
   return zephr_ctx.window.size
 }
 
@@ -742,6 +511,16 @@ toggle_fullscreen :: proc() {
   backend_toggle_fullscreen(zephr_ctx.window.is_fullscreen)
 
   zephr_ctx.window.is_fullscreen = !zephr_ctx.window.is_fullscreen
+}
+
+toggle_cursor_capture :: proc() {
+  if zephr_ctx.mouse.captured {
+    backend_release_cursor()
+  } else {
+    backend_grab_cursor()
+  }
+
+  zephr_ctx.mouse.captured = !zephr_ctx.mouse.captured
 }
 
 load_font :: proc(font_path: cstring) {

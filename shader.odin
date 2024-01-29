@@ -1,5 +1,7 @@
 package zephr
 
+import m "core:math/linalg/glsl"
+
 import gl "vendor:OpenGL"
 
 Shader :: struct {
@@ -19,7 +21,7 @@ use_shader :: proc(shader: Shader) {
   gl.UseProgram(shader.program)
 }
 
-set_mat4f :: proc(shader: Shader, name: cstring, mat4: Mat4, transpose: bool = false) {
+set_mat4f :: proc(shader: Shader, name: cstring, mat4: m.mat4, transpose: bool = false) {
   mat4 := mat4
   loc := gl.GetUniformLocation(shader.program, name)
   gl.UniformMatrix4fv(loc, 1, transpose, raw_data(&mat4))

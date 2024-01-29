@@ -3,6 +3,7 @@
 package zephr
 
 import "core:log"
+import m "core:math/linalg/glsl"
 
 import x11 "vendor:x11/xlib"
 import gl "vendor:OpenGL"
@@ -10,6 +11,8 @@ import "vendor:stb/image"
 
 import "3rdparty/glx"
 import "3rdparty/xcursor"
+import "3rdparty/xfixes"
+import "3rdparty/xinput2"
 
 // TODO: In the future, I should either push events to the event queue here or
 //       make the queue a windows-only global.
@@ -35,6 +38,245 @@ x11_colormap : x11.Colormap
 glx_context  : glx.Context
 @(private="file")
 window_delete_atom : x11.Atom
+@(private="file")
+xinput_opcode : i32
+
+@(private="file")
+evdev_scancode_to_zephr_scancode_map := []Scancode {
+  0 = .NULL,
+  1 = .ESCAPE,
+  2 = .KEY_1,
+  3 = .KEY_2,
+  4 = .KEY_3,
+  5 = .KEY_4,
+  6 = .KEY_5,
+  7 = .KEY_6,
+  8 = .KEY_7,
+  9 = .KEY_8,
+  10 = .KEY_9,
+  11 = .KEY_0,
+  12 = .MINUS,
+  13 = .EQUALS,
+  14 = .BACKSPACE,
+  15 = .TAB,
+  16 = .Q,
+  17 = .W,
+  18 = .E,
+  19 = .R,
+  20 = .T,
+  21 = .Y,
+  22 = .U,
+  23 = .I,
+  24 = .O,
+  25 = .P,
+  26 = .LEFT_BRACKET,
+  27 = .RIGHT_BRACKET,
+  28 = .ENTER,
+  29 = .LEFT_CTRL,
+  30 = .A,
+  31 = .S,
+  32 = .D,
+  33 = .F,
+  34 = .G,
+  35 = .H,
+  36 = .J,
+  37 = .K,
+  38 = .L,
+  39 = .SEMICOLON,
+  40 = .APOSTROPHE,
+  41 = .GRAVE,
+  42 = .LEFT_SHIFT,
+  43 = .BACKSLASH,
+  44 = .Z,
+  45 = .X,
+  46 = .C,
+  47 = .V,
+  48 = .B,
+  49 = .N,
+  50 = .M,
+  51 = .COMMA,
+  52 = .PERIOD,
+  53 = .SLASH,
+  54 = .RIGHT_SHIFT,
+  55 = .KP_MULTIPLY,
+  56 = .LEFT_ALT,
+  57 = .SPACE,
+  58 = .CAPS_LOCK,
+  59 = .F1,
+  60 = .F2,
+  61 = .F3,
+  62 = .F4,
+  63 = .F5,
+  64 = .F6,
+  65 = .F7,
+  66 = .F8,
+  67 = .F9,
+  68 = .F10,
+  69 = .NUM_LOCK_OR_CLEAR,
+  70 = .SCROLL_LOCK,
+  71 = .KP_7,
+  72 = .KP_8,
+  73 = .KP_9,
+  74 = .KP_MINUS,
+  75 = .KP_4,
+  76 = .KP_5,
+  77 = .KP_6,
+  78 = .KP_PLUS,
+  79 = .KP_1,
+  80 = .KP_2,
+  81 = .KP_3,
+  82 = .KP_0,
+  83 = .KP_PERIOD,
+  // 84
+  85 = .LANG5, // KEY_ZENKAKUHANKAKU
+  86 = .NON_US_BACKSLASH, // KEY_102ND
+  87 = .F11,
+  88 = .F12,
+  89 = .INTERNATIONAL1, // KEY_RO,
+  90 = .LANG3, // KEY_KATAKANA
+  91 = .LANG4, // KEY_HIRAGANA
+  92 = .INTERNATIONAL4, // KEY_HENKAN
+  93 = .INTERNATIONAL2, // KEY_KATAKANAHIRAGANA
+  94 = .INTERNATIONAL5, // KEY_MUHENKAN
+  95 = .INTERNATIONAL5, // KEY_KPJOCOMMA
+  96 = .KP_ENTER,
+  97 = .RIGHT_CTRL,
+  98 = .KP_DIVIDE,
+  99 = .SYSREQ,
+  100 = .RIGHT_ALT,
+  101 = .NULL, // KEY_LINEFEED
+  102 = .HOME,
+  103 = .UP,
+  104 = .PAGE_UP,
+  105 = .LEFT,
+  106 = .RIGHT,
+  107 = .END,
+  108 = .DOWN,
+  109 = .PAGE_DOWN,
+  110 = .INSERT,
+  111 = .DELETE,
+  112 = .NULL, // KEY_MACRO
+  113 = .MUTE,
+  114 = .VOLUME_DOWN,
+  115 = .VOLUME_UP,
+  116 = .POWER,
+  117 = .KP_EQUALS,
+  118 = .KP_PLUS_MINUS,
+  119 = .PAUSE,
+  // 120
+  121 = .KP_COMMA,
+  122 = .LANG1, // KEY_HANGUEL
+  123 = .LANG2, // KEY_HANJA
+  124 = .INTERNATIONAL3, // KEY_YEN
+  125 = .LEFT_META,
+  126 = .RIGHT_META,
+  127 = .APPLICATION, // KEY_COMPOSE
+  128 = .STOP,
+  129 = .AGAIN,
+  130 = .NULL, // KEY_PROPS
+  131 = .UNDO,
+  132 = .NULL, // KEY_FRONT
+  133 = .COPY,
+  134 = .NULL, // KEY_OPEN
+  135 = .PASTE,
+  136 = .FIND,
+  137 = .CUT,
+  138 = .HELP,
+  139 = .MENU,
+  140 = .NULL, // CALCULATOR
+  141 = .NULL, // KEY_SETUP
+  142 = .NULL, // SLEEP
+  143 = .NULL, // KEY_WAKEUP
+  144 = .NULL, // KEY_FILE
+  145 = .NULL, // KEY_SENDFILE
+  146 = .NULL, // KEY_DELETEFILE
+  147 = .NULL, // KEY_XFER
+  148 = .NULL, // KEY_PROG1
+  149 = .NULL, // KEY_PROG2
+  150 = .NULL, // WWW
+  151 = .NULL, // KEY_MSDOS
+  152 = .NULL, // KEY_COFFEE
+  153 = .NULL, // KEY_DIRECTION
+  154 = .NULL, // KEY_CYCLEWINDOWS
+  155 = .NULL, // MAIL
+  156 = .NULL, // AC_BOOKMARKS
+  157 = .NULL, // COMPUTER
+  158 = .NULL, // AC_BACK
+  159 = .NULL, // AC_FORWARD
+  160 = .NULL, // KEY_CLOSECD
+  161 = .NULL, // EJECT
+  162 = .NULL, // KEY_EJECTCLOSECD
+  163 = .NULL, // AUDIO_NEXT
+  164 = .NULL, // AUDIO_PLAY
+  165 = .NULL, // AUDIO_PREV
+  166 = .NULL, // AUDIO_STOP
+  167 = .NULL, // KEY_RECORD
+  168 = .NULL, // AUDIO_REWIND
+  169 = .NULL, // KEY_PHONE
+  170 = .NULL, // KEY_ISO
+  171 = .NULL, // KEY_CONFIG
+  172 = .NULL, // AC_HOME
+  173 = .NULL, // AC_REFRESH
+  174 = .NULL, // KEY_EXIT
+  175 = .NULL, // KEY_MOVE
+  176 = .NULL, // KEY_EDIT
+  177 = .NULL, // KEY_SCROLLUP
+  178 = .NULL, // KEY_SCROLLDOWN
+  179 = .KP_LEFT_PAREN,
+  180 = .KP_RIGHT_PAREN,
+  181 = .NULL, // KEY_NEW
+  182 = .NULL, // KEY_REDO
+  183 = .F13,
+  184 = .F14,
+  185 = .F15,
+  186 = .F16,
+  187 = .F17,
+  188 = .F18,
+  189 = .F19,
+  190 = .F20,
+  191 = .F21,
+  192 = .F22,
+  193 = .F23,
+  194 = .F24,
+  // 195-199
+  200 = .NULL, // KEY_PLAYCD
+  201 = .NULL, // KEY_PAUSECD
+  202 = .NULL, // KEY_PROG3
+  203 = .NULL, // KEY_PROG4
+  // 204
+  205 = .NULL, // KEY_SUSPEND
+  206 = .NULL, // KEY_CLOSE
+  207 = .NULL, // KEY_PLAY
+  208 = .NULL, // AUDIO_FASTFORWARD
+  209 = .NULL, // KEY_BASSBOOST
+  210 = .NULL, // KEY_PRINT
+  211 = .NULL, // KEY_HP
+  212 = .NULL, // KEY_CAMERA
+  213 = .NULL, // KEY_SOUND
+  214 = .NULL, // KEY_QUESTION
+  215 = .NULL, // KEY_EMAIL
+  216 = .NULL, // KEY_CHAT
+  217 = .NULL, // AC_SEARCH
+  218 = .NULL, // KEY_CONNECT
+  219 = .NULL, // KEY_FINANCE
+  220 = .NULL, // KEY_SPORT
+  221 = .NULL, // KEY_SHOP
+  222 = .ALT_ERASE,
+  223 = .CANCEL,
+  224 = .NULL, // BRIGHTNESS_DOWN
+  225 = .NULL, // BRIGHNESS_UP
+  226 = .NULL, // KEY_MEDIA
+  227 = .NULL, // DISPLAY_SWITCH
+  228 = .NULL, // KBD_ILLUM_TOGGLE
+  229 = .NULL, // KBD_ILLUM_DOWN
+  230 = .NULL, // KBD_ILLUM_UP
+  231 = .NULL, // KEY_SEND
+  232 = .NULL, // KEY_REPLY
+  233 = .NULL, // KEY_FORWARDEMAIL
+  234 = .NULL, // KEY_SAVE
+  235 = .NULL, // KEY_DOCUMENTS
+  236 = .NULL, // KEY_BATTERY
+}
 
 @(private="file")
 x11_go_fullscreen :: proc() {
@@ -133,10 +375,10 @@ x11_assign_window_icon :: proc(icon_path: cstring, window_title: cstring) {
   x11.XChangeProperty(x11_display, x11_window, net_wm_icon, XA_CARDINAL, 32, PropModeReplace, raw_data(data), target_size)
 }
 
-backend_get_screen_size :: proc() -> Vec2 {
+backend_get_screen_size :: proc() -> m.vec2 {
   screen := x11.XDefaultScreenOfDisplay(x11_display)
 
-  return Vec2{cast(f32)screen.width, cast(f32)screen.height}
+  return m.vec2{cast(f32)screen.width, cast(f32)screen.height}
 }
 
 @(private="file")
@@ -147,7 +389,7 @@ x11_resize_window :: proc() {
 }
 
 @(private="file")
-x11_create_window :: proc(window_title: cstring, window_size: Vec2, icon_path: cstring, window_non_resizable: bool) {
+x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
   context.logger = logger
   x11_display = x11.XOpenDisplay(nil)
 
@@ -290,6 +532,7 @@ x11_create_window :: proc(window_title: cstring, window_size: Vec2, icon_path: c
   glx.SwapIntervalEXT(x11_display, x11_window, 1)
   // we enable blending for text
   gl.Enable(gl.BLEND)
+  gl.Enable(gl.DEPTH_TEST)
   gl.Enable(gl.MULTISAMPLE)
   gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
   x11_resize_window()
@@ -297,8 +540,13 @@ x11_create_window :: proc(window_title: cstring, window_size: Vec2, icon_path: c
   x11.XFree(fbc)
 }
 
-backend_init :: proc(window_title: cstring, window_size: Vec2, icon_path: cstring, window_non_resizable: bool) {
+backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
   x11_create_window(window_title, window_size, icon_path, window_non_resizable)
+
+  // TODO: lots more keyboard stuff to be done
+  // this will remove KeyRelease events for held keys.
+  repeat: b32
+  x11.XkbSetDetectableAutoRepeat(x11_display, true, &repeat)
 }
 
 backend_shutdown :: proc() {
@@ -327,7 +575,7 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
       xce := xev.xconfigure
 
       if (xce.width != cast(i32)zephr_ctx.window.size.x || xce.height != cast(i32)zephr_ctx.window.size.y) {
-        zephr_ctx.window.size = Vec2{cast(f32)xce.width, cast(f32)xce.height}
+        zephr_ctx.window.size = m.vec2{cast(f32)xce.width, cast(f32)xce.height}
         zephr_ctx.projection = orthographic_projection_2d(0, zephr_ctx.window.size.x, zephr_ctx.window.size.y, 0)
         x11_resize_window()
 
@@ -375,7 +623,7 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
       return true
     } else if xev.type == .ButtonPress {
       e_out.type = .MOUSE_BUTTON_PRESSED
-      e_out.mouse.pos = Vec2{cast(f32)xev.xbutton.x, cast(f32)xev.xbutton.y}
+      e_out.mouse.pos = m.vec2{cast(f32)xev.xbutton.x, cast(f32)xev.xbutton.y}
       zephr_ctx.mouse.pressed = true
 
       switch (xev.xbutton.button) {
@@ -407,7 +655,7 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
       return true
     } else if xev.type == .ButtonRelease {
       e_out.type = .MOUSE_BUTTON_RELEASED
-      e_out.mouse.pos = Vec2{cast(f32)xev.xbutton.x, cast(f32)xev.xbutton.y}
+      e_out.mouse.pos = m.vec2{cast(f32)xev.xbutton.x, cast(f32)xev.xbutton.y}
       zephr_ctx.mouse.released = true
       zephr_ctx.mouse.pressed = false
 
@@ -444,9 +692,41 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
       /* x11_keyboard_map_update(); */
       break
     } else if xev.type == .MotionNotify {
+      if zephr_ctx.mouse.captured {
+        return true
+      }
+
+      x := xev.xmotion.x
+      y := xev.xmotion.y
+
       e_out.type = .MOUSE_MOVED
-      e_out.mouse.pos = Vec2{cast(f32)xev.xmotion.x, cast(f32)xev.xmotion.y}
+      e_out.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
       zephr_ctx.mouse.pos = e_out.mouse.pos
+
+      return true
+    } else if xev.type == .GenericEvent {
+      if zephr_ctx.mouse.captured &&
+      xev.xcookie.extension == xinput_opcode &&
+      x11.XGetEventData(x11_display, &xev.xcookie) &&
+      xev.xcookie.evtype == cast(i32)xinput2.EventType.RawMotion {
+        re := cast(^xinput2.RawEvent)xev.xcookie.data
+        if re.valuators.mask_len > 0 {
+          values := re.raw_values
+          if xinput2.MaskIsSet(re.valuators.mask, 0) {
+            zephr_ctx.mouse.virtual_pos.x += cast(f32)values[0]
+          }
+
+          if xinput2.MaskIsSet(re.valuators.mask, 1) {
+            zephr_ctx.mouse.virtual_pos.y += cast(f32)values[1]
+          }
+
+          e_out.type = .MOUSE_MOVED
+          e_out.mouse.pos = zephr_ctx.mouse.virtual_pos
+          zephr_ctx.mouse.pos = e_out.mouse.pos
+        }
+
+        x11.XFreeEventData(x11_display, &xev.xcookie)
+      }
 
       return true
     }
@@ -469,4 +749,68 @@ backend_init_cursors :: proc() {
 
   // non-standard cursors
   zephr_ctx.cursors[.DISABLED] = xcursor.LibraryLoadCursor(x11_display, "crossed_circle")
+}
+
+@(private="file")
+enable_raw_mouse_input :: proc() {
+  context.logger = logger
+
+  ev, err: i32
+  if !x11.XQueryExtension(x11_display, "XInputExtension", &xinput_opcode, &ev, &err) {
+    log.error("XInput extension not available")
+    return
+  }
+
+  major: i32 = 2
+  minor: i32 = 0
+  if xinput2.QueryVersion(x11_display, &major, &minor) == .BadRequest {
+    log.error("XInput2 not available")
+    return
+  }
+
+  mask_len :: ((cast(i32)xinput2.EventType.RawMotion >> 3) + 1)
+  mask: [mask_len]u8
+
+  em := xinput2.EventMask{
+    deviceid = xinput2.AllMasterDevices,
+    mask_len = mask_len,
+    mask = raw_data(mask[:])
+  }
+
+  xinput2.SetMask(em.mask, .RawMotion)
+  // This ONLY works with the root window
+  xinput2.SelectEvents(x11_display, x11.XDefaultRootWindow(x11_display), &em, 1)
+}
+
+@(private="file")
+disable_raw_mouse_input :: proc() {
+  mask: [1]u8
+
+  em := xinput2.EventMask{
+    deviceid = xinput2.AllMasterDevices,
+    mask_len = 1,
+    mask = raw_data(mask[:])
+  }
+
+  xinput2.SelectEvents(x11_display, x11.XDefaultRootWindow(x11_display), &em, 1)
+}
+
+backend_grab_cursor :: proc() {
+  enable_raw_mouse_input()
+  root, child: x11.Window
+  int, root_x, root_y, child_x, child_y: i32
+  mask: x11.KeyMask
+
+  x11.XQueryPointer(x11_display, x11_window, &root, &child, &root_x, &root_y, &child_x, &child_y, &mask)
+  zephr_ctx.mouse.pos_before_capture = {cast(f32)child_x, cast(f32)child_y}
+  zephr_ctx.mouse.virtual_pos = {cast(f32)child_x, cast(f32)child_y}
+  x11.XGrabPointer(x11_display, x11_window, true, {.PointerMotion, .ButtonPress, .ButtonRelease}, .GrabModeAsync, .GrabModeAsync, x11_window, x11.None, x11.CurrentTime)
+  xfixes.HideCursor(x11_display, x11_window)
+}
+
+backend_release_cursor :: proc() {
+  disable_raw_mouse_input()
+  x11.XWarpPointer(x11_display, x11.None, x11_window, 0, 0, 0, 0, cast(i32)zephr_ctx.mouse.pos_before_capture.x, cast(i32)zephr_ctx.mouse.pos_before_capture.y)
+  x11.XUngrabPointer(x11_display, x11.CurrentTime)
+  xfixes.ShowCursor(x11_display, x11_window)
 }

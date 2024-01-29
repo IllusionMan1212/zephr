@@ -1,6 +1,6 @@
 package zephr
 
-import "core:fmt"
+import m "core:math/linalg/glsl"
 import "core:log"
 import "core:os"
 import "core:mem"
@@ -41,13 +41,13 @@ UiConstraints :: struct {
   width: f32,
   height: f32,
   rotation: f32,
-  scale: Vec2,
+  scale: m.vec2,
   parent: ^UiConstraints,
 }
 
 Rect :: struct {
-  pos: Vec2,
-  size: Vec2,
+  pos: m.vec2,
+  size: m.vec2,
 }
 
 UiStyle :: struct {
@@ -88,7 +88,7 @@ DEFAULT_UI_CONSTRAINTS :: UiConstraints{
   width = 0,
   height = 0,
   rotation = 0,
-  scale = Vec2{1, 1},
+  scale = m.vec2{1, 1},
   parent = nil,
 }
 
@@ -216,17 +216,17 @@ set_rotation_constraint :: proc(constraints: ^UiConstraints, angle_d: f32) {
 }
 
 @private
-apply_constraints :: proc(constraints: ^UiConstraints, pos: ^Vec2, size: ^Vec2) {
-  pos^ = Vec2{constraints.x, constraints.y}
-  size^ = Vec2{constraints.width, constraints.height}
+apply_constraints :: proc(constraints: ^UiConstraints, pos: ^m.vec2, size: ^m.vec2) {
+  pos^ = m.vec2{constraints.x, constraints.y}
+  size^ = m.vec2{constraints.width, constraints.height}
 }
 
 @private
-apply_alignment :: proc(align: Alignment, constraints: ^UiConstraints, size: Vec2, pos: ^Vec2) {
+apply_alignment :: proc(align: Alignment, constraints: ^UiConstraints, size: m.vec2, pos: ^m.vec2) {
   // if we don't have a parent then we're a top level element and we should align against the window
-  parent_size := Vec2{zephr_ctx.window.size.x, zephr_ctx.window.size.y}
+  parent_size := m.vec2{zephr_ctx.window.size.x, zephr_ctx.window.size.y}
   if (constraints.parent != nil) {
-    parent_size = Vec2{constraints.parent.width, constraints.parent.height}
+    parent_size = m.vec2{constraints.parent.width, constraints.parent.height}
   }
 
   switch (align) {
@@ -262,7 +262,7 @@ apply_alignment :: proc(align: Alignment, constraints: ^UiConstraints, size: Vec
 
 @private
 // TODO: make this handle rotated and scaled rects too
-inside_rect :: proc(rect: Rect, point: Vec2) -> bool {
+inside_rect :: proc(rect: Rect, point: m.vec2) -> bool {
   return point.x >= rect.pos.x && point.x <= rect.pos.x + rect.size.x &&
          point.y >= rect.pos.y && point.y <= rect.pos.y + rect.size.y
 }
@@ -285,16 +285,16 @@ draw_quad :: proc(constraints: ^UiConstraints, style: UiStyle) {
   constraints.x = rect.pos.x
   constraints.y = rect.pos.y
 
-  model := identity()
-  translate(&model, Vec3{-rect.size.x / 2, -rect.size.y / 2, 0})
-  scale(&model, Vec3{constraints.scale.x, constraints.scale.y, 1})
-  translate(&model, Vec3{rect.size.x / 2, rect.size.y / 2, 0})
+  model := m.identity(m.mat4)
+  model = m.mat4Translate(m.vec3{-rect.size.x / 2, -rect.size.y / 2, 0}) * model
+  model = m.mat4Scale(m.vec3{constraints.scale.x, constraints.scale.y, 1}) * model
+  model = m.mat4Translate(m.vec3{rect.size.x / 2, rect.size.y / 2, 0}) * model
 
-  translate(&model, Vec3{-rect.size.x / 2, -rect.size.y / 2, 0})
-  rotate(&model, constraints.rotation, Vec3{0, 0, 1})
-  translate(&model, Vec3{rect.size.x / 2, rect.size.y / 2, 0})
+  model = m.mat4Translate(m.vec3{-rect.size.x / 2, -rect.size.y / 2, 0}) * model
+  model = m.mat4Rotate(m.vec3{0, 0, 1}, m.radians(constraints.rotation)) * model
+  model = m.mat4Translate(m.vec3{rect.size.x / 2, rect.size.y / 2, 0}) * model
 
-  translate(&model, Vec3{rect.pos.x, rect.pos.y, 0})
+  model = m.mat4Translate(m.vec3{rect.pos.x, rect.pos.y, 0}) * model
 
   set_mat4f(ui_shader, "model", model)
 
@@ -352,16 +352,16 @@ draw_triangle :: proc(constraints: ^UiConstraints, style: UiStyle) {
   constraints.x = rect.pos.x
   constraints.y = rect.pos.y
 
-  model := identity()
-  translate(&model, Vec3{-rect.size.x / 2, -rect.size.y / 2, 0})
-  scale(&model, Vec3{constraints.scale.x, constraints.scale.y, 1})
-  translate(&model, Vec3{rect.size.x / 2, rect.size.y / 2, 0})
+  model := m.identity(m.mat4)
+  model = m.mat4Translate(m.vec3{-rect.size.x / 2, -rect.size.y / 2, 0}) * model
+  model = m.mat4Scale(m.vec3{constraints.scale.x, constraints.scale.y, 1}) * model
+  model = m.mat4Translate(m.vec3{rect.size.x / 2, rect.size.y / 2, 0}) * model
 
-  translate(&model, Vec3{-rect.size.x / 2, -rect.size.y / 2, 0})
-  rotate(&model, constraints.rotation, Vec3{0, 0, 1})
-  translate(&model, Vec3{rect.size.x / 2, rect.size.y / 2, 0})
+  model = m.mat4Translate(m.vec3{-rect.size.x / 2, -rect.size.y / 2, 0}) * model
+  model = m.mat4Rotate(m.vec3{0, 0, 1}, m.radians(constraints.rotation)) * model
+  model = m.mat4Translate(m.vec3{rect.size.x / 2, rect.size.y / 2, 0}) * model
 
-  translate(&model, Vec3{rect.pos.x, rect.pos.y, 0})
+  model = m.mat4Translate(m.vec3{rect.pos.x, rect.pos.y, 0}) * model
 
   set_mat4f(ui_shader, "model", model)
 
@@ -402,16 +402,16 @@ draw_texture :: proc(constraints: ^UiConstraints, texture_id: TextureId, style: 
   constraints.x = rect.pos.x
   constraints.y = rect.pos.y
 
-  model := identity()
-  translate(&model, Vec3{-rect.size.x / 2, -rect.size.y / 2, 0})
-  scale(&model, Vec3{constraints.scale.x, constraints.scale.y, 1})
-  translate(&model, Vec3{rect.size.x / 2, rect.size.y / 2, 0})
+  model := m.identity(m.mat4)
+  model = m.mat4Translate(m.vec3{-rect.size.x / 2, -rect.size.y / 2, 0}) * model
+  model = m.mat4Scale(m.vec3{constraints.scale.x, constraints.scale.y, 1}) * model
+  model = m.mat4Translate(m.vec3{rect.size.x / 2, rect.size.y / 2, 0}) * model
 
-  translate(&model, Vec3{-rect.size.x / 2, -rect.size.y / 2, 0})
-  rotate(&model, constraints.rotation, Vec3{0, 0, 1})
-  translate(&model, Vec3{rect.size.x / 2, rect.size.y / 2, 0})
+  model = m.mat4Translate(m.vec3{-rect.size.x / 2, -rect.size.y / 2, 0}) * model
+  model = m.mat4Rotate(m.vec3{0, 0, 1}, m.radians(constraints.rotation)) * model
+  model = m.mat4Translate(m.vec3{rect.size.x / 2, rect.size.y / 2, 0}) * model
 
-  translate(&model, Vec3{rect.pos.x, rect.pos.y, 0})
+  model = m.mat4Translate(m.vec3{rect.pos.x, rect.pos.y, 0}) * model
 
   set_mat4f(ui_shader, "model", model)
 
@@ -653,8 +653,8 @@ draw_color_picker_slider :: proc(constraints: ^UiConstraints, align: Alignment, 
     slider_selection = clamp((zephr_ctx.mouse.pos.y - constraints.y) / constraints.height, 0, 1)
   }
 
-  model := identity()
-  translate(&model, Vec3{rect.pos.x, rect.pos.y, 0})
+  model := m.identity(m.mat4)
+  model = m.mat4Translate(m.vec3{rect.pos.x, rect.pos.y, 0}) * model
 
   set_mat4f(color_chooser_shader, "model", model)
 
@@ -717,7 +717,7 @@ draw_color_picker_canvas :: proc(constraints: ^UiConstraints, slider_percentage:
   @static
   dragging := false
   @static
-  canvas_pos := Vec2{0, 0}
+  canvas_pos := m.vec2{0, 0}
 
   line := caller.line
   line_bytes := mem.byte_slice(&line, size_of(line))
@@ -763,8 +763,8 @@ draw_color_picker_canvas :: proc(constraints: ^UiConstraints, slider_percentage:
     canvas_pos.y = clamp(y, 0, 1)
   }
 
-  model := identity()
-  translate(&model, Vec3{rect.pos.x, rect.pos.y, 0})
+  model := m.identity(m.mat4)
+  model = m.mat4Translate(m.vec3{rect.pos.x, rect.pos.y, 0}) * model
 
   set_mat4f(color_chooser_shader, "model", model)
 

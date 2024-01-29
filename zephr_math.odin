@@ -1,19 +1,13 @@
 package zephr
 
 import "core:math"
+import m "core:math/linalg/glsl"
 import "core:intrinsics"
-
-Vec2 :: [2]f32
-Vec3 :: [3]f32
-Vec4 :: [4]f32
-
-Mat3 :: matrix[3, 3]f32
-Mat4 :: matrix[4, 4]f32
 
 Color :: struct { r, g, b, a: u8 }
 
-orthographic_projection_2d :: proc(left, right, bottom, top: f32) -> Mat4 {
-  result := identity()
+orthographic_projection_2d :: proc(left, right, bottom, top: f32) -> m.mat4 {
+  result := m.identity(m.mat4)
 
   result[0][0] = 2 / (right - left)
   result[3][0] = -(right + left) / (right - left)
@@ -23,54 +17,6 @@ orthographic_projection_2d :: proc(left, right, bottom, top: f32) -> Mat4 {
   result[3][3] = 1
 
   return result
-}
-
-identity :: proc() -> Mat4 {
-  return Mat4 {
-    1, 0, 0, 0,
-    0, 1, 0, 0,
-    0, 0, 1, 0,
-    0, 0, 0, 1,
-  }
-}
-
-translate :: proc(m: ^Mat4, v: Vec3) {
-  temp := identity()
-
-  temp[3][0] = v.x
-  temp[3][1] = v.y
-  temp[3][2] = v.z
-
-  m^ = temp * m^
-}
-
-rotate :: proc(m: ^Mat4, angle: f32, axis: Vec3) {
-  temp := identity()
-
-  c := math.cos(math.to_radians(angle))
-  s := math.sin(math.to_radians(angle))
-  t := 1 - c
-
-  x, y, z := axis.x, axis.y, axis.z
-
-  res := Mat4{
-    t*x*x + c,     t*x*y - s*z,   t*x*z + s*y,   0,
-    t*x*y + s*z,   t*y*y + c,     t*y*z - s*x,   0,
-    t*x*z - s*y,   t*y*z + s*x,   t*z*z + c,     0,
-    0 ,            0,             0,             1,
-  }
-
-  m^ = res * m^
-}
-
-scale :: proc(m: ^Mat4, v: Vec3) {
-  temp := identity()
-
-  temp[0][0] = v.x
-  temp[1][1] = v.y
-  temp[2][2] = v.z
-
-  m^ = temp * m^
 }
 
 mult_color :: proc(color: Color, scalar: f32) -> Color {

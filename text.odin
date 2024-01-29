@@ -1,6 +1,7 @@
 package zephr
 
 import "core:fmt"
+import m "core:math/linalg/glsl"
 import "core:log"
 import "core:path/filepath"
 
@@ -9,10 +10,10 @@ import gl "vendor:OpenGL"
 import FT "3rdparty/freetype"
 
 Character :: struct {
-  size: Vec2,
-  bearing: Vec2,
+  size: m.vec2,
+  bearing: m.vec2,
   advance: u32,
-  tex_coords: [4]Vec2,
+  tex_coords: [4]m.vec2,
 }
 
 Font :: struct {
@@ -25,10 +26,10 @@ Font :: struct {
 #assert(size_of(GlyphInstance) == 100)
 
 GlyphInstance :: struct #packed {
-  pos: Vec4,
+  pos: m.vec4,
   tex_coords_idx: u32,
-  color: Vec4,
-  model: Mat4,
+  color: m.vec4,
+  model: m.mat4,
 }
 
 GlyphInstanceList :: [dynamic]GlyphInstance
@@ -124,10 +125,10 @@ init_freetype :: proc(font_path: cstring) -> i32 {
     atlas_x1 := cast(f32)(pen_x + bmp.width) / cast(f32)tex_width
     atlas_y1 := cast(f32)(pen_y + bmp.rows) / cast(f32)tex_height
 
-    top_left := Vec2{ atlas_x0, atlas_y1 }
-    top_right := Vec2{ atlas_x1, atlas_y1 }
-    bottom_right := Vec2{ atlas_x1, atlas_y0 }
-    bottom_left := Vec2{ atlas_x0, atlas_y0 }
+    top_left := m.vec2{ atlas_x0, atlas_y1 }
+    top_right := m.vec2{ atlas_x1, atlas_y1 }
+    bottom_right := m.vec2{ atlas_x1, atlas_y0 }
+    bottom_left := m.vec2{ atlas_x0, atlas_y0 }
 
     character: Character
 
@@ -136,8 +137,8 @@ init_freetype :: proc(font_path: cstring) -> i32 {
     character.tex_coords[2] = bottom_right
     character.tex_coords[3] = bottom_left
     character.advance = cast(u32)face.glyph.advance.x
-    character.size = Vec2{ cast(f32)face.glyph.bitmap.width, cast(f32)face.glyph.bitmap.rows }
-    character.bearing = Vec2{ cast(f32)face.glyph.bitmap_left, cast(f32)face.glyph.bitmap_top }
+    character.size = m.vec2{ cast(f32)face.glyph.bitmap.width, cast(f32)face.glyph.bitmap.rows }
+    character.bearing = m.vec2{ cast(f32)face.glyph.bitmap_left, cast(f32)face.glyph.bitmap_top }
 
     zephr_ctx.font.characters[i] = character
 
@@ -217,19 +218,19 @@ init_fonts :: proc(font_path: cstring) -> i32 {
   gl.VertexAttribPointer(1, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), 0)
   gl.VertexAttribDivisor(1, 1)
   gl.EnableVertexAttribArray(2)
-  gl.VertexAttribIPointer(2, 1, gl.INT, size_of(GlyphInstance), size_of(Vec4))
+  gl.VertexAttribIPointer(2, 1, gl.INT, size_of(GlyphInstance), size_of(m.vec4))
   gl.VertexAttribDivisor(2, 1)
   gl.EnableVertexAttribArray(3)
-  gl.VertexAttribPointer(3, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(Vec4) + size_of(i32)))
+  gl.VertexAttribPointer(3, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(m.vec4) + size_of(i32)))
   gl.VertexAttribDivisor(3, 1)
   gl.EnableVertexAttribArray(4)
   gl.EnableVertexAttribArray(5)
   gl.EnableVertexAttribArray(6)
   gl.EnableVertexAttribArray(7)
-  gl.VertexAttribPointer(4, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(Vec4) * 2 + size_of(i32)))
-  gl.VertexAttribPointer(5, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(Vec4) * 3 + size_of(i32)))
-  gl.VertexAttribPointer(6, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(Vec4) * 4 + size_of(i32)))
-  gl.VertexAttribPointer(7, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(Vec4) * 5 + size_of(i32)))
+  gl.VertexAttribPointer(4, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(m.vec4) * 2 + size_of(i32)))
+  gl.VertexAttribPointer(5, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(m.vec4) * 3 + size_of(i32)))
+  gl.VertexAttribPointer(6, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(m.vec4) * 4 + size_of(i32)))
+  gl.VertexAttribPointer(7, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(m.vec4) * 5 + size_of(i32)))
   gl.VertexAttribDivisor(4, 1)
   gl.VertexAttribDivisor(5, 1)
   gl.VertexAttribDivisor(6, 1)
@@ -256,9 +257,9 @@ init_fonts :: proc(font_path: cstring) -> i32 {
 }
 
 
-calculate_text_size :: proc(text: string, font_size: u32) -> Vec2 {
+calculate_text_size :: proc(text: string, font_size: u32) -> m.vec2 {
   scale := cast(f32)font_size / FONT_PIXEL_SIZE
-  size : Vec2 = ---
+  size : m.vec2 = ---
   w: f32 = 0
   h: f32 = 0
   max_bearing_h: f32 = 0
@@ -338,7 +339,7 @@ draw_text_batch :: proc(batch: ^GlyphInstanceList) {
 get_glyph_instance_list_from_text :: proc(text: string, font_size: u32, constraints: UiConstraints, color: Color, alignment: Alignment) -> GlyphInstanceList {
   constraints := constraints
   use_shader(font_shader)
-  text_color := Vec4{ cast(f32)color.r / 255, cast(f32)color.g / 255, cast(f32)color.b / 255, cast(f32)color.a / 255 }
+  text_color := m.vec4{ cast(f32)color.r / 255, cast(f32)color.g / 255, cast(f32)color.b / 255, cast(f32)color.a / 255 }
 
   set_mat4f(font_shader, "projection", zephr_ctx.projection)
 
@@ -349,21 +350,21 @@ get_glyph_instance_list_from_text :: proc(text: string, font_size: u32, constrai
   text_size := calculate_text_size(text, FONT_PIXEL_SIZE)
   font_scale := cast(f32)font_size / FONT_PIXEL_SIZE * rect.size.x
 
-  apply_alignment(alignment, &constraints, Vec2{ text_size.x * font_scale, text_size.y * font_scale }, &rect.pos)
+  apply_alignment(alignment, &constraints, m.vec2{ text_size.x * font_scale, text_size.y * font_scale }, &rect.pos)
 
-  model := identity()
-  scale(&model, Vec3{font_scale, font_scale, 1})
+  model := m.identity(m.mat4)
+  model = m.mat4Scale(m.vec3{font_scale, font_scale, 1}) * model
 
-  translate(&model, Vec3{-text_size.x * font_scale / 2, -text_size.y * font_scale / 2, 0})
-  scale(&model, Vec3{constraints.scale.x, constraints.scale.y, 1})
-  translate(&model, Vec3{text_size.x *font_scale / 2, text_size.y * font_scale / 2, 0})
+  model = m.mat4Translate(m.vec3{-text_size.x * font_scale / 2, -text_size.y * font_scale / 2, 0}) * model
+  model = m.mat4Scale(m.vec3{constraints.scale.x, constraints.scale.y, 1}) * model
+  model = m.mat4Translate(m.vec3{text_size.x * font_scale / 2, text_size.y * font_scale / 2, 0}) * model
 
   // rotate around the center point of the text
-  translate(&model, Vec3{-text_size.x * font_scale / 2, -text_size.y * font_scale / 2, 0})
-  rotate(&model, constraints.rotation, Vec3{0, 0, 1})
-  translate(&model, Vec3{text_size.x *font_scale / 2, text_size.y * font_scale / 2, 0})
+  model = m.mat4Translate(m.vec3{-text_size.x * font_scale / 2, -text_size.y * font_scale / 2, 0}) * model
+  model = m.mat4Rotate(m.vec3{0, 0, 1}, m.radians(constraints.rotation)) * model
+  model = m.mat4Translate(m.vec3{text_size.x * font_scale / 2, text_size.y * font_scale / 2, 0}) * model
 
-  translate(&model, Vec3{rect.pos.x, rect.pos.y, 0})
+  model = m.mat4Translate(m.vec3{rect.pos.x, rect.pos.y, 0}) * model
 
   max_bearing_h: f32 = 0
   for i in 0..<len(text) {
@@ -397,15 +398,8 @@ get_glyph_instance_list_from_text :: proc(text: string, font_size: u32, constrai
       continue
     }
 
-    test_model := Mat4 {
-      1, 2, 3, 4,
-      5, 6, 7, 8,
-      9, 10, 11, 12,
-      13, 14, 15, 16,
-    }
-
     instance := GlyphInstance {
-      pos = Vec4{xpos, ypos, ch.size.x, ch.size.y},
+      pos = m.vec4{xpos, ypos, ch.size.x, ch.size.y},
       tex_coords_idx = cast(u32)text[c] - 32,
       color = text_color,
       model = model,

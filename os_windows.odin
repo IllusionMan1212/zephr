@@ -3,6 +3,7 @@
 package zephr
 
 import "core:log"
+import m "core:math/linalg/glsl"
 import "core:strings"
 import "core:strconv"
 import "core:os"
@@ -40,8 +41,8 @@ temp_device_ctx : win32.HDC
 @(private="file")
 temp_wgl_context: win32.HGLRC
 
-backend_get_screen_size :: proc() -> Vec2 {
-    screen_size := Vec2{
+backend_get_screen_size :: proc() -> m.vec2 {
+    screen_size := m.vec2{
         cast(f32)win32.GetSystemMetrics(win32.SM_CXSCREEN),
         cast(f32)win32.GetSystemMetrics(win32.SM_CYSCREEN),
     }
@@ -150,8 +151,8 @@ init_legacy_gl :: proc(class_name: win32.wstring, hInstance: win32.HINSTANCE) {
 }
 
 @(private="file")
-init_gl :: proc(class_name: win32.wstring, window_title: win32.wstring, window_size: Vec2, window_non_resizable: bool, hInstance: win32.HINSTANCE) {
-    screen_size := Vec2{
+init_gl :: proc(class_name: win32.wstring, window_title: win32.wstring, window_size: m.vec2, window_non_resizable: bool, hInstance: win32.HINSTANCE) {
+    screen_size := m.vec2{
         cast(f32)win32.GetSystemMetrics(win32.SM_CXSCREEN),
         cast(f32)win32.GetSystemMetrics(win32.SM_CYSCREEN),
     }
@@ -324,7 +325,7 @@ window_proc :: proc(hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lpa
     return result
 }
 
-backend_init :: proc(window_title: cstring, window_size: Vec2, icon_path: cstring, window_non_resizable: bool) {
+backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
     context.logger = logger
 
     class_name := win32.L("zephr.main_window")
@@ -376,7 +377,7 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
             case win32.WM_SIZE:
                 width := win32.LOWORD(auto_cast event.lparam)
                 height := win32.HIWORD(auto_cast event.lparam)
-                zephr_ctx.window.size = Vec2{cast(f32)width, cast(f32)height}
+                zephr_ctx.window.size = m.vec2{cast(f32)width, cast(f32)height}
                 zephr_ctx.projection = orthographic_projection_2d(0, zephr_ctx.window.size.x, zephr_ctx.window.size.y, 0)
                 gl.Viewport(0, 0, cast(i32)zephr_ctx.window.size.x, cast(i32)zephr_ctx.window.size.y)
 
@@ -388,7 +389,7 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
                 x := win32.GET_X_LPARAM(event.lparam)
                 y := win32.GET_Y_LPARAM(event.lparam)
 
-                e_out.mouse.pos = Vec2{cast(f32)x, cast(f32)y}
+                e_out.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
 
                 e_out.mouse.button = .BUTTON_LEFT
                 zephr_ctx.mouse.button = .BUTTON_LEFT
@@ -405,7 +406,7 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
                 x := win32.GET_X_LPARAM(event.lparam)
                 y := win32.GET_Y_LPARAM(event.lparam)
 
-                e_out.mouse.pos = Vec2{cast(f32)x, cast(f32)y}
+                e_out.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
 
                 e_out.mouse.button = .BUTTON_MIDDLE
                 zephr_ctx.mouse.button = .BUTTON_MIDDLE
@@ -422,7 +423,7 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
                 x := win32.GET_X_LPARAM(event.lparam)
                 y := win32.GET_Y_LPARAM(event.lparam)
 
-                e_out.mouse.pos = Vec2{cast(f32)x, cast(f32)y}
+                e_out.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
 
                 e_out.mouse.button = .BUTTON_RIGHT
                 zephr_ctx.mouse.button = .BUTTON_RIGHT
@@ -439,7 +440,7 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
                 x := win32.GET_X_LPARAM(event.lparam)
                 y := win32.GET_Y_LPARAM(event.lparam)
 
-                e_out.mouse.pos = Vec2{cast(f32)x, cast(f32)y}
+                e_out.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
 
                 btn := win32.HIWORD(auto_cast event.wparam)
 
@@ -463,7 +464,7 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
                 x := win32.GET_X_LPARAM(event.lparam)
                 y := win32.GET_Y_LPARAM(event.lparam)
 
-                zephr_ctx.mouse.pos = Vec2{cast(f32)x, cast(f32)y}
+                zephr_ctx.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
                 e_out.mouse.pos = zephr_ctx.mouse.pos
 
                 return true
