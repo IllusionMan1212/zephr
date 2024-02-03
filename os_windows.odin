@@ -21,11 +21,15 @@ import gl "vendor:OpenGL"
 
 OsCursor :: win32.HCURSOR
 
-OsEvent :: struct {
+@(private="file")
+WindowsEvent :: struct {
     type: win32.UINT,
     lparam: win32.LPARAM,
     wparam: win32.WPARAM,
 }
+
+@(private="file")
+events: queue.Queue(WindowsEvent)
 
 @(private="file")
 hwnd : win32.HWND
@@ -313,7 +317,7 @@ window_proc :: proc(hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lpa
         case win32.WM_SYSKEYUP: fallthrough
         case win32.WM_KEYDOWN: fallthrough
         case win32.WM_KEYUP:
-            queue.push(&zephr_ctx.event_queue, OsEvent{
+            queue.push(&events, WindowsEvent{
                 type = msg,
                 lparam = lparam,
                 wparam = wparam,
@@ -357,6 +361,10 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
     init_gl(class_name, window_title, window_size, window_non_resizable, hInstance)
 }
 
+// TODO: the signature for this changed, make appropriate changes
+// it takes no arguments and returns nothing now.
+// Instead of returning or assigning the event thru a pointer,
+// just push the event to the zephr_ctx.event_queue queue
 backend_get_os_events :: proc(e_out: ^Event) -> bool {
     context.logger = logger
     msg: win32.MSG
@@ -366,8 +374,8 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
         win32.DispatchMessageW(&msg)
     }
 
-    for queue.len(zephr_ctx.event_queue) != 0 {
-        event := queue.pop_front(&zephr_ctx.event_queue)
+    for queue.len(events) != 0 {
+        event := queue.pop_front(&events)
 
         e_out.type = os_event_to_zephr_event(event.type)
 
