@@ -2,7 +2,11 @@
 // +private
 package zephr
 
+import "core:fmt"
+import "core:strings"
+import "core:sys/linux"
 import "core:log"
+import "core:container/queue"
 import m "core:math/linalg/glsl"
 
 import x11 "vendor:x11/xlib"
@@ -13,10 +17,41 @@ import "3rdparty/glx"
 import "3rdparty/xcursor"
 import "3rdparty/xfixes"
 import "3rdparty/xinput2"
+import "3rdparty/udev"
+import "3rdparty/evdev"
 
-// TODO: In the future, I should either push events to the event queue here or
-//       make the queue a windows-only global.
-OsEvent :: x11.XEvent
+LinuxEvdevBinding :: struct { // this maps to struct input_event in <linux/input.h>
+  type: u16,
+  code: u16,
+  is_positive: bool,
+}
+
+#assert(size_of(LinuxEvdevRange) == 8)
+
+LinuxEvdevRange :: struct { // this maps to struct input_event in <linux/input.h>
+  min: i32,
+  max: i32,
+}
+
+#assert(size_of(LinuxInputDevice) == OS_INPUT_DEVICE_BACKEND_SIZE)
+
+LinuxInputDevice :: struct {
+  mouse_devnode: cstring,
+  touchpad_devnode: cstring,
+  keyboard_devnode: cstring,
+  gamepad_devnode: cstring,
+  accelerometer_devnode: cstring,
+  gyroscope_devnode: cstring,
+  mouse_evdev: ^evdev.libevdev,
+  touchpad_evdev: ^evdev.libevdev,
+  keyboard_evdev: ^evdev.libevdev,
+  gamepad_evdev: ^evdev.libevdev,
+  accelerometer_evdev: ^evdev.libevdev,
+  gyroscope_evdev: ^evdev.libevdev,
+  gamepad_bindings: [GamepadAction]LinuxEvdevBinding,
+  gamepad_action_ranges: [cast(int)GamepadAction.COUNT + 1]LinuxEvdevRange,
+}
+
 OsCursor :: x11.Cursor
 
 @(private="file")
@@ -40,6 +75,38 @@ glx_context  : glx.Context
 window_delete_atom : x11.Atom
 @(private="file")
 xinput_opcode : i32
+@(private="file")
+udevice : ^udev.udev
+@(private="file")
+udev_monitor : ^udev.udev_monitor
+
+@(private="file")
+os_linux_gamepad_evdev_default_bindings := #partial [GamepadAction]LinuxEvdevBinding{
+  .DPAD_LEFT = { type = EV_KEY, code = BTN_DPAD_LEFT, is_positive = true },
+  .DPAD_DOWN = { type = EV_KEY, code = BTN_DPAD_DOWN, is_positive = true },
+  .DPAD_RIGHT = { type = EV_KEY, code = BTN_DPAD_RIGHT, is_positive = true },
+  .DPAD_UP = { type = EV_KEY, code = BTN_DPAD_UP, is_positive = true },
+  .FACE_LEFT = { type = EV_KEY, code = BTN_WEST, is_positive = true },
+  .FACE_DOWN = { type = EV_KEY, code = BTN_SOUTH, is_positive = true },
+  .FACE_RIGHT = { type = EV_KEY, code = BTN_EAST, is_positive = true },
+  .FACE_UP = { type = EV_KEY, code = BTN_NORTH, is_positive = true },
+  .START = { type = EV_KEY, code = BTN_START, is_positive = true },
+  .SELECT = { type = EV_KEY, code = BTN_SELECT, is_positive = true },
+  .STICK_LEFT = { type = EV_KEY, code = BTN_THUMBL, is_positive = true },
+  .STICK_RIGHT = { type = EV_KEY, code = BTN_THUMBR, is_positive = true },
+  .SHOULDER_LEFT = { type = EV_KEY, code = BTN_TL, is_positive = true },
+  .SHOULDER_RIGHT = { type = EV_KEY, code = BTN_TR, is_positive = true },
+  .STICK_LEFT_X_WEST = { type = EV_ABS, code = ABS_X, is_positive = false },
+  .STICK_LEFT_X_EAST = { type = EV_ABS, code = ABS_X, is_positive = true },
+  .STICK_LEFT_Y_NORTH = { type = EV_ABS, code = ABS_Y, is_positive = false },
+  .STICK_LEFT_Y_SOUTH = { type = EV_ABS, code = ABS_Y, is_positive = true },
+  .STICK_RIGHT_X_WEST = { type = EV_ABS, code = ABS_RX, is_positive = false },
+  .STICK_RIGHT_X_EAST = { type = EV_ABS, code = ABS_RX, is_positive = true },
+  .STICK_RIGHT_Y_NORTH = { type = EV_ABS, code = ABS_RY, is_positive = false },
+  .STICK_RIGHT_Y_SOUTH = { type = EV_ABS, code = ABS_RY, is_positive = true },
+  .TRIGGER_LEFT = { type = EV_ABS, code = ABS_Z, is_positive = true },
+  .TRIGGER_RIGHT = { type = EV_ABS, code = ABS_RZ, is_positive = true },
+}
 
 @(private="file")
 evdev_scancode_to_zephr_scancode_map := []Scancode {
@@ -543,13 +610,364 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
 backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
   x11_create_window(window_title, window_size, icon_path, window_non_resizable)
 
-  // TODO: lots more keyboard stuff to be done
-  // this will remove KeyRelease events for held keys.
-  repeat: b32
-  x11.XkbSetDetectableAutoRepeat(x11_display, true, &repeat)
+	{
+		x11.XAutoRepeatOn(x11_display)
+
+		// TODO: lots more keyboard stuff to be done
+
+		// this will remove KeyRelease events for held keys.
+		repeat: b32
+		x11.XkbSetDetectableAutoRepeat(x11_display, true, &repeat)
+	}
+
+  {
+    // TODO: check if user is part of 'input' group which is needed to read raw input events
+  }
+
+	{
+		udevice = udev.new()
+
+		{
+			udev_monitor = udev.monitor_new_from_netlink(udevice, "udev")
+
+			udev.monitor_filter_add_match_subsystem_devtype(udev_monitor, "input", nil)
+			udev.monitor_enable_receiving(udev_monitor)
+
+			fd := udev.monitor_get_fd(udev_monitor)
+			fd_flags, err := linux.fcntl(fd, linux.F_GETFL)
+			linux.fcntl(fd, linux.F_SETFL, fd_flags | {.NONBLOCK})
+		}
+
+		enumerate := udev.enumerate_new(udevice);
+		udev.enumerate_add_match_subsystem(enumerate, "input");
+		udev.enumerate_scan_devices(enumerate);
+
+		first_device := udev.enumerate_get_list_entry(enumerate);
+
+		list_entry: ^udev.udev_list_entry
+		for list_entry = first_device; list_entry != nil; list_entry = udev.list_entry_get_next(list_entry) {
+			syspath := udev.list_entry_get_name(list_entry);
+			dev := udev.device_new_from_syspath(udevice, syspath);
+
+			udev_device_try_add(dev);
+
+			udev.device_unref(dev);
+		}
+
+		udev.enumerate_unref(enumerate)
+	}
+}
+
+linux_input_device :: proc(input_device: ^InputDevice) -> ^LinuxInputDevice {
+	return cast(^LinuxInputDevice)&input_device.backend_data
+}
+
+udev_device_try_add :: proc(dev: ^udev.udev_device) {
+	context.logger = logger
+
+  device_features: InputDeviceFeatures
+	mouse_devnode: cstring
+	touchpad_devnode: cstring
+	keyboard_devnode: cstring
+  gamepad_devnode: cstring
+	accelerometer_devnode: cstring
+	mouse_evdev: ^evdev.libevdev
+	touchpad_evdev: ^evdev.libevdev
+	keyboard_evdev: ^evdev.libevdev
+	gamepad_evdev: ^evdev.libevdev
+	accelerometer_evdev: ^evdev.libevdev
+
+  subsystem := udev.device_get_subsystem(dev)
+  if subsystem == "" {
+    return
+  }
+
+  sysname := udev.device_get_sysname(dev)
+
+  dev_name: string
+  vendor_id: u16
+  product_id: u16
+
+  // TODO: maybe a INPUT_DEVICE_UPDATED event ?? for when the DS3 gets new features?
+  // Or maybe only queue the events after going thru all the devices
+
+  // TODO: sound devices
+
+  add_feature: if subsystem == "input" {
+    /* udev rules reference: http://cgit.freedesktop.org/systemd/systemd/tree/src/udev/udev-builtin-input_id.c */
+
+    // TODO: we might not need to check for ABS here because an accelerometer is the same thing
+    // effectively I think. + there's no devnode for the gyro which means we can't read events for it anyway
+    prop_val := udev.device_get_property_value(dev, "ABS")
+    if prop_val != "" {
+      string_size := cast(u64)len(prop_val)
+      if (
+        evdev_check_bit_from_string(prop_val, string_size, ABS_RX) &&
+        evdev_check_bit_from_string(prop_val, string_size, ABS_RY) &&
+        evdev_check_bit_from_string(prop_val, string_size, ABS_RZ)
+      ) {
+
+        log.debug("gyroscopic device")
+        device_features |= {.GYROSCOPE}
+      }
+    }
+
+    if !strings.has_prefix(string(sysname), "event") {
+      break add_feature
+    }
+
+    if prop_val := udev.device_get_property_value(dev, "ID_INPUT_JOYSTICK"); prop_val == "1" {
+      gamepad_devnode = strings.clone_to_cstring(string(udev.device_get_devnode(dev)))
+      // open joystick devices as read-write to be able to use rumble
+      gamepad_devnode_fd, errno := linux.open(gamepad_devnode, {.RDWR, .NONBLOCK});
+      if gamepad_devnode_fd < 0 {
+        log.errorf("Failed to open gamepad device node '%s' as read-write, falling back to read-only. Errno %s", gamepad_devnode, errno)
+        gamepad_devnode_fd, errno = linux.open(gamepad_devnode, {.RDONLY, .NONBLOCK});
+      }
+
+      dev_name, vendor_id, product_id = evdev_device_info(gamepad_devnode_fd, &gamepad_evdev)
+      if (errno == .NONE) {
+        log.debugf("joystick device: %s", dev_name)
+        device_features |= {.GAMEPAD}
+      } else {
+        log.errorf("failed to open gamepad device node '%s' for device '%s': errno %s", gamepad_devnode, dev_name, errno)
+      }
+    }
+    if prop_val := udev.device_get_property_value(dev, "ID_INPUT_ACCELEROMETER"); prop_val == "1" {
+      accelerometer_devnode = strings.clone_to_cstring(string(udev.device_get_devnode(dev)))
+      accelerometer_devnode_fd, errno := linux.open(accelerometer_devnode, {.RDONLY, .NONBLOCK})
+
+      dev_name, vendor_id, product_id = evdev_device_info(accelerometer_devnode_fd, &accelerometer_evdev)
+      if (errno == .NONE) {
+        log.debugf("accelerometer device: %s", dev_name)
+        device_features |= {.ACCELEROMETER}
+      } else {
+        log.errorf("failed to open accelerometer device node '%s' for device '%s': errno %s", accelerometer_devnode, dev_name, errno)
+      }
+    }
+    if prop_val := udev.device_get_property_value(dev, "ID_INPUT_MOUSE"); prop_val == "1" {
+      if devlinks := udev.device_get_property_value(dev, "DEVLINKS"); devlinks != "" {
+        mouse_devnode = strings.clone_to_cstring(string(udev.device_get_devnode(dev)))
+        mouse_devnode_fd, errno := linux.open(mouse_devnode, {.RDONLY, .NONBLOCK})
+
+        dev_name, vendor_id, product_id = evdev_device_info(mouse_devnode_fd, &mouse_evdev)
+        if (errno == .NONE) {
+          log.debugf("mouse device: %s", dev_name)
+          device_features |= {.MOUSE}
+        } else {
+          log.errorf("failed to open mouse device node '%s' for device '%s': errno %s", mouse_devnode, dev_name, errno)
+        }
+      }
+    }
+    if prop_val := udev.device_get_property_value(dev, "ID_INPUT_TOUCHPAD"); prop_val == "1" {
+      touchpad_devnode = strings.clone_to_cstring(string(udev.device_get_devnode(dev)))
+      touchpad_devnode_fd, errno := linux.open(touchpad_devnode, {.RDONLY, .NONBLOCK})
+
+      dev_name, vendor_id, product_id = evdev_device_info(touchpad_devnode_fd, &touchpad_evdev)
+      if (errno == .NONE) {
+        log.debugf("touchpad device: %s", dev_name)
+        device_features |= {.TOUCHPAD}
+      } else {
+        log.errorf("failed to open touchpad device node '%s' for device '%s': errno %s", touchpad_devnode, dev_name, errno);
+      }
+    }
+    if prop_val := udev.device_get_property_value(dev, "ID_INPUT_KEYBOARD"); prop_val == "1" {
+      if devlinks := udev.device_get_property_value(dev, "DEVLINKS"); devlinks != "" {
+        keyboard_devnode = strings.clone_to_cstring(string(udev.device_get_devnode(dev)))
+        keyboard_devnode_fd, errno := linux.open(keyboard_devnode, {.RDONLY, .NONBLOCK})
+
+        dev_name, vendor_id, product_id = evdev_device_info(keyboard_devnode_fd, &keyboard_evdev)
+        if (errno == .NONE) {
+          log.debugf("keyboard device: %s", dev_name)
+          device_features |= {.KEYBOARD}
+        } else {
+          log.errorf("failed to open keyboard device node '%s' for device '%s': errno %s", keyboard_devnode, dev_name, errno);
+        }
+      }
+    }
+
+    if card(device_features) == 0 {
+      /* Fall back to old style input classes */
+      prop_val := udev.device_get_property_value(dev, "ID_CLASS");
+      if prop_val != "" {
+        log.warn("Couldn't recognize device, falling back to old style input classes.")
+        if prop_val == "joystick" {
+          device_features |= {.GAMEPAD}
+        } else if prop_val == "mouse" {
+          device_features |= {.MOUSE}
+        } else if prop_val == "kbd" {
+          device_features |= {.KEYBOARD}
+        }
+      } else {
+        // TODO: udev is not running, try guessing the device class
+        //log.warn("udev is not running on this machine. We should try guessing the device class")
+        //log.warn("guessing device class for device '%s'", devnode)
+      }
+    }
+  }
+
+  if card(device_features) == 0 {
+    return
+  }
+
+  if devnode := strings.clone_from_cstring(udev.device_get_devnode(dev)); devnode != "" {
+    log.debug(devnode)
+  }
+
+	if card(device_features) != 0 {
+    parent := udev.device_get_parent_with_subsystem_devtype(dev, "usb", "usb_device")
+    id := udev.device_get_devnum(parent if parent != nil else dev)
+
+    input_device := os_event_queue_input_device_connected(id, dev_name, device_features, vendor_id, product_id)
+
+		if input_device != nil {
+			input_device_backend := linux_input_device(input_device);
+      if .MOUSE in device_features {
+      	input_device_backend.mouse_devnode = mouse_devnode
+        input_device_backend.mouse_evdev = mouse_evdev
+        input_device.features |= {.MOUSE}
+      }
+      if .TOUCHPAD in device_features {
+        input_device_backend.touchpad_devnode = touchpad_devnode
+        input_device_backend.touchpad_evdev = touchpad_evdev
+        input_device.features |= {.TOUCHPAD}
+
+        abs_info := evdev.get_abs_info(touchpad_evdev, ABS_X)
+        if abs_info != nil {
+          input_device.touchpad.dims.x = cast(f32)abs_info.maximum
+        } else {
+          log.error("Failed to get horizontal touchpad dimension")
+        }
+
+        abs_info = evdev.get_abs_info(touchpad_evdev, ABS_Y)
+        if abs_info != nil {
+          input_device.touchpad.dims.y = cast(f32)abs_info.maximum
+        } else {
+          log.error("Failed to get vertical touchpad dimension")
+        }
+      }
+      if .KEYBOARD in device_features {
+        input_device_backend.keyboard_devnode = keyboard_devnode
+        input_device_backend.keyboard_evdev = keyboard_evdev
+        input_device.features |= {.KEYBOARD}
+      }
+			if .GAMEPAD in device_features {
+				input_device_backend.gamepad_devnode = gamepad_devnode
+        input_device_backend.gamepad_evdev = gamepad_evdev
+        input_device.features |= {.GAMEPAD}
+
+
+        //
+        // TODO: have a user configurable GAMEPAD_ACTION -> EVDEV BINDING, just in case the game drivers are different.
+        //
+        input_device_backend.gamepad_bindings = os_linux_gamepad_evdev_default_bindings
+
+				for action in GamepadAction {
+					b := &input_device_backend.gamepad_bindings[action]
+					range := &input_device_backend.gamepad_action_ranges[action]
+					range.min = 0
+					range.max = 1
+					if (b.type == EV_ABS) {
+						abs_info := evdev.get_abs_info(gamepad_evdev, cast(u32)b.code)
+            if abs_info != nil {
+							range.min = abs_info.minimum;
+							range.max = abs_info.maximum;
+            } else {
+              log.errorf("Failed to get gamepad axis range for key: %d.", b.code)
+            }
+					}
+				}
+			}
+			if .ACCELEROMETER in device_features {
+				input_device_backend.accelerometer_devnode = accelerometer_devnode
+        input_device_backend.accelerometer_evdev = accelerometer_evdev
+        input_device.features |= {.ACCELEROMETER}
+			}
+		}
+	}
+}
+
+udev_device_try_remove :: proc(dev: ^udev.udev_device) {
+  parent := udev.device_get_parent_with_subsystem_devtype(dev, "usb", "usb_device")
+  key := udev.device_get_devnum(parent if parent != nil else dev)
+  ok := key in zephr_ctx.input_devices_map
+  if (ok) {
+  	os_event_queue_input_device_disconnected(key)
+  }
+}
+
+udev_has_event :: proc() -> bool {
+	context.logger = logger
+
+	fd := udev.monitor_get_fd(udev_monitor)
+
+	fds := []linux.Poll_Fd{
+		linux.Poll_Fd{
+			fd = fd,
+			events = {.IN}
+		}
+	}
+
+	ret, err := linux.poll(fds, 0)
+
+	if ret == -1 {
+		log.errorf("Polling udev monitor fd failed with errno: %s", err)
+		return false
+	}
+
+	return (.IN in fds[0].revents)
+}
+
+evdev_device_info :: proc(fd: linux.Fd, evdevice: ^^evdev.libevdev) -> (name: string, vendor_id: u16, product_id: u16) {
+  context.logger = logger
+
+  ret := evdev.new_from_fd(fd, evdevice)
+
+  if linux.Errno(-ret) != .NONE {
+    log.errorf("Failed to create evdev device for device with fd: %d. Errno: %s", fd, linux.Errno(-ret))
+  }
+
+  name = string(evdev.get_name(evdevice^))
+  vendor_id = evdev.get_id_vendor(evdevice^)
+  product_id = evdev.get_id_product(evdevice^)
+
+  if name == "" {
+    name = fmt.tprintf("unknown input device 0x%x 0x%x", vendor_id, product_id)
+  }
+
+	return name, vendor_id, product_id
+}
+
+evdev_check_bit_from_string :: proc(str: cstring, string_size: u64, bit_idx: u32) -> bool {
+	bit_word_idx := bit_idx / 4;
+	if (cast(u64)bit_word_idx >= string_size) {
+		return false;
+	}
+
+	ch := string(str)[string_size - cast(u64)bit_word_idx - 1];
+	word: u8 = 0;
+	if ('0' <= ch && ch <= '9') {
+		word = ch - '0';
+	} else if ('a' <= ch && ch <= 'f') {
+		word = 10 + (ch - 'a');
+	} else if ('A' <= ch && ch <= 'F') {
+		word = 10 + (ch - 'A');
+	}
+	rel_bit_idx := bit_idx % 4;
+	return cast(bool)(word & (1 << rel_bit_idx));
 }
 
 backend_shutdown :: proc() {
+  for id, device in &zephr_ctx.input_devices_map {
+    input_device_backend := linux_input_device(&device)
+    evdev.free(input_device_backend.mouse_evdev)
+    evdev.free(input_device_backend.gamepad_evdev)
+    evdev.free(input_device_backend.touchpad_evdev)
+    evdev.free(input_device_backend.keyboard_evdev)
+    evdev.free(input_device_backend.accelerometer_evdev)
+    evdev.free(input_device_backend.gyroscope_evdev)
+  }
+
   glx.MakeCurrent(x11_display, 0, nil)
   glx.DestroyContext(x11_display, glx_context)
 
@@ -562,13 +980,188 @@ backend_swapbuffers :: proc() {
   glx.SwapBuffers(x11_display, x11_window)
 }
 
-// TODO: should we push the events to the event queue here as well??
-// I'm thinking yes just to keep it consistent with Windows but idk
-backend_get_os_events :: proc(e_out: ^Event) -> bool {
+backend_get_os_events :: proc() {
   context.logger = logger
   xev: x11.XEvent
 
+  for udev_has_event() {
+    if queue.len(zephr_ctx.event_queue) == queue.cap(zephr_ctx.event_queue) {
+      return
+    }
+  
+  	dev := udev.monitor_receive_device(udev_monitor);
+    parent_dev: ^udev.udev_device = nil
+    action := udev.device_get_action(dev)
+
+    if (action == "bind" || action == "add") {
+      udev_device_try_add(dev);
+    } else if (action == "unbind" || action == "remove") {
+      udev_device_try_remove(dev);
+    }
+
+  	udev.device_unref(dev);
+  }
+
+  for id, input_device in &zephr_ctx.input_devices_map {
+    input_device_backend := linux_input_device(&input_device)
+
+    if .MOUSE in input_device.features {
+      for cast(bool)evdev.has_event_pending(input_device_backend.mouse_evdev) {
+        ev: evdev.input_event
+        ret := evdev.next_event(input_device_backend.mouse_evdev, .NORMAL, &ev)
+
+        if ret < 0 {
+          log.errorf("Failed to get next evdev event for mouse device: %s. Errno: %s", input_device.name, linux.Errno(-ret))
+          break
+        }
+
+        // TODO: finish this
+        // switch ev.type {
+        //   case EV_KEY:
+        //   btn: MouseButton = .BUTTON_NONE
+        //   switch ev.code {
+        //     case BTN_LEFT: btn = .BUTTON_LEFT
+        //     case BTN_RIGHT: btn = .BUTTON_RIGHT
+        //     case BTN_MIDDLE: btn = .BUTTON_MIDDLE
+        //     case BTN_SIDE: btn = .BUTTON_BACK
+        //     case BTN_EXTRA: btn = .BUTTON_FORWARD
+        //   }
+
+        //   if btn != .BUTTON_NONE {
+        //     os_event_queue_raw_mouse_button(id, btn, cast(bool)ev.value)
+        //   }
+        //   case EV_REL:
+        //   switch ev.code {
+        //     case REL_X: log.debugf("x: %d", ev.value)
+        //     case REL_Y: log.debugf("y: %d", ev.value)
+        //     case REL_HWHEEL: log.debugf("hwheel: %d", ev.value)
+        //     case REL_WHEEL: log.debugf("wheel: %d", ev.value)
+        //   }
+        // }
+      }
+    }
+    if .TOUCHPAD in input_device.features {
+      for cast(bool)evdev.has_event_pending(input_device_backend.touchpad_evdev) {
+        ev: evdev.input_event
+        ret := evdev.next_event(input_device_backend.touchpad_evdev, .NORMAL, &ev)
+
+        if ret < 0 {
+          log.errorf("Failed to get next evdev event for touchpad device: %s. Errno: %s", input_device.name, linux.Errno(-ret))
+          break
+        }
+
+        pos := input_device.touchpad.pos
+
+        switch ev.type {
+          case EV_KEY:
+          actions: TouchpadAction = .NONE
+          switch ev.code {
+            case BTN_LEFT: actions = .CLICK
+            case BTN_TOUCH: actions = .TOUCH
+          }
+          if actions != .NONE {
+            os_event_queue_raw_touchpad_action(id, actions, cast(bool)ev.value)
+          }
+          case EV_ABS:
+          switch ev.code {
+            case ABS_X: pos.x = cast(f32)ev.value
+            case ABS_Y: pos.y = cast(f32)ev.value
+          }
+        }
+
+ 				if (pos != input_device.touchpad.pos) {
+					os_event_queue_raw_touchpad_moved(id, pos);
+				}
+      }
+    }
+    if .KEYBOARD in input_device.features {
+      // TODO: has_event_pending will return a negative number on error and that gets
+      // cast to a true boolean value.
+      for cast(bool)evdev.has_event_pending(input_device_backend.keyboard_evdev) {
+        ev: evdev.input_event
+        ret := evdev.next_event(input_device_backend.keyboard_evdev, .NORMAL, &ev)
+
+        if ret < 0 {
+          log.errorf("Failed to get next evdev event for keyboard device: %s. Errno: %s", input_device.name, linux.Errno(-ret))
+          break
+        }
+
+        // TODO: finish this
+      }
+    }
+    if .GAMEPAD in input_device.features {
+      // TODO: code shouldn't be written here BUT. figure out how to get the controller
+      // rumbling. ref: https://github.com/MysteriousJ/Joystick-Input-Examples/blob/main/src/evdev.cpp
+      // There's also probably a way to query if a controller supports rumble or not, we'll need to
+      // save that info in the input_device_backend and probably more specifically the gamepad struct.
+      for cast(bool)evdev.has_event_pending(input_device_backend.gamepad_evdev) {
+        ev: evdev.input_event
+        ret := evdev.next_event(input_device_backend.gamepad_evdev, .NORMAL, &ev)
+
+        if ret < 0 {
+          log.errorf("Failed to get next evdev event for gamepad device: %s. Errno: %s", input_device.name, linux.Errno(-ret))
+          break
+        }
+
+        for action in GamepadAction {
+          b := &input_device_backend.gamepad_bindings[action]
+          if (b.type == ev.type && b.code == ev.code) {
+            range := &input_device_backend.gamepad_action_ranges[action]
+            midpoint := range.min + ((range.max - range.min) / 2)
+            if b.code == ABS_Z || b.code == ABS_RZ {
+              midpoint = 0
+            }
+            value := clamp(ev.value, range.min, range.max);
+            value -= midpoint
+            if (!b.is_positive) {
+              value = -value
+            }
+
+            deadzone := evdev.get_abs_flat(input_device_backend.gamepad_evdev, cast(u32)b.code)
+
+            value_max := cast(f32)(range.max - midpoint)
+            value_unorm := cast(f32)value / value_max
+            deadzone_unorm := cast(f32)deadzone / cast(f32)range.max
+
+            os_event_queue_raw_gamepad_action(id, action, value_unorm, deadzone_unorm)
+          }
+        }
+      }
+    }
+    if .ACCELEROMETER in input_device.features {
+      for cast(bool)evdev.has_event_pending(input_device_backend.accelerometer_evdev) {
+        ev: evdev.input_event
+        ret := evdev.next_event(input_device_backend.accelerometer_evdev, .NORMAL, &ev)
+
+        if ret < 0 {
+          log.errorf("Failed to get next evdev event for accelerometer device: %s. Errno: %s", input_device.name, linux.Errno(-ret))
+          break
+        }
+
+        if ev.type == EV_ABS {
+          if ev.code == ABS_X {
+            input_device.accelerometer.x = cast(f32)ev.value
+          } else if ev.code == ABS_Y {
+            input_device.accelerometer.y = cast(f32)ev.value
+          } else if ev.code == ABS_Z {
+            input_device.accelerometer.z = cast(f32)ev.value
+          }
+        }
+
+        os_event_queue_raw_accelerometer_changed(id, input_device.accelerometer)
+      }
+    }
+    if .GYROSCOPE in input_device.features {
+      // TODO:
+    }
+  }
+
+  e: Event
   for (cast(bool)x11.XPending(x11_display)) {
+    if queue.len(zephr_ctx.event_queue) == queue.cap(zephr_ctx.event_queue) {
+      return
+    }
+
     x11.XNextEvent(x11_display, &xev)
 
     if xev.type == .ConfigureNotify {
@@ -579,23 +1172,22 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
         zephr_ctx.projection = orthographic_projection_2d(0, zephr_ctx.window.size.x, zephr_ctx.window.size.y, 0)
         x11_resize_window()
 
-        e_out.type = .WINDOW_RESIZED
-        e_out.window.width = cast(u32)xce.width
-        e_out.window.height = cast(u32)xce.height
+        e.type = .WINDOW_RESIZED
+        e.window.width = cast(u32)xce.width
+        e.window.height = cast(u32)xce.height
 
-        return true
+        queue.push(&zephr_ctx.event_queue, e)
       }
     } else if xev.type == .DestroyNotify {
       // window destroy event
-      e_out.type = .WINDOW_CLOSED
-
-      return true
+      e.type = .WINDOW_CLOSED
+      
+      queue.push(&zephr_ctx.event_queue, e)
     } else if xev.type == .ClientMessage {
       // window close event
       if (cast(x11.Atom)xev.xclient.data.l[0] == window_delete_atom) {
-        e_out.type = .WINDOW_CLOSED
-
-        return true
+        e.type = .WINDOW_CLOSED
+        queue.push(&zephr_ctx.event_queue, e)
       }
     } else if xev.type == .KeyPress {
       xke := xev.xkey
@@ -603,107 +1195,108 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
       evdev_keycode := xke.keycode - 8
       scancode := evdev_scancode_to_zephr_scancode_map[evdev_keycode]
 
-      e_out.type = .KEY_PRESSED
-      e_out.key.scancode = scancode
+      e.type = .KEY_PRESSED
+      e.key.scancode = scancode
       //e_out.key.code = keycode;
-      e_out.key.mods = set_zephr_mods(scancode, true)
+      e.key.mods = set_zephr_mods(scancode, true)
 
-      return true
+      queue.push(&zephr_ctx.event_queue, e)
     } else if xev.type == .KeyRelease {
       xke := xev.xkey
 
       evdev_keycode := xke.keycode - 8
       scancode := evdev_scancode_to_zephr_scancode_map[evdev_keycode]
 
-      e_out.type = .KEY_RELEASED
-      e_out.key.scancode = scancode
+      e.type = .KEY_RELEASED
+      e.key.scancode = scancode
       //e_out.key.code = keycode;
-      e_out.key.mods = set_zephr_mods(scancode, false)
+      e.key.mods = set_zephr_mods(scancode, false)
 
-      return true
+      queue.push(&zephr_ctx.event_queue, e)
     } else if xev.type == .ButtonPress {
-      e_out.type = .MOUSE_BUTTON_PRESSED
-      e_out.mouse.pos = m.vec2{cast(f32)xev.xbutton.x, cast(f32)xev.xbutton.y}
+      e.type = .MOUSE_BUTTON_PRESSED
+      e.mouse.pos = m.vec2{cast(f32)xev.xbutton.x, cast(f32)xev.xbutton.y}
       zephr_ctx.mouse.pressed = true
 
       switch (xev.xbutton.button) {
         case .Button1:
-        e_out.mouse.button = .BUTTON_LEFT
+        e.mouse.button = .BUTTON_LEFT
         zephr_ctx.mouse.button = .BUTTON_LEFT
         case .Button2:
-        e_out.mouse.button = .BUTTON_MIDDLE
+        e.mouse.button = .BUTTON_MIDDLE
         zephr_ctx.mouse.button = .BUTTON_MIDDLE
         case .Button3:
-        e_out.mouse.button = .BUTTON_RIGHT
+        e.mouse.button = .BUTTON_RIGHT
         zephr_ctx.mouse.button = .BUTTON_RIGHT
         case .Button4:
-        e_out.type = .MOUSE_SCROLL
-        e_out.mouse.scroll_direction = .UP
+        e.type = .MOUSE_SCROLL
+        e.mouse.scroll_direction = .UP
         case .Button5:
-        e_out.type = .MOUSE_SCROLL
-        e_out.mouse.scroll_direction = .DOWN
+        e.type = .MOUSE_SCROLL
+        e.mouse.scroll_direction = .DOWN
         case cast(x11.MouseButton)8: // Back
-        e_out.mouse.button = .BUTTON_BACK
+        e.mouse.button = .BUTTON_BACK
         zephr_ctx.mouse.button = .BUTTON_BACK
         case cast(x11.MouseButton)9: // Forward
-        e_out.mouse.button = .BUTTON_FORWARD
+        e.mouse.button = .BUTTON_FORWARD
         zephr_ctx.mouse.button = .BUTTON_FORWARD
         case:
         log.warnf("Unknown mouse button pressed: %d", xev.xbutton.button)
       }
 
-      return true
+      queue.push(&zephr_ctx.event_queue, e)
     } else if xev.type == .ButtonRelease {
-      e_out.type = .MOUSE_BUTTON_RELEASED
-      e_out.mouse.pos = m.vec2{cast(f32)xev.xbutton.x, cast(f32)xev.xbutton.y}
+      e.type = .MOUSE_BUTTON_RELEASED
+      e.mouse.pos = m.vec2{cast(f32)xev.xbutton.x, cast(f32)xev.xbutton.y}
       zephr_ctx.mouse.released = true
       zephr_ctx.mouse.pressed = false
 
       switch (xev.xbutton.button) {
         case .Button1:
-        e_out.mouse.button = .BUTTON_LEFT
+        e.mouse.button = .BUTTON_LEFT
         case .Button2:
-        e_out.mouse.button = .BUTTON_MIDDLE
+        e.mouse.button = .BUTTON_MIDDLE
         case .Button3:
-        e_out.mouse.button = .BUTTON_RIGHT
+        e.mouse.button = .BUTTON_RIGHT
         case .Button4:
-        e_out.type = .MOUSE_SCROLL
-        e_out.mouse.scroll_direction = .UP
+        e.type = .MOUSE_SCROLL
+        e.mouse.scroll_direction = .UP
         case .Button5:
-        e_out.type = .MOUSE_SCROLL
-        e_out.mouse.scroll_direction = .DOWN
+        e.type = .MOUSE_SCROLL
+        e.mouse.scroll_direction = .DOWN
         case cast(x11.MouseButton)8: // Back
-        e_out.mouse.button = .BUTTON_BACK
+        e.mouse.button = .BUTTON_BACK
         // TODO: should we be setting these in zephr ??
         // if yes then also set them for the other buttons
         zephr_ctx.mouse.button = .BUTTON_BACK
         case cast(x11.MouseButton)9: // Forward
-        e_out.mouse.button = .BUTTON_FORWARD
+        e.mouse.button = .BUTTON_FORWARD
         zephr_ctx.mouse.button = .BUTTON_FORWARD
       }
 
-      return true
+      queue.push(&zephr_ctx.event_queue, e)
     } else if xev.type == .MappingNotify {
       // input device mapping changed
       if (xev.xmapping.request != .MappingKeyboard) {
         break
       }
       x11.XRefreshKeyboardMapping(&xev.xmapping)
+      // TODO:
       /* x11_keyboard_map_update(); */
       break
     } else if xev.type == .MotionNotify {
       if zephr_ctx.mouse.captured {
-        return true
+        return
       }
 
       x := xev.xmotion.x
       y := xev.xmotion.y
 
-      e_out.type = .MOUSE_MOVED
-      e_out.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
-      zephr_ctx.mouse.pos = e_out.mouse.pos
+      e.type = .MOUSE_MOVED
+      e.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
+      zephr_ctx.mouse.pos = e.mouse.pos
 
-      return true
+      queue.push(&zephr_ctx.event_queue, e)
     } else if xev.type == .GenericEvent {
       if zephr_ctx.mouse.captured &&
       xev.xcookie.extension == xinput_opcode &&
@@ -720,19 +1313,17 @@ backend_get_os_events :: proc(e_out: ^Event) -> bool {
             zephr_ctx.mouse.virtual_pos.y += cast(f32)values[1]
           }
 
-          e_out.type = .MOUSE_MOVED
-          e_out.mouse.pos = zephr_ctx.mouse.virtual_pos
-          zephr_ctx.mouse.pos = e_out.mouse.pos
+          e.type = .MOUSE_MOVED
+          e.mouse.pos = zephr_ctx.mouse.virtual_pos
+          zephr_ctx.mouse.pos = e.mouse.pos
+
+          queue.push(&zephr_ctx.event_queue, e)
         }
 
         x11.XFreeEventData(x11_display, &xev.xcookie)
       }
-
-      return true
     }
   }
-
-  return false
 }
 
 backend_set_cursor :: proc() {

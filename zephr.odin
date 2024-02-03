@@ -21,6 +21,14 @@ Cursor :: enum {
 
 EventType :: enum {
   UNKNOWN,
+  INPUT_DEVICE_CONNECTED,
+  INPUT_DEVICE_DISCONNECTED,
+  RAW_GAMEPAD_ACTION_PRESSED,
+  RAW_GAMEPAD_ACTION_RELEASED,
+  RAW_TOUCHPAD_ACTION_PRESSED,
+  RAW_TOUCHPAD_ACTION_RELEASED,
+  RAW_TOUCHPAD_MOVED,
+  RAW_ACCELEROMETER_CHANGED,
   KEY_PRESSED,
   KEY_RELEASED,
   MOUSE_BUTTON_PRESSED,
@@ -32,6 +40,7 @@ EventType :: enum {
 }
 
 MouseButton :: enum {
+  BUTTON_NONE,
   BUTTON_LEFT,
   BUTTON_RIGHT,
   BUTTON_MIDDLE,
@@ -305,10 +314,122 @@ Scancode :: enum {
   ZEPHR_KEYCODE_COUNT = 512,
 }
 
+InputDeviceFeatures :: bit_set[InputDeviceFeaturesBits]
+InputDeviceFeaturesBits :: enum {
+  MOUSE =         0x01,
+  KEYBOARD =      0x02,
+  GAMEPAD  =      0x04,
+  TOUCHPAD =      0x08,
+  ACCELEROMETER = 0x10,
+  GYROSCOPE =     0x20,
+}
+
+GamepadAction :: enum {
+  NONE,
+
+  DPAD_LEFT,
+  DPAD_DOWN,
+  DPAD_RIGHT,
+  DPAD_UP,
+
+  FACE_LEFT,
+  FACE_DOWN,
+  FACE_RIGHT,
+  FACE_UP,
+
+  START,
+  SELECT,
+
+  STICK_LEFT,
+  STICK_RIGHT,
+
+  SHOULDER_LEFT,
+  SHOULDER_RIGHT,
+
+  STICK_LEFT_X_WEST,
+  STICK_LEFT_X_EAST,
+  STICK_LEFT_Y_NORTH,
+  STICK_LEFT_Y_SOUTH,
+  STICK_RIGHT_X_WEST,
+  STICK_RIGHT_X_EAST,
+  STICK_RIGHT_Y_NORTH,
+  STICK_RIGHT_Y_SOUTH,
+  TRIGGER_LEFT,
+  TRIGGER_RIGHT,
+
+  COUNT = TRIGGER_RIGHT,
+
+  // TODO: I think windows stops at LEFT_X_WEST. Not sure
+  BUTTON_END = STICK_LEFT_X_WEST,
+}
+
+TouchpadAction :: enum {
+  NONE,
+  CLICK,
+  TOUCH,
+}
+
+Touchpad :: struct {
+  pos: m.vec2,
+	rel_pos: m.vec2,
+	dims: m.vec2,
+	action_is_pressed_bitset: bit_set[TouchpadAction; u8],
+	action_has_been_pressed_bitset: bit_set[TouchpadAction; u8],
+	action_has_been_released_bitset: bit_set[TouchpadAction; u8],
+}
+
+Gamepad :: struct {
+  action_is_pressed_bitset: bit_set[GamepadAction],
+	action_has_been_pressed_bitset: bit_set[GamepadAction],
+	action_has_been_released_bitset: bit_set[GamepadAction],
+	action_value_unorms: [GamepadAction]f32,
+}
+
+InputDevice :: struct {
+  name: string,
+  vendor_id: u16,
+  product_id: u16,
+  features: InputDeviceFeatures,
+  mouse: Mouse,
+  touchpad: Touchpad,
+  //OsKeyboard            keyboard,
+  gamepad: Gamepad,
+  accelerometer: m.vec3,
+  gyroscope: m.quat,
+
+  backend_data: [OS_INPUT_DEVICE_BACKEND_SIZE]u8,
+}
+
 Event :: struct {
   type: EventType,
 
   using _: struct #raw_union {
+    input_device: struct {
+      id: u64,
+      vendor_id: u16,
+      product_id: u16,
+      features: InputDeviceFeatures,
+    },
+    gamepad_action: struct {
+      device_id: u64,
+			action: GamepadAction,
+			value_unorm: f32,
+		},
+    touchpad_action: struct {
+      device_id: u64,
+			is_pressed: bool,
+			action: TouchpadAction,
+			action_bitset: bit_set[TouchpadAction; u8],
+    },
+    touchpad_moved: struct {
+      device_id: u64,
+			pos: m.vec2, // touchpad space
+			rel_pos: m.vec2,
+    },
+    accelerometer: struct {
+      device_id: u64,
+      accel: m.vec3,
+    },
     key: struct {
       is_pressed: bool,
       is_repeat: bool,
@@ -357,7 +478,8 @@ Context :: struct {
   mouse: Mouse,
   keyboard: Keyboard,
   cursor: Cursor,
-  event_queue: queue.Queue(OsEvent),
+  event_queue: queue.Queue(Event),
+  input_devices_map: map[u64]InputDevice,
   cursors: [Cursor]OsCursor,
   ui: Ui,
 
@@ -376,6 +498,14 @@ FNV_HASH32_PRIME :: 0x01000193
 INIT_UI_STACK_SIZE :: 256
 @private
 EVENT_QUEUE_INIT_CAP :: 128
+@private
+INPUT_DEVICE_MAP_CAP :: 256
+when ODIN_OS == .Linux {
+  @private
+  OS_INPUT_DEVICE_BACKEND_SIZE :: 448
+} else when ODIN_OS == .Windows {
+  // TODO:
+}
 
 when ODIN_DEBUG {
   @private
@@ -430,6 +560,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     //CORE_ASSERT(res == 0, "Failed to initialize audio");
 
     queue.init(&zephr_ctx.event_queue, EVENT_QUEUE_INIT_CAP)
+    zephr_ctx.input_devices_map = make(map[u64]InputDevice)
 
     backend_init(window_title, window_size, icon_path, window_non_resizable)
 
@@ -449,13 +580,16 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
 
 deinit :: proc() {
   backend_shutdown()
+  delete(zephr_ctx.input_devices_map)
   queue.destroy(&zephr_ctx.event_queue)
   delete(zephr_ctx.ui.elements)
   //audio_close()
 }
 
 should_quit :: proc() -> bool {
-  gl.ClearColor(0, 0, 0, 1)
+  frame_init()
+
+  gl.ClearColor(0.4, 0.4, 0.4, 1)
   gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
   zephr_ctx.cursor = .ARROW
@@ -499,8 +633,76 @@ swap_buffers :: proc() {
   backend_set_cursor()
 }
 
-iter_events :: proc(e_out: ^Event) -> bool {
-  return backend_get_os_events(e_out)
+frame_init :: proc() {
+  for id, device in &zephr_ctx.input_devices_map {
+    if .MOUSE in device.features {
+			//device.mouse.rel_pos = m.vec2{0, 0}
+			//device.mouse.rel_wheel_pos = m.vec2{0, 0}
+			//device.mouse.button_has_been_pressed_bitset = OS_MOUSE_BUTTONS_NONE;
+			//device.mouse.button_has_been_released_bitset = OS_MOUSE_BUTTONS_NONE;
+    }
+
+    if .TOUCHPAD in device.features {
+			device.touchpad.rel_pos = m.vec2{0, 0}
+			device.touchpad.action_has_been_pressed_bitset = {.NONE}
+			device.touchpad.action_has_been_released_bitset = {.NONE}
+    }
+
+    if .KEYBOARD in device.features {
+			//device.keyboard.key_mod_has_been_pressed_bitset = OS_KEY_MOD_NONE
+			//device.keyboard.key_mod_has_been_released_bitset = OS_KEY_MOD_NONE
+			//CORE_ZERO_ARRAY(device.keyboard.keycode_has_been_pressed_bitset)
+			//CORE_ZERO_ARRAY(device.keyboard.keycode_has_been_released_bitset)
+			//CORE_ZERO_ARRAY(device.keyboard.virtkeycode_has_been_pressed_bitset)
+			//CORE_ZERO_ARRAY(device.keyboard.virtkeycode_has_been_released_bitset)
+    }
+
+    if .GAMEPAD in device.features {
+      device.gamepad.action_has_been_pressed_bitset = {}
+      device.gamepad.action_has_been_released_bitset = {}
+    }
+  }
+
+	//g_os.virt_mouse.rel_pos = s32x2(0, 0);
+	//g_os.virt_mouse.rel_wheel_pos = s32x2(0, 0);
+	//g_os.virt_mouse.button_has_been_pressed_bitset = OS_MOUSE_BUTTONS_NONE;
+	//g_os.virt_mouse.button_has_been_released_bitset = OS_MOUSE_BUTTONS_NONE;
+
+	//g_os.virt_keyboard.key_mod_has_been_pressed_bitset = OS_KEY_MOD_NONE;
+	//g_os.virt_keyboard.key_mod_has_been_released_bitset = OS_KEY_MOD_NONE;
+	//CORE_ZERO_ARRAY(g_os.virt_keyboard.keycode_has_been_pressed_bitset);
+	//CORE_ZERO_ARRAY(g_os.virt_keyboard.keycode_has_been_released_bitset);
+	//CORE_ZERO_ARRAY(g_os.virt_keyboard.virtkeycode_has_been_pressed_bitset);
+	//CORE_ZERO_ARRAY(g_os.virt_keyboard.virtkeycode_has_been_released_bitset);
+
+	//os_backend_frame_init();
+}
+
+iter_events :: proc() -> ^Event {
+  context.logger = logger
+
+  if queue.len(zephr_ctx.event_queue) < queue.cap(zephr_ctx.event_queue) {
+    backend_get_os_events()
+
+    if queue.len(zephr_ctx.event_queue) == 0 {
+      return nil
+    }
+  }
+
+  ev := queue.front_ptr(&zephr_ctx.event_queue)
+  queue.pop_front(&zephr_ctx.event_queue)
+  return ev
+}
+
+// TODO: remove this
+get_first_device_with :: proc(features: InputDeviceFeatures) -> ^InputDevice {
+  for id, device in &zephr_ctx.input_devices_map {
+    if device.features & features == features {
+      return &device
+    }
+  }
+
+  return nil
 }
 
 get_window_size :: proc() -> m.vec2 {
@@ -540,6 +742,188 @@ load_font :: proc(font_path: cstring) {
 @private
 set_cursor :: proc(cursor: Cursor) {
   zephr_ctx.cursor = cursor
+}
+
+@private
+os_event_queue_input_device_connected :: proc(key: u64, name: string, features: InputDeviceFeatures, vendor_id: u16, product_id: u16) -> ^InputDevice {
+  context.logger = logger
+
+  found_device, found := &zephr_ctx.input_devices_map[key]
+  if (found) {
+    if found_device.vendor_id == 0 {
+      found_device.vendor_id = vendor_id
+    }
+    if found_device.product_id == 0 {
+      found_device.product_id = product_id
+    }
+    if found_device.name == "" {
+      found_device.name = name
+    }
+
+    return found_device
+  }
+
+  log.debugf("input device connected: name: %s, vendor_id: 0x%x, product_id: 0x%x, features: 0x%x", name, vendor_id, product_id, features)
+
+  device := InputDevice{
+    name = name,
+    features = features,
+    vendor_id = vendor_id,
+    product_id = product_id,
+  }
+
+  zephr_ctx.input_devices_map[key] = device
+
+  e: Event
+  e.type = .INPUT_DEVICE_CONNECTED
+  e.input_device.id = key
+  e.input_device.features = features
+  e.input_device.vendor_id = vendor_id
+  e.input_device.product_id = product_id
+
+  queue.push(&zephr_ctx.event_queue, e)
+
+  return &zephr_ctx.input_devices_map[key]
+}
+
+@private
+os_event_queue_input_device_disconnected :: proc(key: u64) {
+  context.logger = logger
+
+  device := zephr_ctx.input_devices_map[key]
+  
+  e: Event
+
+  e.type = .INPUT_DEVICE_DISCONNECTED
+  e.input_device.id = key
+  e.input_device.features = device.features
+  e.input_device.vendor_id = device.vendor_id
+  e.input_device.product_id = device.product_id
+
+  queue.push(&zephr_ctx.event_queue, e)
+
+  log.debugf("input device disconnected: name: %s, vendor_id: 0x%x, product_id: 0x%x, features: 0x%x", device.name, device.vendor_id, device.product_id, device.features)
+
+  delete_key(&zephr_ctx.input_devices_map, key)
+}
+
+@private
+input_device_get_checked :: proc(id: u64, features: InputDeviceFeatures) -> ^InputDevice {
+  device := &zephr_ctx.input_devices_map[id]
+	assert(device.features & features == features, fmt.tprintf("expected features '0x%x' but got '0x%x'", features, device.features))
+	return device
+}
+
+gamepad_action_is_pressed :: proc(gamepad: ^Gamepad, action: GamepadAction) -> bool {
+  return action in gamepad.action_is_pressed_bitset
+}
+
+@private
+os_event_queue_raw_gamepad_action :: proc(key: u64, action: GamepadAction, value_unorm: f32, deadzone_unorm: f32) {
+  value_unorm := value_unorm
+
+	if (action == .NONE) {
+		return
+	}
+
+  device := input_device_get_checked(key, {.GAMEPAD});
+	if (value_unorm < deadzone_unorm) { // TODO user configurable deadzone, different for each stick and trigger
+		value_unorm = 0
+	}
+
+	if (device.gamepad.action_value_unorms[action] == value_unorm) {
+		return
+	}
+
+	if (value_unorm > 0) {
+    device.gamepad.action_is_pressed_bitset |= {action}
+    device.gamepad.action_has_been_pressed_bitset |= {action}
+	} else {
+    device.gamepad.action_is_pressed_bitset &= ~{action}
+		device.gamepad.action_has_been_released_bitset |= {action}
+	}
+
+  e: Event
+  e.type = value_unorm > 0 ? .RAW_GAMEPAD_ACTION_PRESSED : .RAW_GAMEPAD_ACTION_RELEASED
+	e.gamepad_action.device_id = key
+	e.gamepad_action.action = action
+	e.gamepad_action.value_unorm = value_unorm
+
+  queue.push(&zephr_ctx.event_queue, e)
+
+	device.gamepad.action_value_unorms[action] = value_unorm
+}
+
+is_cursor_captured :: proc() -> bool {
+  return zephr_ctx.mouse.captured
+}
+
+@private
+os_event_queue_raw_touchpad_action :: proc(key: u64, action: TouchpadAction, is_pressed: bool) {
+  device := input_device_get_checked(key, {.TOUCHPAD})
+  if (is_pressed) {
+    device.touchpad.action_is_pressed_bitset |= {action}
+    device.touchpad.action_has_been_pressed_bitset |= {action}
+  } else {
+    device.touchpad.action_is_pressed_bitset &= ~{action}
+    device.touchpad.action_has_been_released_bitset |= {action}
+  }
+
+  e: Event
+  e.type = is_pressed ? .RAW_TOUCHPAD_ACTION_PRESSED : .RAW_TOUCHPAD_ACTION_RELEASED
+  e.touchpad_action.device_id = key
+  e.touchpad_action.action = action
+  e.touchpad_action.action_bitset = device.touchpad.action_is_pressed_bitset
+
+  queue.push(&zephr_ctx.event_queue, e)
+}
+
+@private
+os_event_queue_raw_touchpad_moved :: proc(key: u64, pos: m.vec2) {
+  device := input_device_get_checked(key, {.TOUCHPAD});
+  new_pos := m.vec2{clamp(pos.x, 0, device.touchpad.dims.x), clamp(pos.y, 0, device.touchpad.dims.y)}
+
+  e: Event
+  e.type = .RAW_TOUCHPAD_MOVED
+  e.touchpad_moved.device_id = key
+  e.touchpad_moved.pos = new_pos
+  e.touchpad_moved.rel_pos = new_pos - device.touchpad.pos
+
+  queue.push(&zephr_ctx.event_queue, e)
+
+	device.touchpad.pos = new_pos
+	device.touchpad.rel_pos = device.touchpad.rel_pos + e.touchpad_moved.rel_pos
+}
+
+@private
+os_event_queue_raw_accelerometer_changed :: proc(key: u64, accel: m.vec3) {
+  device := input_device_get_checked(key, {.ACCELEROMETER})
+  device.accelerometer = accel
+
+  e: Event
+  e.type = .RAW_ACCELEROMETER_CHANGED
+  e.accelerometer.device_id = key
+  e.accelerometer.accel = accel
+
+  queue.push(&zephr_ctx.event_queue, e)
+}
+
+@private
+os_event_queue_raw_mouse_button :: proc(key: u64, action: MouseButton, is_pressed: bool) {
+  device := input_device_get_checked(key, {.MOUSE})
+  if (is_pressed) {
+    device.mouse.pressed = true
+    device.mouse.button = action
+  } else {
+    device.mouse.released = true
+    device.mouse.button = action
+  }
+
+  e: Event
+  e.type = is_pressed ? .MOUSE_BUTTON_PRESSED : .MOUSE_BUTTON_RELEASED
+  e.mouse.button = action
+
+  queue.push(&zephr_ctx.event_queue, e)
 }
 
 
