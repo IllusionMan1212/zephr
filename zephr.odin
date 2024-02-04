@@ -6,6 +6,7 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:container/queue"
+import "core:time"
 
 import gl "vendor:OpenGL"
 
@@ -31,31 +32,30 @@ EventType :: enum {
   RAW_ACCELEROMETER_CHANGED,
   KEY_PRESSED,
   KEY_RELEASED,
-  MOUSE_BUTTON_PRESSED,
-  MOUSE_BUTTON_RELEASED,
-  MOUSE_SCROLL,
-  MOUSE_MOVED,
+  RAW_MOUSE_BUTTON_PRESSED,
+  RAW_MOUSE_BUTTON_RELEASED,
+  RAW_MOUSE_SCROLL,
+  RAW_MOUSE_MOVED,
+  VIRT_MOUSE_BUTTON_PRESSED,
+  VIRT_MOUSE_BUTTON_RELEASED,
+  VIRT_MOUSE_SCROLL,
+  VIRT_MOUSE_MOVED,
   WINDOW_RESIZED,
   WINDOW_CLOSED,
 }
 
 MouseButton :: enum {
-  BUTTON_NONE,
-  BUTTON_LEFT,
-  BUTTON_RIGHT,
-  BUTTON_MIDDLE,
-  BUTTON_BACK,
-  BUTTON_FORWARD,
-  BUTTON_3,
-  BUTTON_4,
-  BUTTON_5,
-  BUTTON_6,
-  BUTTON_7,
-}
-
-MouseScrollDirection :: enum {
-  UP,
-  DOWN,
+  BUTTON_NONE = 0x00,
+  BUTTON_LEFT = 0x01,
+  BUTTON_RIGHT = 0x02,
+  BUTTON_MIDDLE = 0x04,
+  BUTTON_BACK = 0x08,
+  BUTTON_FORWARD = 0x10,
+  //BUTTON_3,
+  //BUTTON_4,
+  //BUTTON_5,
+  //BUTTON_6,
+  //BUTTON_7,
 }
 
 KeyMod :: bit_set[KeyModBits; u16]
@@ -383,6 +383,7 @@ Gamepad :: struct {
 	action_has_been_pressed_bitset: bit_set[GamepadAction],
 	action_has_been_released_bitset: bit_set[GamepadAction],
 	action_value_unorms: [GamepadAction]f32,
+  supports_rumble: bool,
 }
 
 InputDevice :: struct {
@@ -437,10 +438,20 @@ Event :: struct {
       //code: Keycode,
       mods: KeyMod,
     },
-    mouse: struct {
+    mouse_button: struct {
+      device_id: u64, // 0 for virtual mouse
       button: MouseButton,
+      button_bitset: bit_set[MouseButton; u32],
       using pos: m.vec2,
-      scroll_direction: MouseScrollDirection,
+    },
+    mouse_moved: struct {
+      device_id: u64, // 0 for virtual mouse
+      using pos: m.vec2,
+      rel_pos: m.vec2,
+    },
+    mouse_scroll: struct {
+      device_id: u64, // 0 for virtual mouse
+      scroll_rel: m.vec2,
     },
     window: struct {
       width: u32,
@@ -451,11 +462,13 @@ Event :: struct {
 
 Mouse :: struct {
   using pos: m.vec2,
+  rel_pos: m.vec2,
   pos_before_capture: m.vec2,
   virtual_pos: m.vec2,
-  pressed: bool,
-  released: bool,
-  button: MouseButton,
+  button_is_pressed_bitset: bit_set[MouseButton; u32],
+  button_has_been_pressed_bitset: bit_set[MouseButton; u32],
+  button_has_been_released_bitset: bit_set[MouseButton; u32],
+  scroll_rel: m.vec2,
   captured: bool,
 }
 
@@ -475,7 +488,7 @@ Context :: struct {
   screen_size: m.vec2,
   window: Window,
   font: Font,
-  mouse: Mouse,
+  virt_mouse: Mouse,
   keyboard: Keyboard,
   cursor: Cursor,
   event_queue: queue.Queue(Event),
@@ -502,7 +515,7 @@ EVENT_QUEUE_INIT_CAP :: 128
 INPUT_DEVICE_MAP_CAP :: 256
 when ODIN_OS == .Linux {
   @private
-  OS_INPUT_DEVICE_BACKEND_SIZE :: 448
+  OS_INPUT_DEVICE_BACKEND_SIZE :: 504
 } else when ODIN_OS == .Windows {
   // TODO:
 }
@@ -567,7 +580,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     ui_init(engine_font_path)
 
     zephr_ctx.ui.elements = make([dynamic]UiElement, INIT_UI_STACK_SIZE)
-    zephr_ctx.mouse.pos = m.vec2{-1, -1}
+    zephr_ctx.virt_mouse.pos = m.vec2{-1, -1}
     zephr_ctx.window.size = window_size
     zephr_ctx.window.non_resizable = window_non_resizable
     zephr_ctx.projection = orthographic_projection_2d(0, window_size.x, window_size.y, 0)
@@ -593,8 +606,6 @@ should_quit :: proc() -> bool {
   gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
   zephr_ctx.cursor = .ARROW
-  zephr_ctx.mouse.released = false
-  zephr_ctx.mouse.pressed = false
 
   //audio_update();
 
@@ -610,7 +621,7 @@ consume_mouse_events :: proc() -> bool {
   defer clear(&zephr_ctx.ui.elements)
 
   #reverse for e in zephr_ctx.ui.elements {
-    if (inside_rect(e.rect, zephr_ctx.mouse.pos)) {
+    if (inside_rect(e.rect, zephr_ctx.virt_mouse.pos)) {
       zephr_ctx.ui.hovered_element = e.id
       return false
     }
@@ -636,10 +647,10 @@ swap_buffers :: proc() {
 frame_init :: proc() {
   for id, device in &zephr_ctx.input_devices_map {
     if .MOUSE in device.features {
-			//device.mouse.rel_pos = m.vec2{0, 0}
-			//device.mouse.rel_wheel_pos = m.vec2{0, 0}
-			//device.mouse.button_has_been_pressed_bitset = OS_MOUSE_BUTTONS_NONE;
-			//device.mouse.button_has_been_released_bitset = OS_MOUSE_BUTTONS_NONE;
+			device.mouse.rel_pos = m.vec2{0, 0}
+			device.mouse.scroll_rel = m.vec2{0, 0}
+			device.mouse.button_has_been_pressed_bitset = {.BUTTON_NONE}
+			device.mouse.button_has_been_released_bitset = {.BUTTON_NONE}
     }
 
     if .TOUCHPAD in device.features {
@@ -663,10 +674,10 @@ frame_init :: proc() {
     }
   }
 
-	//g_os.virt_mouse.rel_pos = s32x2(0, 0);
-	//g_os.virt_mouse.rel_wheel_pos = s32x2(0, 0);
-	//g_os.virt_mouse.button_has_been_pressed_bitset = OS_MOUSE_BUTTONS_NONE;
-	//g_os.virt_mouse.button_has_been_released_bitset = OS_MOUSE_BUTTONS_NONE;
+	zephr_ctx.virt_mouse.rel_pos = m.vec2{}
+	zephr_ctx.virt_mouse.scroll_rel = m.vec2{}
+	zephr_ctx.virt_mouse.button_has_been_pressed_bitset = {.BUTTON_NONE}
+	zephr_ctx.virt_mouse.button_has_been_released_bitset = {.BUTTON_NONE}
 
 	//g_os.virt_keyboard.key_mod_has_been_pressed_bitset = OS_KEY_MOD_NONE;
 	//g_os.virt_keyboard.key_mod_has_been_released_bitset = OS_KEY_MOD_NONE;
@@ -694,6 +705,16 @@ iter_events :: proc() -> ^Event {
   return ev
 }
 
+get_input_device_by_id :: proc(device_id: u64) -> ^InputDevice {
+  for id, device in &zephr_ctx.input_devices_map {
+    if id == device_id {
+      return &device
+    }
+  }
+
+  return nil
+}
+
 // TODO: remove this
 get_first_device_with :: proc(features: InputDeviceFeatures) -> ^InputDevice {
   for id, device in &zephr_ctx.input_devices_map {
@@ -703,6 +724,10 @@ get_first_device_with :: proc(features: InputDeviceFeatures) -> ^InputDevice {
   }
 
   return nil
+}
+
+get_all_input_devices :: proc() -> ^map[u64]InputDevice {
+  return &zephr_ctx.input_devices_map
 }
 
 get_window_size :: proc() -> m.vec2 {
@@ -716,13 +741,13 @@ toggle_fullscreen :: proc() {
 }
 
 toggle_cursor_capture :: proc() {
-  if zephr_ctx.mouse.captured {
+  if zephr_ctx.virt_mouse.captured {
     backend_release_cursor()
   } else {
     backend_grab_cursor()
   }
 
-  zephr_ctx.mouse.captured = !zephr_ctx.mouse.captured
+  zephr_ctx.virt_mouse.captured = !zephr_ctx.virt_mouse.captured
 }
 
 load_font :: proc(font_path: cstring) {
@@ -818,6 +843,12 @@ gamepad_action_is_pressed :: proc(gamepad: ^Gamepad, action: GamepadAction) -> b
   return action in gamepad.action_is_pressed_bitset
 }
 
+gamepad_rumble :: proc(device: ^InputDevice, weak_motor: u16, strong_motor: u16, duration: time.Duration, delay: time.Duration = 0) {
+  if !device.gamepad.supports_rumble do return
+
+  backend_gamepad_rumble(device, weak_motor, strong_motor, duration, delay)
+}
+
 @private
 os_event_queue_raw_gamepad_action :: proc(key: u64, action: GamepadAction, value_unorm: f32, deadzone_unorm: f32) {
   value_unorm := value_unorm
@@ -855,7 +886,7 @@ os_event_queue_raw_gamepad_action :: proc(key: u64, action: GamepadAction, value
 }
 
 is_cursor_captured :: proc() -> bool {
-  return zephr_ctx.mouse.captured
+  return zephr_ctx.virt_mouse.captured
 }
 
 @private
@@ -909,19 +940,80 @@ os_event_queue_raw_accelerometer_changed :: proc(key: u64, accel: m.vec3) {
 }
 
 @private
-os_event_queue_raw_mouse_button :: proc(key: u64, action: MouseButton, is_pressed: bool) {
+os_event_queue_raw_mouse_button :: proc(key: u64, button: MouseButton, is_pressed: bool) {
   device := input_device_get_checked(key, {.MOUSE})
-  if (is_pressed) {
-    device.mouse.pressed = true
-    device.mouse.button = action
+  if is_pressed {
+    device.mouse.button_is_pressed_bitset |= {button}
+    device.mouse.button_has_been_pressed_bitset |= {button}
   } else {
-    device.mouse.released = true
-    device.mouse.button = action
+    device.mouse.button_is_pressed_bitset &= ~{button}
+    device.mouse.button_has_been_released_bitset |= {button}
   }
 
   e: Event
-  e.type = is_pressed ? .MOUSE_BUTTON_PRESSED : .MOUSE_BUTTON_RELEASED
-  e.mouse.button = action
+  e.type = is_pressed ? .RAW_MOUSE_BUTTON_PRESSED : .RAW_MOUSE_BUTTON_RELEASED
+  e.mouse_button.device_id = key
+  e.mouse_button.button = button
+  e.mouse_button.button_bitset = device.mouse.button_is_pressed_bitset
+
+  queue.push(&zephr_ctx.event_queue, e)
+}
+
+@private
+os_event_queue_raw_mouse_moved :: proc(key: u64, rel_pos: m.vec2) {
+  device := input_device_get_checked(key, {.MOUSE})
+
+  e: Event
+  e.type = .RAW_MOUSE_MOVED
+	e.mouse_moved.device_id = key
+	e.mouse_moved.pos = m.vec2{0, 0}
+	e.mouse_moved.rel_pos = rel_pos
+
+  queue.push(&zephr_ctx.event_queue, e)
+
+	device.mouse.rel_pos = device.mouse.rel_pos + rel_pos
+}
+
+@private
+os_event_queue_raw_mouse_scroll :: proc(key: u64, scroll_rel: m.vec2) {
+  e: Event
+  e.type = .RAW_MOUSE_SCROLL
+	e.mouse_scroll.device_id = key
+	e.mouse_scroll.scroll_rel = scroll_rel
+
+  device := input_device_get_checked(key, {.MOUSE});
+	device.mouse.scroll_rel = device.mouse.scroll_rel + scroll_rel
+}
+
+@private
+os_event_queue_virt_mouse_button :: proc(button: MouseButton, is_pressed: bool) {
+  e: Event
+  e.type = is_pressed ? .VIRT_MOUSE_BUTTON_PRESSED : .VIRT_MOUSE_BUTTON_RELEASED
+  e.mouse_button.device_id = 0
+  e.mouse_button.button = button
+  e.mouse_button.pos = zephr_ctx.virt_mouse.pos
+
+	if is_pressed {
+    zephr_ctx.virt_mouse.button_is_pressed_bitset |= {button}
+    zephr_ctx.virt_mouse.button_has_been_pressed_bitset |= {button}
+	} else {
+		zephr_ctx.virt_mouse.button_is_pressed_bitset &= ~{button}
+		zephr_ctx.virt_mouse.button_has_been_released_bitset |= {button}
+	}
+
+	e.mouse_button.button_bitset = zephr_ctx.virt_mouse.button_is_pressed_bitset
+
+  queue.push(&zephr_ctx.event_queue, e)
+}
+
+@private
+os_event_queue_virt_mouse_scroll :: proc(scroll_rel: m.vec2) {
+	zephr_ctx.virt_mouse.scroll_rel = scroll_rel
+
+  e: Event
+  e.type = .VIRT_MOUSE_SCROLL
+  e.mouse_scroll.device_id = 0
+  e.mouse_scroll.scroll_rel = scroll_rel
 
   queue.push(&zephr_ctx.event_queue, e)
 }

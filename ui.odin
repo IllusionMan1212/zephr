@@ -442,10 +442,13 @@ draw_texture :: proc(constraints: ^UiConstraints, texture_id: TextureId, style: 
   set_bool(ui_shader, "hasTexture", false)
 }
 
-draw_button :: proc(constraints: ^UiConstraints, text: string, style: UiStyle, state: ButtonState, caller := #caller_location) -> bool {
+draw_button :: proc(constraints: ^UiConstraints, text: string, style: UiStyle, state: ButtonState, id: u32 = 0, caller := #caller_location) -> bool {
   line := caller.line
   line_bytes := mem.byte_slice(&line, size_of(line))
-  hash := fnv_hash32(transmute([]byte)caller.file_path, cast(u32)len(caller.file_path), FNV_HASH32_INIT)
+  id := id
+  id_bytes := mem.byte_slice(&id, size_of(id))
+  hash := fnv_hash32(id_bytes, size_of(id), FNV_HASH32_INIT)
+  hash = fnv_hash32(transmute([]byte)caller.file_path, cast(u32)len(caller.file_path), hash)
   hash = fnv_hash32(line_bytes, size_of(caller.line), hash)
 
   style := style
@@ -456,8 +459,8 @@ draw_button :: proc(constraints: ^UiConstraints, text: string, style: UiStyle, s
 
   is_hovered := zephr_ctx.ui.hovered_element == hash
   is_held := zephr_ctx.ui.active_element == hash
-  left_mouse_pressed := zephr_ctx.mouse.pressed && zephr_ctx.mouse.button == .BUTTON_LEFT
-  left_mouse_released := zephr_ctx.mouse.released && zephr_ctx.mouse.button == .BUTTON_LEFT
+  left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+  left_mouse_released := .BUTTON_LEFT in  zephr_ctx.virt_mouse.button_has_been_released_bitset
   clicked := false
 
   if (zephr_ctx.ui.active_element == 0) {
@@ -541,8 +544,8 @@ draw_icon_button :: proc(constraints: ^UiConstraints, icon_tex_id: TextureId, st
 
   is_held := zephr_ctx.ui.active_element == hash
   is_hovered := zephr_ctx.ui.hovered_element == hash
-  left_mouse_pressed := zephr_ctx.mouse.pressed && zephr_ctx.mouse.button == .BUTTON_LEFT
-  left_mouse_released := zephr_ctx.mouse.released && zephr_ctx.mouse.button == .BUTTON_LEFT
+  left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+  left_mouse_released := .BUTTON_LEFT in  zephr_ctx.virt_mouse.button_has_been_released_bitset
   clicked := false
 
   if (zephr_ctx.ui.active_element == 0) {
@@ -634,8 +637,8 @@ draw_color_picker_slider :: proc(constraints: ^UiConstraints, align: Alignment, 
   constraints.y = rect.pos.y
 
   is_hovered := zephr_ctx.ui.hovered_element == hash
-  left_mouse_pressed := zephr_ctx.mouse.pressed && zephr_ctx.mouse.button == .BUTTON_LEFT
-  left_mouse_released := zephr_ctx.mouse.released && zephr_ctx.mouse.button == .BUTTON_LEFT
+  left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+  left_mouse_released := .BUTTON_LEFT in  zephr_ctx.virt_mouse.button_has_been_released_bitset
 
   if (zephr_ctx.ui.active_element == 0) {
     if (is_hovered && left_mouse_pressed) {
@@ -650,7 +653,7 @@ draw_color_picker_slider :: proc(constraints: ^UiConstraints, align: Alignment, 
   }
 
   if (dragging) {
-    slider_selection = clamp((zephr_ctx.mouse.pos.y - constraints.y) / constraints.height, 0, 1)
+    slider_selection = clamp((zephr_ctx.virt_mouse.pos.y - constraints.y) / constraints.height, 0, 1)
   }
 
   model := m.identity(m.mat4)
@@ -740,8 +743,8 @@ draw_color_picker_canvas :: proc(constraints: ^UiConstraints, slider_percentage:
   constraints.y = rect.pos.y
 
   is_hovered := zephr_ctx.ui.hovered_element == hash
-  left_mouse_pressed := zephr_ctx.mouse.pressed && zephr_ctx.mouse.button == .BUTTON_LEFT
-  left_mouse_released := zephr_ctx.mouse.released && zephr_ctx.mouse.button == .BUTTON_LEFT
+  left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+  left_mouse_released := .BUTTON_LEFT in  zephr_ctx.virt_mouse.button_has_been_released_bitset
 
   if (zephr_ctx.ui.active_element == 0) {
     if (is_hovered && left_mouse_pressed) {
@@ -756,8 +759,8 @@ draw_color_picker_canvas :: proc(constraints: ^UiConstraints, slider_percentage:
   }
 
   if (dragging) {
-    x := (zephr_ctx.mouse.pos.x - constraints.x) / constraints.width
-    y := (zephr_ctx.mouse.pos.y - constraints.y) / constraints.height
+    x := (zephr_ctx.virt_mouse.pos.x - constraints.x) / constraints.width
+    y := (zephr_ctx.virt_mouse.pos.y - constraints.y) / constraints.height
 
     canvas_pos.x = clamp(x, 0, 1)
     canvas_pos.y = clamp(y, 0, 1)
@@ -927,8 +930,8 @@ draw_color_picker :: proc(constraints: ^UiConstraints, color: ^Color, align: Ali
 
   is_held := zephr_ctx.ui.active_element == hash
   is_hovered := zephr_ctx.ui.hovered_element == hash
-  left_mouse_pressed := zephr_ctx.mouse.pressed && zephr_ctx.mouse.button == .BUTTON_LEFT
-  left_mouse_released := zephr_ctx.mouse.released && zephr_ctx.mouse.button == .BUTTON_LEFT
+  left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+  left_mouse_released := .BUTTON_LEFT in  zephr_ctx.virt_mouse.button_has_been_released_bitset
   clicked := false
 
   if (zephr_ctx.ui.active_element == 0) {

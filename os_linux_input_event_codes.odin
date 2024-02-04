@@ -2,6 +2,8 @@
 // +private
 package zephr
 
+import "3rdparty/evdev"
+
 /*
 * Event types
 */
@@ -78,3 +80,47 @@ REL_X      :: 0x00
 REL_Y      :: 0x01
 REL_HWHEEL :: 0x06
 REL_WHEEL  :: 0x08
+
+/*
+ * Force feedback effect types
+ */
+
+FF_RUMBLE   :: 0x50
+FF_PERIODIC :: 0x51
+FF_CONSTANT :: 0x52
+FF_SPRING   :: 0x53
+FF_FRICTION :: 0x54
+FF_DAMPER   :: 0x55
+FF_INERTIA  :: 0x56
+FF_RAMP     :: 0x57
+
+FF_EFFECT_MIN :: FF_RUMBLE
+FF_EFFECT_MAX :: FF_RAMP
+
+_IOC_WRITE: u64 : 1
+
+_IOC_NRBITS   :: 8
+_IOC_TYPEBITS :: 8
+_IOC_SIZEBITS :: 14
+
+_IOC_NRSHIFT   :: 0
+_IOC_TYPESHIFT :: (_IOC_NRSHIFT+_IOC_NRBITS) // 0 + 8 = 8
+_IOC_SIZESHIFT :: (_IOC_TYPESHIFT+_IOC_TYPEBITS) // (0 + 8) + 8 = 16
+_IOC_DIRSHIFT  :: (_IOC_SIZESHIFT+_IOC_SIZEBITS) // 16 + 14 = 30
+
+
+_IOC :: proc(dir: u64, type: rune, nr: u64, size: u64) -> u64 {
+    return (((dir)  << _IOC_DIRSHIFT) |
+    ((cast(u64)type) << _IOC_TYPESHIFT) |
+    ((nr)   << _IOC_NRSHIFT) |
+    ((size) << _IOC_SIZESHIFT))
+}
+
+_IOW :: proc(type: rune, nr: u64, size: u64) -> u64 {
+    return _IOC(_IOC_WRITE, type, nr, size)
+}
+
+EVIOCSFF :: proc() -> u64 {
+    return _IOW('E', 0x80, size_of(evdev.ff_effect))	/* send a force effect to a force feedback device */
+}
+
