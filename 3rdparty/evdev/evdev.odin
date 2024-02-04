@@ -1,12 +1,12 @@
 package evdev
 
-import "core:sys/linux"
+import "core:os"
 
 foreign import evdev "system:evdev"
 
 foreign evdev {
     @(link_name = "libevdev_new_from_fd")
-    new_from_fd :: proc(fd: linux.Fd, dev: ^^libevdev) -> Err ---
+    new_from_fd :: proc(fd: os.Handle, dev: ^^libevdev) -> Err ---
     @(link_name = "libevdev_get_id_bustype")
     get_id_bustype :: proc(dev: ^libevdev) -> u16 ---
     @(link_name = "libevdev_get_id_vendor")
@@ -29,4 +29,10 @@ foreign evdev {
     get_phys :: proc(dev: ^libevdev) -> cstring ---
     @(link_name = "libevdev_free")
     free :: proc(dev: ^libevdev) ---
+    @(link_name = "libevdev_has_event_type")
+    has_event_type :: proc(dev: ^libevdev, type: u32) -> bool ---
+    @(link_name = "libevdev_has_event_code")
+    has_event_code :: proc(dev: ^libevdev, type: u32, code: u32) -> bool ---
+    @(link_name = "libevdev_get_fd")
+    get_fd :: proc(dev: ^libevdev) -> os.Handle ---
 }
