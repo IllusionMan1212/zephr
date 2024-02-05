@@ -1155,6 +1155,13 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
           input_device_backend.gamepad_bindings[.DPAD_UP] = { type = EV_ABS, code = ABS_HAT0Y, is_positive = false }
         }
 
+        // HACK: Xbox controllers have FACE_UP and FACE_LEFT swapped
+        // These are the ids for the Xbox Series S|X controller
+        if input_device.vendor_id == 0x045E && input_device.product_id == 0x0B12 {
+          input_device_backend.gamepad_bindings[.FACE_UP] = { type = EV_KEY, code = BTN_WEST, is_positive = true }
+          input_device_backend.gamepad_bindings[.FACE_LEFT] = { type = EV_KEY, code = BTN_NORTH, is_positive = true }
+        }
+
         // Check rumble capabilities and set data
         effect: evdev.ff_effect
         effect.type = FF_RUMBLE
