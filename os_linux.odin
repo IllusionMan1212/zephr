@@ -74,6 +74,10 @@ x11_window   : x11.Window
 @(private="file")
 x11_colormap : x11.Colormap
 @(private="file")
+xkb      : x11.XkbDescPtr
+@(private="file")
+xim          : x11.XIM
+@(private="file")
 glx_context  : glx.Context
 @(private="file")
 window_delete_atom : x11.Atom
@@ -349,6 +353,162 @@ evdev_scancode_to_zephr_scancode_map := []Scancode {
   236 = .NULL, // KEY_BATTERY
 }
 
+keyboard_fn_keysym_to_keycode := []Keycode {
+	0x08 = .BACKSPACE,
+	0x09 = .TAB,
+
+	0x0b = .CLEAR,
+	0x0d = .ENTER,
+	0x13 = .PAUSE,
+	0x14 = .SCROLL_LOCK,
+	0x15 = .SYSREQ,
+	0x1b = .ESCAPE,
+
+	0x50 = .HOME,
+	0x51 = .LEFT,
+	0x52 = .UP,
+	0x53 = .RIGHT,
+	0x54 = .DOWN,
+	0x55 = .PAGE_UP,
+	0x56 = .PAGE_DOWN,
+	0x57 = .END,
+
+	0x60 = .SELECT,
+	0x61 = .PRINT_SCREEN,
+	0x62 = .EXECUTE,
+	0x63 = .INSERT,
+
+	0x65 = .UNDO,
+	0x67 = .MENU,
+	0x68 = .FIND,
+	0x69 = .CANCEL,
+	0x6a = .HELP,
+
+	0x7f = .NUM_LOCK_OR_CLEAR,
+	0x80 = .KP_SPACE,
+	0x89 = .KP_TAB,
+	0x8d = .KP_ENTER,
+	0xbd = .KP_EQUALS,
+
+	0xaa = .KP_MULTIPLY,
+	0xab = .KP_PLUS,
+
+	0xad = .KP_MINUS,
+	0xae = .KP_DECIMAL,
+	0xaf = .KP_DIVIDE,
+
+	0xb0 = .KP_0,
+	0xb1 = .KP_1,
+	0xb2 = .KP_2,
+	0xb3 = .KP_3,
+	0xb4 = .KP_4,
+	0xb5 = .KP_5,
+	0xb6 = .KP_6,
+	0xb7 = .KP_7,
+	0xb8 = .KP_8,
+	0xb9 = .KP_9,
+
+	0xbe = .F1,
+	0xbf = .F2,
+	0xc0 = .F3,
+	0xc1 = .F4,
+	0xc2 = .F5,
+	0xc3 = .F6,
+	0xc4 = .F7,
+	0xc5 = .F8,
+	0xc6 = .F9,
+	0xc7 = .F10,
+	0xc8 = .F11,
+	0xc9 = .F12,
+	0xca = .F13,
+	0xcb = .F14,
+	0xcc = .F15,
+	0xcd = .F16,
+	0xce = .F17,
+	0xcf = .F18,
+	0xd0 = .F19,
+	0xd1 = .F20,
+	0xd2 = .F21,
+	0xd3 = .F22,
+	0xd4 = .F23,
+	0xd5 = .F24,
+
+	0xe1 = .LEFT_SHIFT,
+	0xe2 = .RIGHT_SHIFT,
+	0xe3 = .LEFT_CTRL,
+	0xe4 = .RIGHT_CTRL,
+	0xe5 = .CAPS_LOCK,
+	0xe6 = .CAPS_LOCK,
+	0xe7 = .LEFT_META,
+	0xe8 = .RIGHT_META,
+	0xe9 = .LEFT_ALT,
+	0xea = .RIGHT_ALT,
+	0xeb = .LEFT_META,
+	0xec = .RIGHT_META,
+
+	0xff = .DELETE,
+}
+
+keyboard_fn_ex_keysym_to_keycode := []Keycode {
+	0x03 = .RIGHT_ALT,
+	0xff = .NULL,
+}
+
+keyboard_latin_1_fn_ex_keysym_to_keycode := []Keycode {
+	0x20 = .SPACE,
+	0x27 = .APOSTROPHE,
+	0x2c = .COMMA,
+	0x2d = .MINUS,
+	0x2e = .PERIOD,
+	0x2f = .SLASH,
+	0x30 = .KEY_0,
+	0x31 = .KEY_1,
+	0x32 = .KEY_2,
+	0x33 = .KEY_3,
+	0x34 = .KEY_4,
+	0x35 = .KEY_5,
+	0x36 = .KEY_6,
+	0x37 = .KEY_7,
+	0x38 = .KEY_8,
+	0x39 = .KEY_9,
+
+	0x3b = .SEMICOLON,
+	0x3d = .EQUALS,
+
+	0x5b = .LEFT_BRACKET,
+	0x5c = .BACKSLASH,
+	0x5d = .RIGHT_BRACKET,
+	0x60 = .GRAVE,
+	0x61 = .A,
+	0x62 = .B,
+	0x63 = .C,
+	0x64 = .D,
+	0x65 = .E,
+	0x66 = .F,
+	0x67 = .G,
+	0x68 = .H,
+	0x69 = .I,
+	0x6a = .J,
+	0x6b = .K,
+	0x6c = .L,
+	0x6d = .M,
+	0x6e = .N,
+	0x6f = .O,
+	0x70 = .P,
+	0x71 = .Q,
+	0x72 = .R,
+	0x73 = .S,
+	0x74 = .T,
+	0x75 = .U,
+	0x76 = .V,
+	0x77 = .W,
+	0x78 = .X,
+	0x79 = .Y,
+	0x7a = .Z,
+
+	0xff = .NULL,
+}
+
 @(private="file")
 x11_go_fullscreen :: proc() {
   // remove the resizing constraint before going fullscreen so WMs such as gnome
@@ -462,12 +622,6 @@ x11_resize_window :: proc() {
 @(private="file")
 x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
   context.logger = logger
-  x11_display = x11.XOpenDisplay(nil)
-
-  if x11_display == nil {
-    log.error("Failed to open X11 display")
-    return
-  }
 
   screen_num := x11.XDefaultScreen(x11_display)
   root := x11.XRootWindow(x11_display, screen_num)
@@ -611,17 +765,115 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
   x11.XFree(fbc)
 }
 
+@(private="file")
+keyboard_map_update :: proc() {
+  context.logger = logger
+
+	// reset the scancodes to map directly to the keycodes
+  for sc in Scancode {
+    zephr_ctx.keyboard_scancode_to_keycode[sc] = auto_cast sc
+    zephr_ctx.keyboard_keycode_to_scancode[auto_cast sc] = sc
+	}
+
+  state: x11.XkbStateRec
+	x11.XkbGetUpdatedMap(x11_display, x11.XkbAllClientInfoMask, xkb)
+
+  group: u8 = 0
+	if x11.XkbGetState(x11_display, x11.XkbUseCoreKbd, &state) == .Success {
+		group = state.group
+	}
+
+  first_keycode := xkb.min_key_code
+	last_keycode := xkb.max_key_code
+	if (last_keycode > cast(u8)len(evdev_scancode_to_zephr_scancode_map) - 8) {
+		last_keycode = cast(u8)len(evdev_scancode_to_zephr_scancode_map) - 8 - 1
+	}
+
+	// documentation here: https://www.x.org/releases/current/doc/libX11/XKB/xkblib.html
+	// evdev keycodes are 8 less than x11 keycodes
+	x11.XkbGetKeySyms(x11_display, cast(u32)first_keycode, cast(u32)(last_keycode - first_keycode), xkb)
+  cmap := xkb._map
+  for x11keycode in 8..<last_keycode {
+    sym_map := &cmap.key_sym_map[x11keycode]
+    sym_start_idx := sym_map.offset
+		// since we do not want any key modifiers, our shift is 0
+		shift := 0
+    sym_idx := cast(int)sym_start_idx + (cast(int)sym_map.width * cast(int)group) + shift
+		sym := cmap.syms[sym_idx]
+
+		scancode := evdev_scancode_to_zephr_scancode_map[x11keycode - 8]
+		keycode := keyboard_keysym_to_keycode(cast(x11.KeySym)sym)
+
+    when ODIN_DEBUG {
+      log.debugf("scancode: %s -> key_sym: %s = 0x%x", scancode, x11.XKeysymToString(cast(x11.KeySym)sym), sym);
+    }
+
+    zephr_ctx.keyboard_scancode_to_keycode[scancode] = keycode
+		zephr_ctx.keyboard_keycode_to_scancode[keycode] = scancode
+	}
+
+  when ODIN_DEBUG {
+    for sc in Scancode {
+      log.debugf("scancode: %s -> keycode: %s", sc, zephr_ctx.keyboard_scancode_to_keycode[sc])
+    }
+  }
+}
+
+@private
+keyboard_keysym_to_keycode :: proc(key_sym: x11.KeySym) -> Keycode {
+  key_sym := cast(u32)key_sym
+  if key_sym >= 0xff00 && key_sym <= 0xffff {
+    return keyboard_fn_keysym_to_keycode[key_sym - 0xff00]
+  } else if key_sym >= 0xfe00 && key_sym <= 0xfeff {
+    return keyboard_fn_ex_keysym_to_keycode[key_sym - 0xfe00]
+  } else if key_sym >= 0x100 && key_sym <= 0x1ff {
+    return .NULL
+  } else if key_sym <= 0xff {
+    return keyboard_latin_1_fn_ex_keysym_to_keycode[key_sym]
+  } else {
+    return .NULL
+  }
+}
+
 backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
-  x11_create_window(window_title, window_size, icon_path, window_non_resizable)
+  x11_display = x11.XOpenDisplay(nil)
+
+  if x11_display == nil {
+    log.error("Failed to open X11 display")
+    return
+  }
 
 	{
-		x11.XAutoRepeatOn(x11_display)
+    // loads the XMODIFIERS environment variable to see what IME to use
+    x11.XSetLocaleModifiers("")
+    xim = x11.XOpenIM(x11_display, nil, nil, nil)
+    if(xim == nil){
+      // fallback to internal input method
+      x11.XSetLocaleModifiers("@im=none")
+      xim = x11.XOpenIM(x11_display, nil, nil, nil)
+    }
 
-		// TODO: lots more keyboard stuff to be done
+    // HACK: this is a workaround to force xlib to send us a MappingNotify
+    // event when the keyboard layout changes. No event is sent if this isn't called
+    x11.XKeysymToKeycode(x11_display, .XK_F1)
+
+		x11.XAutoRepeatOn(x11_display)
+    major: i32 = 1
+    minor: i32 = 0
+    success := x11.XkbQueryExtension(x11_display, nil, nil, nil, &major, &minor)
+    assert(cast(bool)success, "XKB extension not available")
+    success = x11.XkbUseExtension(x11_display, &major, &minor)
+    assert(cast(bool)success, "Failed to initialize XKB extension")
+
+    xkb = x11.XkbGetMap(x11_display, x11.XkbAllClientInfoMask, x11.XkbUseCoreKbd)
 
 		// this will remove KeyRelease events for held keys.
 		repeat: b32
 		x11.XkbSetDetectableAutoRepeat(x11_display, true, &repeat)
+
+    x11.XkbSelectEvents(x11_display, x11.XkbUseCoreKbd, {.MapNotify, .ActionMessage}, {.MapNotify, .ActionMessage})
+
+    keyboard_map_update()
 	}
 
   {
@@ -660,6 +912,8 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
 
 		udev.enumerate_unref(enumerate)
 	}
+
+  x11_create_window(window_title, window_size, icon_path, window_non_resizable)
 }
 
 @private
@@ -894,7 +1148,6 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
         //
         input_device_backend.gamepad_bindings = os_linux_gamepad_evdev_default_bindings
 
-        // Newer controllers assign ABS_HAT0X/Y for dpads while old ones assign BTN_DPAD_XXX
         if evdev.has_event_code(gamepad_evdev, EV_ABS, ABS_HAT0X) && evdev.has_event_code(gamepad_evdev, EV_ABS, ABS_HAT0Y) {
           input_device_backend.gamepad_bindings[.DPAD_LEFT] = { type = EV_ABS, code = ABS_HAT0X, is_positive = false }
           input_device_backend.gamepad_bindings[.DPAD_DOWN] = { type = EV_ABS, code = ABS_HAT0Y, is_positive = true }
@@ -1149,7 +1402,44 @@ backend_get_os_events :: proc() {
           break
         }
 
-        // TODO: finish this
+        switch ev.type {
+          case EV_KEY:
+          // TODO: finish this
+          //{
+          //  // remove the control modifier, as it casues control codes to be returned
+          //  XKeyEvent xkey = {0};
+          //  xkey.type = KeyPress;
+          //  xkey.serial = 0;
+          //  xkey.send_event = false;
+          //  xkey.display = os_backend->connection;
+          //  xkey.window = os_window_backend->x11;
+          //  xkey.root = DefaultRootWindow(os_backend->connection);
+          //  xkey.time = 0;
+          //  xkey.state |= (input_device->keyboard.key_mod_is_pressed_bitset & OS_KEY_MOD_SHIFT) ? ShiftMask : 0;
+          //  xkey.state |= (input_device->keyboard.key_mod_is_pressed_bitset & OS_KEY_MOD_LEFT_ALT) ? Mod1Mask : 0;
+          //  xkey.state |= (input_device->keyboard.key_mod_is_pressed_bitset & OS_KEY_MOD_RIGHT_ALT) ? Mod5Mask : 0;
+          //  xkey.keycode = e->code + 8; // x11 keycode is evdev keycode + 8
+
+          //  char string[4] = {0};
+          //  X11KeySym keysym = 0;
+          //  uint8_t string_length = Xutf8LookupString(os_window_backend->xic, &xkey, string, sizeof(string), &keysym, NULL);
+
+          //  // do not send any keys like ctrl, shift, function, arrow, escape, return, backspace.
+          //  // instead, send regular key events.
+          //  if (string_length && !(keysym >= 0xfd00 && keysym <= 0xffff)) {
+          //    os_event_queue_raw_key_input_utf8(input_device_id, string, string_length);
+          //  }
+          //}
+
+          is_pressed := ev.value >= 1 // 0 == key release, 1 == key press, 2 == key repeat
+          scancode: Scancode
+          if ev.code < cast(u16)len(evdev_scancode_to_zephr_scancode_map) {
+            scancode = evdev_scancode_to_zephr_scancode_map[ev.code]
+          } else {
+            scancode = .NULL
+          }
+          os_event_queue_raw_key_changed(id, is_pressed, scancode);
+        }
       }
     }
     if .GAMEPAD in input_device.features {
@@ -1248,30 +1538,34 @@ backend_get_os_events :: proc() {
         e.type = .WINDOW_CLOSED
         queue.push(&zephr_ctx.event_queue, e)
       }
-    } else if xev.type == .KeyPress {
-      xke := xev.xkey
+    } else if xev.type == .KeyPress || xev.type == .KeyRelease {
+      // TODO:
+      //{
+      //  // remove the control modifier, as it casues control codes to be returned
+      //  xe.xkey.state &= ~ControlMask;
 
-      evdev_keycode := xke.keycode - 8
-      scancode := evdev_scancode_to_zephr_scancode_map[evdev_keycode]
+      //  char string[4] = {0};
+      //  X11KeySym keysym = 0;
+      //  uint8_t string_length = Xutf8LookupString(os_window_backend->xic, &xe.xkey, string, sizeof(string), &keysym, NULL);
 
-      e.type = .KEY_PRESSED
-      e.key.scancode = scancode
-      //e_out.key.code = keycode;
-      e.key.mods = set_zephr_mods(scancode, true)
+      //  // do not send any keys like ctrl, shift, function, arrow, escape, return, backspace.
+      //  // instead, send regular key events.
+      //  if (string_length && !(keysym >= 0xfd00 && keysym <= 0xffff)) {
+      //    os_event_queue_virt_key_input_utf8(string, string_length);
+      //  }
+      //}
 
-      queue.push(&zephr_ctx.event_queue, e)
-    } else if xev.type == .KeyRelease {
-      xke := xev.xkey
-
-      evdev_keycode := xke.keycode - 8
-      scancode := evdev_scancode_to_zephr_scancode_map[evdev_keycode]
-
-      e.type = .KEY_RELEASED
-      e.key.scancode = scancode
-      //e_out.key.code = keycode;
-      e.key.mods = set_zephr_mods(scancode, false)
-
-      queue.push(&zephr_ctx.event_queue, e)
+      // an X11 keycode is basically a scancode.
+      // they both represent a physical key.
+      // map evdev enumeration to our keycode
+      evdev_keycode := xev.xkey.keycode - 8
+      scancode: Scancode
+      if (evdev_keycode < cast(u32)len(evdev_scancode_to_zephr_scancode_map)) {
+        scancode = evdev_scancode_to_zephr_scancode_map[evdev_keycode]
+      } else {
+        scancode = .NULL
+      }
+      os_event_queue_virt_key_changed(xev.type == .KeyPress, scancode)
     } else if xev.type == .ButtonPress || xev.type == .ButtonRelease {
       // Only handle press event for mouse buttons 4,5 (y scroll) and 6,7 (h scroll)
       if cast(int)xev.xbutton.button >= 4 && cast(int)xev.xbutton.button <= 7 {
@@ -1303,13 +1597,10 @@ backend_get_os_events :: proc() {
       }
     } else if xev.type == .MappingNotify {
       // input device mapping changed
-      if (xev.xmapping.request != .MappingKeyboard) {
-        break
+      if (xev.xmapping.request == .MappingKeyboard) {
+        x11.XRefreshKeyboardMapping(&xev.xmapping)
+        keyboard_map_update()
       }
-      x11.XRefreshKeyboardMapping(&xev.xmapping)
-      // TODO:
-      /* x11_keyboard_map_update(); */
-      break
     } else if xev.type == .MotionNotify {
       if zephr_ctx.virt_mouse.captured {
         return
