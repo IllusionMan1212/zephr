@@ -6,6 +6,7 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:container/queue"
+import "core:container/bit_array"
 import "core:time"
 
 import gl "vendor:OpenGL"
@@ -30,8 +31,8 @@ EventType :: enum {
   RAW_TOUCHPAD_ACTION_RELEASED,
   RAW_TOUCHPAD_MOVED,
   RAW_ACCELEROMETER_CHANGED,
-  KEY_PRESSED,
-  KEY_RELEASED,
+  RAW_KEY_PRESSED,
+  RAW_KEY_RELEASED,
   RAW_MOUSE_BUTTON_PRESSED,
   RAW_MOUSE_BUTTON_RELEASED,
   RAW_MOUSE_SCROLL,
@@ -40,6 +41,8 @@ EventType :: enum {
   VIRT_MOUSE_BUTTON_RELEASED,
   VIRT_MOUSE_SCROLL,
   VIRT_MOUSE_MOVED,
+  VIRT_KEY_PRESSED,
+  VIRT_KEY_RELEASED,
   WINDOW_RESIZED,
   WINDOW_CLOSED,
 }
@@ -51,11 +54,6 @@ MouseButton :: enum {
   BUTTON_MIDDLE = 0x04,
   BUTTON_BACK = 0x08,
   BUTTON_FORWARD = 0x10,
-  //BUTTON_3,
-  //BUTTON_4,
-  //BUTTON_5,
-  //BUTTON_6,
-  //BUTTON_7,
 }
 
 KeyMod :: bit_set[KeyModBits; u16]
@@ -64,23 +62,21 @@ KeyModBits :: enum {
 
   LEFT_SHIFT  = 1,
   RIGHT_SHIFT = 2,
-  SHIFT       = 3,
 
-  LEFT_CTRL   = 4,
-  RIGHT_CTRL  = 5,
-  CTRL        = 6,
+  LEFT_CTRL   = 3,
+  RIGHT_CTRL  = 4,
 
-  LEFT_ALT    = 7,
-  RIGHT_ALT   = 8,
-  ALT         = 9,
+  LEFT_ALT    = 5,
+  RIGHT_ALT   = 6,
 
-  LEFT_META   = 10,
-  RIGHT_META  = 11,
-  META        = 12,
+  LEFT_META   = 7,
+  RIGHT_META  = 8,
 
-  CAPS_LOCK   = 13,
-  NUM_LOCK    = 14,
+  CAPS_LOCK   = 9,
+  NUM_LOCK    = 10,
 }
+
+Keycode :: distinct Scancode
 
 Scancode :: enum {
   NULL = 0,
@@ -311,7 +307,7 @@ Scancode :: enum {
   RIGHT_META = 231,
 
   /** Not a key. Marks the number of scancodes. */
-  ZEPHR_KEYCODE_COUNT = 512,
+  COUNT = 512,
 }
 
 InputDeviceFeatures :: bit_set[InputDeviceFeaturesBits]
@@ -393,7 +389,7 @@ InputDevice :: struct {
   features: InputDeviceFeatures,
   mouse: Mouse,
   touchpad: Touchpad,
-  //OsKeyboard            keyboard,
+  keyboard: Keyboard,
   gamepad: Gamepad,
   accelerometer: m.vec3,
   gyroscope: m.quat,
@@ -432,10 +428,11 @@ Event :: struct {
       accel: m.vec3,
     },
     key: struct {
+      device_id: u64, // 0 for virtual keyboard
       is_pressed: bool,
       is_repeat: bool,
       scancode: Scancode,
-      //code: Keycode,
+      keycode: Keycode,
       mods: KeyMod,
     },
     mouse_button: struct {
@@ -480,7 +477,15 @@ Window :: struct {
 }
 
 Keyboard :: struct {
-  mods: KeyMod,
+  key_mod_is_pressed_bitset: KeyMod,
+  key_mod_has_been_pressed_bitset: KeyMod,
+  key_mod_has_been_released_bitset: KeyMod,
+  scancode_is_pressed_bitset: bit_array.Bit_Array,
+  scancode_has_been_pressed_bitset: bit_array.Bit_Array,
+  scancode_has_been_released_bitset: bit_array.Bit_Array,
+  keycode_is_pressed_bitset: bit_array.Bit_Array,
+  keycode_has_been_pressed_bitset: bit_array.Bit_Array,
+  keycode_has_been_released_bitset: bit_array.Bit_Array,
 }
 
 Context :: struct {
@@ -489,16 +494,14 @@ Context :: struct {
   window: Window,
   font: Font,
   virt_mouse: Mouse,
-  keyboard: Keyboard,
+  virt_keyboard: Keyboard,
+  keyboard_scancode_to_keycode: map[Scancode]Keycode,
+  keyboard_keycode_to_scancode: map[Keycode]Scancode,
   cursor: Cursor,
   event_queue: queue.Queue(Event),
   input_devices_map: map[u64]InputDevice,
   cursors: [Cursor]OsCursor,
   ui: Ui,
-
-  /* ZephrKeyboard keyboard; */
-  /* XkbDescPtr xkb; */
-  /* XIM xim; */
 
   projection: m.mat4,
 }
@@ -764,9 +767,38 @@ load_font :: proc(font_path: cstring) {
   // For now we'll just require that the ttf font file is included with the game.
 }
 
+gamepad_action_is_pressed :: proc(gamepad: ^Gamepad, action: GamepadAction) -> bool {
+  return action in gamepad.action_is_pressed_bitset
+}
+
+gamepad_rumble :: proc(device: ^InputDevice, weak_motor: u16, strong_motor: u16, duration: time.Duration, delay: time.Duration = 0) {
+  if !device.gamepad.supports_rumble do return
+
+  backend_gamepad_rumble(device, weak_motor, strong_motor, duration, delay)
+}
+
+virt_keyboard_scancode_is_pressed :: proc(key: Scancode) -> bool {
+  return bit_array.get(&zephr_ctx.virt_keyboard.scancode_is_pressed_bitset, key)
+}
+
+virt_keyboard_keycode_is_pressed :: proc(key: Keycode) -> bool {
+  return bit_array.get(&zephr_ctx.virt_keyboard.keycode_is_pressed_bitset, key)
+}
+
+is_cursor_captured :: proc() -> bool {
+  return zephr_ctx.virt_mouse.captured
+}
+
 @private
 set_cursor :: proc(cursor: Cursor) {
   zephr_ctx.cursor = cursor
+}
+
+@private
+input_device_get_checked :: proc(id: u64, features: InputDeviceFeatures) -> ^InputDevice {
+  device := &zephr_ctx.input_devices_map[id]
+	assert(device.features & features == features, fmt.tprintf("expected features '0x%x' but got '0x%x'", features, device.features))
+	return device
 }
 
 @private
@@ -833,23 +865,6 @@ os_event_queue_input_device_disconnected :: proc(key: u64) {
 }
 
 @private
-input_device_get_checked :: proc(id: u64, features: InputDeviceFeatures) -> ^InputDevice {
-  device := &zephr_ctx.input_devices_map[id]
-	assert(device.features & features == features, fmt.tprintf("expected features '0x%x' but got '0x%x'", features, device.features))
-	return device
-}
-
-gamepad_action_is_pressed :: proc(gamepad: ^Gamepad, action: GamepadAction) -> bool {
-  return action in gamepad.action_is_pressed_bitset
-}
-
-gamepad_rumble :: proc(device: ^InputDevice, weak_motor: u16, strong_motor: u16, duration: time.Duration, delay: time.Duration = 0) {
-  if !device.gamepad.supports_rumble do return
-
-  backend_gamepad_rumble(device, weak_motor, strong_motor, duration, delay)
-}
-
-@private
 os_event_queue_raw_gamepad_action :: proc(key: u64, action: GamepadAction, value_unorm: f32, deadzone_unorm: f32) {
   value_unorm := value_unorm
 
@@ -883,10 +898,6 @@ os_event_queue_raw_gamepad_action :: proc(key: u64, action: GamepadAction, value
   queue.push(&zephr_ctx.event_queue, e)
 
 	device.gamepad.action_value_unorms[action] = value_unorm
-}
-
-is_cursor_captured :: proc() -> bool {
-  return zephr_ctx.virt_mouse.captured
 }
 
 @private
@@ -971,6 +982,8 @@ os_event_queue_raw_mouse_moved :: proc(key: u64, rel_pos: m.vec2) {
 
   queue.push(&zephr_ctx.event_queue, e)
 
+	//
+	// update the mouse state with the new location
 	device.mouse.rel_pos = device.mouse.rel_pos + rel_pos
 }
 
@@ -1018,6 +1031,114 @@ os_event_queue_virt_mouse_scroll :: proc(scroll_rel: m.vec2) {
   queue.push(&zephr_ctx.event_queue, e)
 }
 
+@private
+os_event_queue_raw_key_changed :: proc(key: u64, is_pressed: bool, scancode: Scancode) {
+  device := input_device_get_checked(key, {.KEYBOARD});
+
+	// the platform window system must only send out repeated presses and not any repeated releases.
+	// on linux we call XkbSetDetectableAutoRepeat to disable repeated KeyRelease events.
+	// this allows us to simply check a repeat if the key is already pressed.
+  is_repeat := is_pressed && bit_array.get(&device.keyboard.scancode_is_pressed_bitset, scancode)
+
+	//
+	// get the keycode from the scancode and see if it is a key modifier.
+  keycode := zephr_ctx.keyboard_scancode_to_keycode[scancode]
+  key_mod: KeyModBits
+  #partial switch (keycode) {
+		case .LEFT_CTRL:   key_mod = .LEFT_CTRL
+		case .RIGHT_CTRL:  key_mod = .RIGHT_CTRL
+		case .LEFT_SHIFT:  key_mod = .LEFT_SHIFT
+		case .RIGHT_SHIFT: key_mod = .RIGHT_SHIFT
+		case .LEFT_ALT:    key_mod = .LEFT_ALT
+		case .RIGHT_ALT:   key_mod = .RIGHT_ALT
+		case .LEFT_META:   key_mod = .LEFT_META
+		case .RIGHT_META:  key_mod = .RIGHT_META
+	}
+
+	//
+	// if is_pressed -> mark the scancode, keycode and key_mod as _pressed_ in the keyboard state
+	// else ->  mark the scancode, keycode and key_mod as _released_ in the keyboard state
+	if (is_pressed) {
+		device.keyboard.key_mod_is_pressed_bitset |= {key_mod}
+		device.keyboard.key_mod_has_been_pressed_bitset |= {key_mod}
+    bit_array.set(&device.keyboard.scancode_is_pressed_bitset, scancode)
+		bit_array.set(&device.keyboard.scancode_has_been_pressed_bitset, scancode);
+		bit_array.set(&device.keyboard.keycode_is_pressed_bitset, keycode);
+		bit_array.set(&device.keyboard.keycode_has_been_pressed_bitset, keycode);
+	} else {
+		device.keyboard.key_mod_is_pressed_bitset &= ~{key_mod}
+		device.keyboard.key_mod_has_been_released_bitset |= {key_mod}
+		bit_array.unset(&device.keyboard.scancode_is_pressed_bitset, scancode);
+		bit_array.set(&device.keyboard.scancode_has_been_released_bitset, scancode);
+		bit_array.unset(&device.keyboard.keycode_is_pressed_bitset, keycode);
+		bit_array.set(&device.keyboard.keycode_has_been_released_bitset, keycode);
+	}
+
+  e: Event
+  e.type = is_pressed ? .RAW_KEY_PRESSED : .RAW_KEY_RELEASED
+  e.key.device_id = key
+  e.key.mods = device.keyboard.key_mod_is_pressed_bitset
+  e.key.is_pressed = is_pressed
+  e.key.is_repeat = is_repeat
+  e.key.scancode = scancode
+  e.key.keycode = keycode
+
+  queue.push(&zephr_ctx.event_queue, e)
+}
+
+@private
+os_event_queue_virt_key_changed :: proc(is_pressed: bool, scancode: Scancode) {
+	// the platform window system must only send out repeated presses and not any repeated releases.
+	// on linux we call XkbSetDetectableAutoRepeat to disable repeated KeyRelease events.
+	// this allows us to simply check a repeat if the key is already pressed.
+  is_repeat := is_pressed && bit_array.get(&zephr_ctx.virt_keyboard.scancode_is_pressed_bitset, scancode)
+
+	//
+	// get the keycode from the scancode and see if it is a key modifier.
+	keycode := zephr_ctx.keyboard_scancode_to_keycode[scancode]
+  key_mod: KeyModBits
+  #partial switch (keycode) {
+		case .LEFT_CTRL:   key_mod = .LEFT_CTRL
+		case .RIGHT_CTRL:  key_mod = .RIGHT_CTRL
+		case .LEFT_SHIFT:  key_mod = .LEFT_SHIFT
+		case .RIGHT_SHIFT: key_mod = .RIGHT_SHIFT
+		case .LEFT_ALT:    key_mod = .LEFT_ALT
+		case .RIGHT_ALT:   key_mod = .RIGHT_ALT
+		case .LEFT_META:   key_mod = .LEFT_META
+		case .RIGHT_META:  key_mod = .RIGHT_META
+	}
+
+	//
+	// if is_pressed -> mark the scancode, keycode and key_mod as _pressed_ in the keyboard state
+	// else ->  mark the scancode, keycode and key_mod as _released_ in the keyboard state
+	if (is_pressed) {
+		zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset |= {key_mod}
+		zephr_ctx.virt_keyboard.key_mod_has_been_pressed_bitset |= {key_mod}
+		bit_array.set(&zephr_ctx.virt_keyboard.scancode_is_pressed_bitset, scancode)
+		bit_array.set(&zephr_ctx.virt_keyboard.scancode_has_been_pressed_bitset, scancode)
+		bit_array.set(&zephr_ctx.virt_keyboard.keycode_is_pressed_bitset, keycode)
+		bit_array.set(&zephr_ctx.virt_keyboard.keycode_has_been_pressed_bitset, keycode)
+	} else {
+		zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset &= ~{key_mod}
+		zephr_ctx.virt_keyboard.key_mod_has_been_released_bitset |= {key_mod}
+		bit_array.unset(&zephr_ctx.virt_keyboard.scancode_is_pressed_bitset, scancode)
+		bit_array.set(&zephr_ctx.virt_keyboard.scancode_has_been_released_bitset, scancode)
+		bit_array.unset(&zephr_ctx.virt_keyboard.keycode_is_pressed_bitset, keycode)
+		bit_array.set(&zephr_ctx.virt_keyboard.keycode_has_been_released_bitset, keycode)
+	}
+
+  e: Event
+  e.type = is_pressed ? .VIRT_KEY_PRESSED : .VIRT_KEY_RELEASED
+	e.key.device_id = 0
+	e.key.mods = zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset;
+	e.key.is_pressed = is_pressed
+	e.key.is_repeat = is_repeat
+	e.key.scancode = scancode
+	e.key.keycode = keycode
+
+  queue.push(&zephr_ctx.event_queue, e)
+}
+
 
 /////////////////////////////
 //
@@ -1055,95 +1176,6 @@ logger_init :: proc() {
   term_logger := log.create_console_logger(opt = TerminalLoggerOpts)
 
   logger = log.create_multi_logger(file_logger, term_logger)
-}
-
-@private
-set_zephr_mods :: proc(scancode: Scancode, is_press: bool) -> KeyMod {
-  mods := zephr_ctx.keyboard.mods
-
-  if (is_press) {
-    if (scancode == .LEFT_SHIFT) {
-      mods |= {.LEFT_SHIFT, .SHIFT}
-    }
-    if (scancode == .RIGHT_SHIFT) {
-      mods |= {.RIGHT_SHIFT, .SHIFT}
-    }
-    if (scancode == .LEFT_CTRL) {
-      mods |= {.LEFT_CTRL, .CTRL}
-    }
-    if (scancode == .RIGHT_CTRL) {
-      mods |= {.RIGHT_CTRL, .CTRL}
-    }
-    if (scancode == .LEFT_ALT) {
-      mods |= {.LEFT_ALT, .ALT}
-    }
-    if (scancode == .RIGHT_ALT) {
-      mods |= {.RIGHT_ALT, .ALT}
-    }
-    if (scancode == .LEFT_META) {
-      mods |= {.LEFT_META, .META}
-    }
-    if (scancode == .RIGHT_META) {
-      mods |= {.RIGHT_META, .META}
-    }
-    if (scancode == .CAPS_LOCK) {
-      mods |= {.CAPS_LOCK}
-    }
-    if (scancode == .NUM_LOCK_OR_CLEAR) {
-      mods |= {.NUM_LOCK}
-    }
-  } else {
-    if (scancode == .LEFT_SHIFT) {
-      mods &= ~{.LEFT_SHIFT}
-    }
-    if (scancode == .RIGHT_SHIFT) {
-      mods &= ~{.RIGHT_SHIFT}
-    }
-    if (!(.RIGHT_SHIFT in mods) && !(.LEFT_SHIFT in mods)) {
-      mods &= ~{.SHIFT}
-    }
-
-    if (scancode == .LEFT_CTRL) {
-      mods &= ~{.LEFT_CTRL}
-    }
-    if (scancode == .RIGHT_CTRL) {
-      mods &= ~{.RIGHT_CTRL}
-    }
-    if (!(.RIGHT_CTRL in mods) && !(.LEFT_CTRL in mods)) {
-      mods &= ~{.CTRL}
-    }
-
-    if (scancode == .LEFT_ALT) {
-      mods &= ~{.LEFT_ALT}
-    }
-    if (scancode == .RIGHT_ALT) {
-      mods &= ~{.RIGHT_ALT}
-    }
-    if (!(.RIGHT_ALT in mods) && !(.LEFT_ALT in mods)) {
-      mods &= ~{.ALT}
-    }
-
-    if (scancode == .LEFT_META) {
-      mods &= ~{.LEFT_META}
-    }
-    if (scancode == .RIGHT_META) {
-      mods &= ~{.RIGHT_META}
-    }
-    if (!(.RIGHT_META in mods) && !(.LEFT_META in mods)) {
-      mods &= ~{.META}
-    }
-
-    if (scancode == .CAPS_LOCK) {
-      mods &= ~{.CAPS_LOCK}
-    }
-    if (scancode == .NUM_LOCK_OR_CLEAR) {
-      mods &= ~{.NUM_LOCK}
-    }
-  }
-
-  zephr_ctx.keyboard.mods = mods
-
-  return mods
 }
 
 @private
