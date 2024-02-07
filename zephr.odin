@@ -11,7 +11,13 @@ import "core:time"
 
 import gl "vendor:OpenGL"
 
+// TODO: In the future stop drawing and processing things in the engine when the window is not focused
+//       This assumes the window is just completely hidden and not just out of focus (the user can still see it)
+// BUG: Sometimes the font fails to load for some reason
+// This is pissing me tf off now
+
 Cursor :: enum {
+  INVISIBLE,
   ARROW,
   IBEAM,
   CROSSHAIR,
@@ -520,7 +526,7 @@ when ODIN_OS == .Linux {
   @private
   OS_INPUT_DEVICE_BACKEND_SIZE :: 504
 } else when ODIN_OS == .Windows {
-  // TODO:
+  OS_INPUT_DEVICE_BACKEND_SIZE :: 88
 }
 
 when ODIN_DEBUG {
@@ -559,13 +565,6 @@ engine_font_path := cstring(raw_data(relative_path("./res/fonts/Rubik/Rubik-Vari
 zephr_ctx    : Context
 @private
 logger       : log.Logger
-
-
-////////////////////////////
-//
-// Zephr
-//
-///////////////////////////
 
 
 init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, window_non_resizable: bool) {
@@ -608,7 +607,11 @@ should_quit :: proc() -> bool {
   gl.ClearColor(0.4, 0.4, 0.4, 1)
   gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-  zephr_ctx.cursor = .ARROW
+  if zephr_ctx.virt_mouse.captured {
+    zephr_ctx.cursor = .INVISIBLE
+  } else {
+    zephr_ctx.cursor = .ARROW
+  }
 
   //audio_update();
 
@@ -663,12 +666,12 @@ frame_init :: proc() {
     }
 
     if .KEYBOARD in device.features {
-			//device.keyboard.key_mod_has_been_pressed_bitset = OS_KEY_MOD_NONE
-			//device.keyboard.key_mod_has_been_released_bitset = OS_KEY_MOD_NONE
-			//CORE_ZERO_ARRAY(device.keyboard.keycode_has_been_pressed_bitset)
-			//CORE_ZERO_ARRAY(device.keyboard.keycode_has_been_released_bitset)
-			//CORE_ZERO_ARRAY(device.keyboard.virtkeycode_has_been_pressed_bitset)
-			//CORE_ZERO_ARRAY(device.keyboard.virtkeycode_has_been_released_bitset)
+			device.keyboard.key_mod_has_been_pressed_bitset = {.NONE}
+			device.keyboard.key_mod_has_been_released_bitset = {.NONE}
+      bit_array.clear(&device.keyboard.scancode_has_been_pressed_bitset)
+      bit_array.clear(&device.keyboard.scancode_has_been_released_bitset)
+      bit_array.clear(&device.keyboard.keycode_has_been_pressed_bitset)
+      bit_array.clear(&device.keyboard.keycode_has_been_released_bitset)
     }
 
     if .GAMEPAD in device.features {
@@ -682,12 +685,12 @@ frame_init :: proc() {
 	zephr_ctx.virt_mouse.button_has_been_pressed_bitset = {.BUTTON_NONE}
 	zephr_ctx.virt_mouse.button_has_been_released_bitset = {.BUTTON_NONE}
 
-	//g_os.virt_keyboard.key_mod_has_been_pressed_bitset = OS_KEY_MOD_NONE;
-	//g_os.virt_keyboard.key_mod_has_been_released_bitset = OS_KEY_MOD_NONE;
-	//CORE_ZERO_ARRAY(g_os.virt_keyboard.keycode_has_been_pressed_bitset);
-	//CORE_ZERO_ARRAY(g_os.virt_keyboard.keycode_has_been_released_bitset);
-	//CORE_ZERO_ARRAY(g_os.virt_keyboard.virtkeycode_has_been_pressed_bitset);
-	//CORE_ZERO_ARRAY(g_os.virt_keyboard.virtkeycode_has_been_released_bitset);
+	zephr_ctx.virt_keyboard.key_mod_has_been_pressed_bitset = {.NONE}
+	zephr_ctx.virt_keyboard.key_mod_has_been_released_bitset = {.NONE}
+  bit_array.clear(&zephr_ctx.virt_keyboard.scancode_has_been_pressed_bitset)
+  bit_array.clear(&zephr_ctx.virt_keyboard.scancode_has_been_released_bitset)
+  bit_array.clear(&zephr_ctx.virt_keyboard.keycode_has_been_pressed_bitset)
+  bit_array.clear(&zephr_ctx.virt_keyboard.keycode_has_been_released_bitset)
 
 	//os_backend_frame_init();
 }
@@ -820,7 +823,7 @@ os_event_queue_input_device_connected :: proc(key: u64, name: string, features: 
     return found_device
   }
 
-  log.debugf("input device connected: name: %s, vendor_id: 0x%x, product_id: 0x%x, features: 0x%x", name, vendor_id, product_id, features)
+  log.infof("input device connected: name: %s, vendor_id: 0x%x, product_id: 0x%x, features: 0x%x", name, vendor_id, product_id, features)
 
   device := InputDevice{
     name = name,
@@ -859,7 +862,7 @@ os_event_queue_input_device_disconnected :: proc(key: u64) {
 
   queue.push(&zephr_ctx.event_queue, e)
 
-  log.debugf("input device disconnected: name: %s, vendor_id: 0x%x, product_id: 0x%x, features: 0x%x", device.name, device.vendor_id, device.product_id, device.features)
+  log.infof("input device disconnected: name: %s, vendor_id: 0x%x, product_id: 0x%x, features: 0x%x", device.name, device.vendor_id, device.product_id, device.features)
 
   delete_key(&zephr_ctx.input_devices_map, key)
 }

@@ -5,9 +5,12 @@ package zephr
 import "core:log"
 import m "core:math/linalg/glsl"
 import "core:strings"
+import "core:fmt"
 import "core:strconv"
 import "core:os"
 import "core:container/queue"
+import "core:time"
+import "core:runtime"
 import win32 "core:sys/windows"
 
 import gl "vendor:OpenGL"
@@ -19,7 +22,68 @@ import gl "vendor:OpenGL"
 //       Not a priority right now.
 // TODO: only log debug when ODIN_DEBUG is true
 
+@(private="file")
+GamepadActionPair :: struct {
+	pos: GamepadAction,
+	neg: GamepadAction,
+}
+
+@(private="file")
+WindowsGamepadActionInfo :: struct {
+	bit_count: u32,
+	action_pair: GamepadActionPair,
+}
+
+#assert(size_of(WindowsInputDevice) == OS_INPUT_DEVICE_BACKEND_SIZE)
+
+@(private="file")
+WindowsInputDevice :: struct {
+	raw_input_device_handle: win32.HANDLE,
+	hid_device_handle: win32.HANDLE,
+	preparsed_data: win32.PHIDP_PREPARSED_DATA,
+	preparsed_data_size: u64,
+	gamepad_data_index_to_action_infos: [dynamic]WindowsGamepadActionInfo,
+	gamepad_data_index_to_action_infos_count: win32.c_uint,
+	hatswitch_data_index: win32.c_uint,
+	hatswitch_min: win32.c_uint,
+	found_e11d: bool, // used for pause key as it can only be recognised with 2 events
+}
+
 OsCursor :: win32.HCURSOR
+
+@(private="file")
+HID_USAGE_PAGE_GENERIC :: 0x01
+@(private="file")
+HID_USAGE_PAGE_BUTTON  :: 0x09
+
+@(private="file")
+HID_USAGE_GENERIC_MOUSE :: 0x02
+@(private="file")
+HID_USAGE_GENERIC_GAMEPAD :: 0x05
+@(private="file")
+HID_USAGE_GENERIC_KEYBOARD :: 0x06
+
+@(private="file")
+RIDI_PREPARSEDDATA :: 0x20000005
+@(private="file")
+RIDI_DEVICENAME    :: 0x20000007
+@(private="file")
+RIDI_DEVICEINFO    :: 0x2000000b
+
+@(private="file")
+RI_KEY_MAKE  :: 0
+@(private="file")
+RI_KEY_BREAK :: 1
+@(private="file")
+RI_KEY_E0    :: 2
+@(private="file")
+RI_KEY_E1    :: 4
+
+@(private="file")
+HID_STRING_CAP :: 2048
+// 4093 comes from: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/hidsdi/nf-hidsdi-hidd_getproductstring
+@(private="file")
+HID_STRING_BYTE_CAP :: 4093
 
 @(private="file")
 WindowsEvent :: struct {
@@ -29,7 +93,9 @@ WindowsEvent :: struct {
 }
 
 @(private="file")
-events: queue.Queue(WindowsEvent)
+invisible_cursor : win32.HCURSOR
+@(private="file")
+events : queue.Queue(WindowsEvent)
 
 @(private="file")
 hwnd : win32.HWND
@@ -45,42 +111,591 @@ temp_device_ctx : win32.HDC
 @(private="file")
 temp_wgl_context: win32.HGLRC
 
-backend_get_screen_size :: proc() -> m.vec2 {
-    screen_size := m.vec2{
-        cast(f32)win32.GetSystemMetrics(win32.SM_CXSCREEN),
-        cast(f32)win32.GetSystemMetrics(win32.SM_CYSCREEN),
-    }
-    return screen_size
+win32_scancode_to_zephr_scancode_map := []Scancode {
+	.NULL, // NULL
+	.ESCAPE,
+	.KEY_1,
+	.KEY_2,
+	.KEY_3,
+	.KEY_4,
+	.KEY_5,
+	.KEY_6,
+	.KEY_7,
+	.KEY_8,
+	.KEY_9,
+	.KEY_0,
+	.MINUS,
+	.EQUALS,
+	.BACKSPACE,
+	.TAB,
+	.Q,
+	.W,
+	.E,
+	.R,
+	.T,
+	.Y,
+	.U,
+	.I,
+	.O,
+	.P,
+	.LEFT_BRACKET,
+	.RIGHT_BRACKET,
+	.ENTER,
+	.LEFT_CTRL,
+	.A,
+	.S,
+	.D,
+	.F,
+	.G,
+	.H,
+	.J,
+	.K,
+	.L,
+	.SEMICOLON,
+	.APOSTROPHE,
+	.GRAVE,
+	.LEFT_SHIFT,
+	.BACKSLASH,
+	.Z,
+	.X,
+	.C,
+	.V,
+	.B,
+	.N,
+	.M,
+	.COMMA,
+	.PERIOD,
+	.SLASH,
+	.RIGHT_SHIFT,
+	.KP_MULTIPLY,
+	.LEFT_ALT,
+	.SPACE,
+	.CAPS_LOCK,
+	.F1,
+	.F2,
+	.F3,
+	.F4,
+	.F5,
+	.F6,
+	.F7,
+	.F8,
+	.F9,
+	.F10,
+	.NUM_LOCK_OR_CLEAR,
+	.SCROLL_LOCK,
+	.KP_7,
+	.KP_8,
+	.KP_9,
+	.KP_MINUS,
+	.KP_4,
+	.KP_5,
+	.KP_6,
+	.KP_PLUS,
+	.KP_1,
+	.KP_2,
+	.KP_3,
+	.KP_0,
+	.KP_PERIOD,
+	.PRINT_SCREEN, // ALT + PRINTSCREEN
+	.NULL,
+	.NON_US_HASH, // bracket angle
+	.F11,
+	.F12,
+	.KP_EQUALS,
+	.NULL, // OEM_1
+	.NULL, // OEM_2
+	.NULL, // OEM_3
+	.NULL, // ERASEEOF
+	.NULL, // OEM_4
+	.NULL, // OEM_5
+	.NULL,
+	.NULL,
+	.NULL, // ZOOM
+	.HELP,
+	.F13,
+	.F14,
+	.F15,
+	.F16,
+	.F17,
+	.F18,
+	.F19,
+	.F20,
+	.F21,
+	.F22,
+	.F23,
+	.NULL, // OEM_6
+	.NULL, // KATAKANA
+	.NULL, // OEM_7
+	.NULL,
+	.NULL,
+	.NULL,
+	.NULL,
+	.F24,
+	.NULL, // SBCSCHAR
+	.NULL,
+	.NULL, // CONVERT
+	.NULL,
+	.NULL, // NONCONVERT
 }
 
-backend_toggle_fullscreen :: proc(fullscreen: bool) {
+win32_scancode_0xe000_to_zephr_scancode_map := []Scancode {
+	0x10 = .NULL, // MEDIA_PREVIOUS
+	0x19 = .NULL, // MEDIA_NEXT
+	0x1C = .KP_ENTER,
+	0x1D = .RIGHT_CTRL,
+	0x20 = .MUTE,
+	0x21 = .NULL, // LAUNCH_APP2
+	0x22 = .NULL, // MEDIA_PLAY
+	0x24 = .NULL, // MEDIA_STOP
+	0x2E = .VOLUME_DOWN,
+	0x30 = .VOLUME_UP,
+	0x32 = .NULL, // BROWSER_HOME
+	0x35 = .KP_DIVIDE,
+	/*
+	sc_printScreen:
+	- make: 0xE02A 0xE037
+	- break: 0xE0B7 0xE0AA
+	- MapVirtualKeyEx( VK_SNAPSHOT, MAPVK_VK_TO_VSC_EX, 0 ) returns scancode 0x54;
+	- There is no VK_KEYDOWN with VK_SNAPSHOT.
+	*/
+	0x37 = .PRINT_SCREEN,
+	0x38 = .RIGHT_ALT,
+	0x46 = .CANCEL, /* CTRL + Pause */
+	0x47 = .HOME,
+	0x48 = .UP,
+	0x49 = .PAGE_UP,
+	0x4B = .LEFT,
+	0x4D = .RIGHT,
+	0x4F = .END,
+	0x50 = .DOWN,
+	0x51 = .PAGE_DOWN,
+	0x52 = .INSERT,
+	0x53 = .DELETE,
+	0x5B = .LEFT_META,
+	0x5C = .RIGHT_META,
+	0x5D = .APPLICATION,
+	0x5E = .POWER,
+	0x5F = .NULL, // SLEEP
+	0x63 = .NULL, // WAKE
+	0x65 = .NULL, // BROWSER_SEARCH
+	0x66 = .NULL, // BROWSER_FAVORITES
+	0x67 = .NULL, // BROWSER_REFRESH
+	0x68 = .NULL, // BROWSER_STOP
+	0x69 = .NULL, // BROWSER_FORWARD
+	0x6A = .NULL, // BROWSER_BACK
+	0x6B = .NULL, // LAUNCH_APP1
+	0x6C = .NULL, // LAUNCH_EMAIL
+	0x6D = .NULL, // LAUNCH_MEDIA
+}
+
+@(private="file")
+win32_keycode_to_zephr_keycode_map := []Keycode {
+	win32.VK_LBUTTON = .NULL,
+	win32.VK_RBUTTON = .NULL,
+	win32.VK_CANCEL = .CANCEL,
+	win32.VK_MBUTTON = .NULL,
+	win32.VK_XBUTTON1 = .NULL,
+	win32.VK_XBUTTON2 = .NULL,
+	win32.VK_BACK = .BACKSPACE,
+	win32.VK_TAB = .TAB,
+	win32.VK_CLEAR = .CLEAR,
+	win32.VK_RETURN = .ENTER,
+	win32.VK_SHIFT = .LEFT_SHIFT,
+	win32.VK_CONTROL = .LEFT_CTRL,
+	win32.VK_MENU = .LEFT_ALT,
+	win32.VK_PAUSE = .PAUSE,
+	win32.VK_CAPITAL = .NULL,
+	win32.VK_KANA = .NULL,
+	win32.VK_IME_ON = .NULL,
+	win32.VK_JUNJA = .NULL,
+	win32.VK_FINAL = .NULL,
+	win32.VK_HANJA = .NULL,
+	win32.VK_IME_OFF = .NULL,
+	win32.VK_ESCAPE = .ESCAPE,
+	win32.VK_CONVERT = .NULL,
+	win32.VK_NONCONVERT = .NULL,
+	win32.VK_ACCEPT = .NULL,
+	win32.VK_MODECHANGE = .NULL,
+	win32.VK_SPACE = .SPACE,
+	win32.VK_PRIOR = .PRIOR,
+	win32.VK_NEXT = .NULL,
+	win32.VK_END = .END,
+	win32.VK_HOME = .HOME,
+	win32.VK_LEFT = .LEFT,
+	win32.VK_UP = .UP,
+	win32.VK_RIGHT = .RIGHT,
+	win32.VK_DOWN = .DOWN,
+	win32.VK_SELECT = .SELECT,
+	win32.VK_PRINT = .PRINT_SCREEN,
+	win32.VK_EXECUTE = .EXECUTE,
+	win32.VK_SNAPSHOT = .NULL,
+	win32.VK_INSERT = .INSERT,
+	win32.VK_DELETE = .DELETE,
+	win32.VK_HELP = .HELP,
+	'0' = .KEY_0,
+	'1' = .KEY_1,
+	'2' = .KEY_2,
+	'3' = .KEY_3,
+	'4' = .KEY_4,
+	'5' = .KEY_5,
+	'6' = .KEY_6,
+	'7' = .KEY_7,
+	'8' = .KEY_8,
+	'9' = .KEY_9,
+	'A' = .A,
+	'B' = .B,
+	'C' = .C,
+	'D' = .D,
+	'E' = .E,
+	'F' = .F,
+	'G' = .G,
+	'H' = .H,
+	'I' = .I,
+	'J' = .J,
+	'K' = .K,
+	'L' = .L,
+	'M' = .M,
+	'N' = .N,
+	'O' = .O,
+	'P' = .P,
+	'Q' = .Q,
+	'R' = .R,
+	'S' = .S,
+	'T' = .T,
+	'U' = .U,
+	'V' = .V,
+	'W' = .W,
+	'X' = .X,
+	'Y' = .Y,
+	'Z' = .Z,
+	win32.VK_LWIN = .LEFT_META,
+	win32.VK_RWIN = .RIGHT_META,
+	win32.VK_APPS = .NULL,
+	win32.VK_SLEEP = .NULL,
+	win32.VK_NUMPAD0 = .KP_0,
+	win32.VK_NUMPAD1 = .KP_1,
+	win32.VK_NUMPAD2 = .KP_2,
+	win32.VK_NUMPAD3 = .KP_3,
+	win32.VK_NUMPAD4 = .KP_4,
+	win32.VK_NUMPAD5 = .KP_5,
+	win32.VK_NUMPAD6 = .KP_6,
+	win32.VK_NUMPAD7 = .KP_7,
+	win32.VK_NUMPAD8 = .KP_8,
+	win32.VK_NUMPAD9 = .KP_9,
+	win32.VK_MULTIPLY = .KP_MULTIPLY,
+	win32.VK_ADD = .KP_PLUS,
+	win32.VK_SEPARATOR = .SEPARATOR,
+	win32.VK_SUBTRACT = .KP_MINUS,
+	win32.VK_DECIMAL = .KP_DECIMAL,
+	win32.VK_DIVIDE = .KP_DIVIDE,
+	win32.VK_F1 = .F1,
+	win32.VK_F2 = .F2,
+	win32.VK_F3 = .F3,
+	win32.VK_F4 = .F4,
+	win32.VK_F5 = .F5,
+	win32.VK_F6 = .F6,
+	win32.VK_F7 = .F7,
+	win32.VK_F8 = .F8,
+	win32.VK_F9 = .F9,
+	win32.VK_F10 = .F10,
+	win32.VK_F11 = .F11,
+	win32.VK_F12 = .F12,
+	win32.VK_F13 = .F13,
+	win32.VK_F14 = .F14,
+	win32.VK_F15 = .F15,
+	win32.VK_F16 = .F16,
+	win32.VK_F17 = .F17,
+	win32.VK_F18 = .F18,
+	win32.VK_F19 = .F19,
+	win32.VK_F20 = .F20,
+	win32.VK_F21 = .F21,
+	win32.VK_F22 = .F22,
+	win32.VK_F23 = .F23,
+	win32.VK_F24 = .F24,
+    0x88 = .NULL, // VK_NAVIGATION_VIEW
+    0x89 = .APPLICATION, // VK_NAVIGATION_MENU
+    0x8A = .UP, // VK_NAVIGATION_UP
+    0x8B = .DOWN, // VK_NAVIGATION_DOWN
+    0x8C = .LEFT, // VK_NAVIGATION_LEFT
+    0x8D = .RIGHT, // VK_NAVIGATION_RIGHT
+    0x8E = .NULL, // VK_NAVIGATION_ACCPET
+    0x8F = .NULL, // VK_NAVIGATION_CANCEL
+	win32.VK_NUMLOCK = .NUM_LOCK_OR_CLEAR,
+	win32.VK_SCROLL = .SCROLL_LOCK,
+	win32.VK_OEM_NEC_EQUAL = .NULL,
+	win32.VK_OEM_FJ_MASSHOU = .NULL,
+	win32.VK_OEM_FJ_TOUROKU = .NULL,
+	win32.VK_OEM_FJ_LOYA = .NULL,
+	win32.VK_OEM_FJ_ROYA = .NULL,
+	win32.VK_LSHIFT = .LEFT_SHIFT,
+	win32.VK_RSHIFT = .RIGHT_SHIFT,
+	win32.VK_LCONTROL = .LEFT_CTRL,
+	win32.VK_RCONTROL = .RIGHT_CTRL,
+	win32.VK_LMENU = .NULL,
+	win32.VK_RMENU = .NULL,
+	win32.VK_BROWSER_BACK = .NULL,
+	win32.VK_BROWSER_FORWARD = .NULL,
+	win32.VK_BROWSER_REFRESH = .NULL,
+	win32.VK_BROWSER_STOP = .NULL,
+	win32.VK_BROWSER_SEARCH = .NULL,
+	win32.VK_BROWSER_FAVORITES = .NULL,
+	win32.VK_BROWSER_HOME = .NULL,
+	win32.VK_VOLUME_MUTE = .MUTE,
+	win32.VK_VOLUME_DOWN = .VOLUME_DOWN,
+	win32.VK_VOLUME_UP = .VOLUME_UP,
+	win32.VK_MEDIA_NEXT_TRACK = .NULL,
+	win32.VK_MEDIA_PREV_TRACK = .NULL,
+	win32.VK_MEDIA_STOP = .NULL,
+	win32.VK_MEDIA_PLAY_PAUSE = .NULL,
+	win32.VK_LAUNCH_MAIL = .NULL,
+	win32.VK_LAUNCH_MEDIA_SELECT = .NULL,
+	win32.VK_LAUNCH_APP1 = .NULL,
+	win32.VK_LAUNCH_APP2 = .NULL,
+	win32.VK_OEM_1 = .SEMICOLON,
+	win32.VK_OEM_PLUS = .NULL,
+	win32.VK_OEM_COMMA = .NULL,
+	win32.VK_OEM_MINUS = .NULL,
+	win32.VK_OEM_PERIOD = .NULL,
+	win32.VK_OEM_2 = .NULL,
+	win32.VK_OEM_3 = .NULL,
+	0xC3 = .NULL, // VK_GAMEPAD_A
+	0xC4 = .NULL, // VK_GAMEPAD_B
+	0xC5 = .NULL, // VK_GAMEPAD_X
+	0xC6 = .NULL, // VK_GAMEPAD_Y
+	0xC7 = .NULL, // VK_GAMEPAD_RIGHT_SHOULDER
+	0xC8 = .NULL, // VK_GAMEPAD_LEFT_SHOULDER
+	0xC9 = .NULL, // VK_GAMEPAD_LEFT_TRIGGER
+	0xCA = .NULL, // VK_GAMEPAD_RIGHT_TRIGGER
+	0xCB = .NULL, // VK_GAMEPAD_DPAD_UP
+	0xCC = .NULL, // VK_GAMEPAD_DPAD_DOWN
+	0xCD = .NULL, // VK_GAMEPAD_DPAD_LEFT
+	0xCE = .NULL, // VK_GAMEPAD_DPAD_RIGHT
+	0xCF = .NULL, // VK_GAMEPAD_MENU
+	0xD0 = .NULL, // VK_GAMEPAD_VIEW
+	0xD1 = .NULL, // VK_GAMEPAD_LEFT_THUMBSTICK_BUTTON
+	0xD2 = .NULL, // VK_GAMEPAD_RIGHT_THUMBSTICK_BUTTON
+	0xD3 = .NULL, // VK_GAMEPAD_LEFT_THUMBSTICK_UP
+	0xD4 = .NULL, // VK_GAMEPAD_LEFT_THUMBSTICK_DOWN
+	0xD5 = .NULL, // VK_GAMEPAD_LEFT_THUMBSTICK_RIGHT
+	0xD6 = .NULL, // VK_GAMEPAD_LEFT_THUMBSTICK_LEFT
+	0xD7 = .NULL, // VK_GAMEPAD_RIGHT_THUMBSTICK_UP
+	0xD8 = .NULL, // VK_GAMEPAD_RIGHT_THUMBSTICK_DOWN
+	0xD9 = .NULL, // VK_GAMEPAD_RIGHT_THUMBSTICK_RIGHT
+	0xDA = .NULL, // VK_GAMEPAD_RIGHT_THUMBSTICK_LEFT
+	win32.VK_OEM_4 = .NULL,
+	win32.VK_OEM_5 = .NULL,
+	win32.VK_OEM_6 = .NULL,
+	win32.VK_OEM_7 = .NULL,
+	win32.VK_OEM_8 = .NULL,
+	win32.VK_OEM_AX = .NULL,
+	win32.VK_OEM_102 = .NULL,
+	win32.VK_ICO_HELP = .NULL,
+	win32.VK_ICO_00 = .NULL,
+	win32.VK_PROCESSKEY = .NULL,
+	win32.VK_ICO_CLEAR = .NULL,
+	win32.VK_PACKET = .NULL,
+	win32.VK_OEM_RESET = .NULL,
+	win32.VK_OEM_JUMP = .NULL,
+	win32.VK_OEM_PA1 = .NULL,
+	win32.VK_OEM_PA2 = .NULL,
+	win32.VK_OEM_PA3 = .NULL,
+	win32.VK_OEM_WSCTRL = .NULL,
+	win32.VK_OEM_CUSEL = .NULL,
+	win32.VK_OEM_ATTN = .NULL,
+	win32.VK_OEM_FINISH = .NULL,
+	win32.VK_OEM_COPY = .NULL,
+	win32.VK_OEM_AUTO = .NULL,
+	win32.VK_OEM_ENLW = .NULL,
+	win32.VK_OEM_BACKTAB = .NULL,
+	win32.VK_ATTN = .NULL,
+	win32.VK_CRSEL = .CRSEL,
+	win32.VK_EXSEL = .EXSEL,
+	win32.VK_EREOF = .NULL,
+	win32.VK_PLAY = .NULL,
+	win32.VK_ZOOM = .NULL,
+	win32.VK_NONAME = .NULL,
+	win32.VK_PA1 = .NULL,
+	win32.VK_OEM_CLEAR = .NULL,
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/inputdev/about-keyboard-input#scan-codes
+// https://download.microsoft.com/download/1/6/1/161ba512-40e2-4cc9-843a-923143f3456c/translate.pdf
+@(private="file")
+scan1_scancode_to_zephr_scancode_map :: proc(scancode: u8, is_extended: bool) -> Scancode {
     context.logger = logger
-    // TODO: handle multiple monitors
 
-    if fullscreen {
-        w := cast(i32)zephr_ctx.window.pre_fullscreen_size.x
-        h := cast(i32)zephr_ctx.window.pre_fullscreen_size.y
+    switch scancode {
+        case 0: return .NULL
 
-        win_style := (win32.WS_OVERLAPPEDWINDOW if !zephr_ctx.window.non_resizable else win32.WS_OVERLAPPEDWINDOW & ~win32.WS_MAXIMIZEBOX & ~win32.WS_THICKFRAME) | win32.WS_VISIBLE
+        case 0x1E: return .A
+        case 0x30: return .B
+        case 0x2E: return .C
+        case 0x20: return .D
+        case 0x12: return .E
+        case 0x21: return .F
+        case 0x22: return .G
+        case 0x23: return .H
+        case 0x17: return .I
+        case 0x24: return .J
+        case 0x25: return .K
+        case 0x26: return .L
+        case 0x32: return .M
+        case 0x31: return .N
+        case 0x18: return .O
+        case 0x19: return .P
+        case 0x10: return .Q
+        case 0x13: return .R
+        case 0x1F: return .S
+        case 0x14: return .T
+        case 0x16: return .U
+        case 0x2F: return .V
+        case 0x11: return .W
+        case 0x2D: return .X
+        case 0x15: return .Y
+        case 0x2C: return .Z
 
-        // Adjust the rect to account for the window titlebar and frame sizes
-        rect := win32.RECT{0, 0, w, h}
-        win32.AdjustWindowRect(&rect, win_style, false)
+        case 0x02: return .KEY_1
+        case 0x03: return .KEY_2
+        case 0x04: return .KEY_3
+        case 0x05: return .KEY_4
+        case 0x06: return .KEY_5
+        case 0x07: return .KEY_6
+        case 0x08: return .KEY_7
+        case 0x09: return .KEY_8
+        case 0x0A: return .KEY_9
+        case 0x0B: return .KEY_0
 
-        w = rect.right - rect.left
-        h = rect.bottom - rect.top
-        x := cast(i32)(zephr_ctx.screen_size.x / 2 - cast(f32)w / 2)
-        y := cast(i32)(zephr_ctx.screen_size.y / 2 - cast(f32)h / 2)
+        case 0x1C: return .KP_ENTER if is_extended else .ENTER
+        case 0x01: return .ESCAPE
+        case 0x0E: return .BACKSPACE // Says "Keyboard Delete" on microsoft.com but it's actually backspace
+        case 0x0F: return .TAB
+        case 0x39: return .SPACE
 
-        win32.SetWindowLongPtrW(hwnd, win32.GWL_STYLE, cast(win32.LONG_PTR)(win_style))
-        win32.SetWindowPos(hwnd, nil, x, y, w, h, win32.SWP_FRAMECHANGED)
-    } else {
-        zephr_ctx.window.pre_fullscreen_size = zephr_ctx.window.size
-        w := cast(i32)zephr_ctx.screen_size.x
-        h := cast(i32)zephr_ctx.screen_size.y
-        result := win32.SetWindowLongPtrW(hwnd, win32.GWL_STYLE, cast(win32.LONG_PTR)(win32.WS_VISIBLE | win32.WS_POPUPWINDOW))
-        win32.SetWindowPos(hwnd, win32.HWND_TOP, 0, 0, w, h, win32.SWP_FRAMECHANGED)
+        case 0x0C: return .MINUS
+        case 0x0D: return .EQUALS
+        case 0x1A: return .LEFT_BRACKET
+        case 0x1B: return .RIGHT_BRACKET
+        case 0x2B: return .BACKSLASH
+        //case 0x2B: return = .NON_US_HASH, // European keyboards have a hash instead of a backslash. Maps to a different HID scancode
+        case 0x27: return .SEMICOLON
+        case 0x28: return .APOSTROPHE
+        case 0x29: return .GRAVE
+        case 0x33: return .COMMA
+        case 0x34: return .PERIOD
+        case 0x35: return .KP_DIVIDE if is_extended else .SLASH
+
+        case 0x3A: return .CAPS_LOCK
+
+        case 0x3B: return .F1
+        case 0x3C: return .F2
+        case 0x3D: return .F3
+        case 0x3E: return .F4
+        case 0x3F: return .F5
+        case 0x40: return .F6
+        case 0x41: return .F7
+        case 0x42: return .F8
+        case 0x43: return .F9
+        case 0x44: return .F10
+        case 0x57: return .F11
+        case 0x58: return .F12
+
+        case 0x54: return .PRINT_SCREEN // Only emitted on KeyRelease
+        case 0x46: return .PAUSE if is_extended else .SCROLL_LOCK
+        case 0x45: return .NUM_LOCK_OR_CLEAR if is_extended else .PAUSE
+        //case 0xE11D45 = .PAUSE, // Some legacy stuff ???
+        case 0x52: return .INSERT if is_extended else .KP_0
+        case 0x47: return .HOME if is_extended else .KP_7
+        case 0x49: return .PAGE_UP if is_extended else .KP_9
+        case 0x53: return .DELETE if is_extended else .KP_PERIOD
+        case 0x4F: return .END if is_extended else .KP_1
+        case 0x51: return .PAGE_DOWN if is_extended else .KP_3
+        case 0x4D: return .RIGHT if is_extended else .KP_6
+        case 0x4B: return .LEFT if is_extended else .KP_4
+        case 0x50: return .DOWN if is_extended else .KP_2
+        case 0x48: return .UP if is_extended else .KP_8
+        case 0x37: return .PRINT_SCREEN if is_extended else .KP_MULTIPLY
+        case 0x4A: return .KP_MINUS
+        case 0x4E: return .KP_PLUS
+        case 0x4C: return .KP_5
+
+        case 0x56: return .NON_US_BACKSLASH
+        case 0x5D:
+            if is_extended {
+                return .APPLICATION
+            } else {
+                log.warnf("Pressed unmapped key: %d. Extended key: %s", scancode, is_extended)
+            }
+        case 0x5E:
+            if is_extended {
+                return .POWER
+            } else {
+                log.warnf("Pressed unmapped key: %d. Extended key: %s", scancode, is_extended)
+            }
+        case 0x59: return .KP_EQUALS
+        case 0x64: return .F13
+        case 0x65: return .F14
+        case 0x66: return .F15
+        case 0x67: return .F16
+        case 0x68: return .F17
+        case 0x69: return .F18
+        case 0x6A: return .F19
+        case 0x6B: return .F20
+        case 0x6C: return .F21
+        case 0x6D: return .F22
+        case 0x6E: return .F23
+        case 0x76: return .F24
+
+        case 0x7E: return .KP_COMMA
+        case 0x73: return .INTERNATIONAL1
+        case 0x70: return .INTERNATIONAL2
+        case 0x7D: return .INTERNATIONAL3
+        case 0x79: return .INTERNATIONAL4
+        case 0x7B: return .INTERNATIONAL5
+        case 0x5C: return .RIGHT_META if is_extended else .INTERNATIONAL6
+        case 0x72: return .LANG1 // Only emitted on Key Release
+        case 0xF2: return .LANG1 // Legacy, Only emitted on Key Release
+        case 0x71: return .LANG2 // Only emitted on Key Release
+        case 0xF1: return .LANG2 // Legacy, Only emitted on Key Release
+        case 0x78: return .LANG3
+        case 0x77: return .LANG4
+        //case 0x76: return .LANG5 // Conflicts with F24
+
+        case 0x1D: return .RIGHT_CTRL if is_extended else .LEFT_CTRL
+        case 0x2A: return .LEFT_SHIFT
+        case 0x36: return .RIGHT_SHIFT
+        case 0x38: return .RIGHT_ALT if is_extended else .LEFT_ALT
+        case 0x5B:
+            if is_extended {
+                return .LEFT_META
+            } else {
+                log.warnf("Pressed unmapped key: %d. Extended key: %s", scancode, is_extended)
+            }
+        // End of Keyboard/Keypad section on microsoft.com
+        // We currently don't map or care about the Consumer section
     }
+
+    return .NULL
+}
+
+@(private="file")
+win32_scancode_to_zephr_scancode :: proc(win32_scancode: u32) -> Scancode {
+    win32_scancode := win32_scancode
+	if (win32_scancode < 0xE000) {
+		if (win32_scancode >= cast(u32)len(win32_scancode_to_zephr_scancode_map)) {
+			return .NULL
+		}
+		return win32_scancode_to_zephr_scancode_map[win32_scancode]
+	} else {
+		win32_scancode -= 0xE000
+		if (win32_scancode >= cast(u32)len(win32_scancode_0xe000_to_zephr_scancode_map)) {
+			return .NULL
+		}
+		return win32_scancode_0xe000_to_zephr_scancode_map[win32_scancode]
+	}
+}
+
+windows_input_device :: proc(input_device: ^InputDevice) -> ^WindowsInputDevice {
+	return cast(^WindowsInputDevice)&input_device.backend_data
 }
 
 @(private="file")
@@ -274,54 +889,478 @@ init_gl :: proc(class_name: win32.wstring, window_title: win32.wstring, window_s
 }
 
 @(private="file")
-os_event_to_zephr_event :: proc(msg: win32.UINT) -> EventType {
-    switch msg {
-        case win32.WM_CLOSE: return .WINDOW_CLOSED
-        case win32.WM_SIZE: return .WINDOW_RESIZED
-        case win32.WM_MOUSEMOVE: return .MOUSE_MOVED
-        case win32.WM_MOUSEWHEEL: return .MOUSE_SCROLL
-        case win32.WM_LBUTTONDOWN: fallthrough
-        case win32.WM_MBUTTONDOWN: fallthrough
-        case win32.WM_RBUTTONDOWN: fallthrough
-        case win32.WM_XBUTTONDOWN: return .MOUSE_BUTTON_PRESSED
-        case win32.WM_LBUTTONUP: fallthrough
-        case win32.WM_MBUTTONUP: fallthrough
-        case win32.WM_RBUTTONUP: fallthrough
-        case win32.WM_XBUTTONUP: return .MOUSE_BUTTON_RELEASED
-        case win32.WM_SYSKEYDOWN: fallthrough
-        case win32.WM_KEYDOWN: return .KEY_PRESSED
-        case win32.WM_SYSKEYUP: fallthrough
-        case win32.WM_KEYUP: return .KEY_RELEASED
-    }
+window_proc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
+    context = runtime.default_context()
+    context.logger = logger
 
-    return .UNKNOWN
-}
-
-window_proc :: proc(hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
     result: win32.LRESULT
 
     switch msg {
-        case win32.WM_CLOSE: fallthrough
-        case win32.WM_SIZE: fallthrough
-        case win32.WM_MOUSEMOVE: fallthrough
-        case win32.WM_MOUSEWHEEL: fallthrough
+        case win32.WM_CLOSE:
+            e: Event
+            e.type = .WINDOW_CLOSED
+            queue.push(&zephr_ctx.event_queue, e)
+        case win32.WM_INPUTLANGCHANGE:
+            keyboard_map_update()
+        case win32.WM_SIZE:
+            width := win32.LOWORD(auto_cast lparam)
+            height := win32.HIWORD(auto_cast lparam)
+            zephr_ctx.window.size = m.vec2{cast(f32)width, cast(f32)height}
+            zephr_ctx.projection = orthographic_projection_2d(0, zephr_ctx.window.size.x, zephr_ctx.window.size.y, 0)
+            gl.Viewport(0, 0, cast(i32)zephr_ctx.window.size.x, cast(i32)zephr_ctx.window.size.y)
+
+            e: Event
+            e.window.width = cast(u32)width
+            e.window.height = cast(u32)height
+
+            queue.push(&zephr_ctx.event_queue, e)
+        case win32.WM_MOUSEMOVE:
+            if zephr_ctx.virt_mouse.captured {
+                // restrict the cursor to the center of the window
+                rect: win32.RECT
+                win32.GetWindowRect(hwnd, &rect)
+                win32.SetCursorPos(i32(zephr_ctx.window.size.x / 2) + rect.left, i32(zephr_ctx.window.size.y / 2) + rect.top)
+                return 0
+            }
+
+            x := win32.GET_X_LPARAM(lparam)
+            y := win32.GET_Y_LPARAM(lparam)
+            pos := m.vec2{clamp(cast(f32)x, 0, zephr_ctx.window.size.x), clamp(cast(f32)y, 0, zephr_ctx.window.size.y)}
+            rel_pos := pos - zephr_ctx.virt_mouse.pos
+
+            e: Event
+            e.type = .VIRT_MOUSE_MOVED
+            e.mouse_moved.device_id = 0
+            e.mouse_moved.pos = pos
+            e.mouse_moved.rel_pos = rel_pos
+            zephr_ctx.virt_mouse.pos = pos
+            zephr_ctx.virt_mouse.rel_pos = rel_pos
+
+            queue.push(&zephr_ctx.event_queue, e)
+        case win32.WM_MOUSEWHEEL:
+            // This will be a multiple of win32.WHEEL_DELTA which is 120
+            wheel_delta := win32.GET_WHEEL_DELTA_WPARAM(wparam)
+            scroll_rel := m.vec2{cast(f32)wheel_delta / win32.WHEEL_DELTA, 0}
+
+            os_event_queue_virt_mouse_scroll(scroll_rel)
+        case win32.WM_MOUSEHWHEEL:
+            wheel_delta := win32.GET_WHEEL_DELTA_WPARAM(wparam)
+            scroll_rel := m.vec2{0, cast(f32)wheel_delta / win32.WHEEL_DELTA}
+
+            os_event_queue_virt_mouse_scroll(scroll_rel)
         case win32.WM_LBUTTONDOWN: fallthrough
+        case win32.WM_LBUTTONUP:
+            os_event_queue_virt_mouse_button(.BUTTON_LEFT, msg == win32.WM_LBUTTONDOWN)
         case win32.WM_MBUTTONDOWN: fallthrough
+        case win32.WM_MBUTTONUP:
+            os_event_queue_virt_mouse_button(.BUTTON_MIDDLE, msg == win32.WM_MBUTTONDOWN)
         case win32.WM_RBUTTONDOWN: fallthrough
+        case win32.WM_RBUTTONUP:
+            os_event_queue_virt_mouse_button(.BUTTON_RIGHT, msg == win32.WM_RBUTTONDOWN)
         case win32.WM_XBUTTONDOWN: fallthrough
-        case win32.WM_LBUTTONUP: fallthrough
-        case win32.WM_MBUTTONUP: fallthrough
-        case win32.WM_RBUTTONUP: fallthrough
-        case win32.WM_XBUTTONUP: fallthrough
-        case win32.WM_SYSKEYDOWN: fallthrough
+        case win32.WM_XBUTTONUP:
+            btn: MouseButton = .BUTTON_NONE
+
+            switch win32.HIWORD(auto_cast wparam) {
+                case win32.XBUTTON1: btn = .BUTTON_BACK
+                case win32.XBUTTON2: btn = .BUTTON_FORWARD
+            }
+
+            if btn != .BUTTON_NONE {
+                os_event_queue_virt_mouse_button(btn, msg == win32.WM_XBUTTONDOWN)
+            }
+        // SYSKEYUP/DOWN is needed to receive ALT and F10 keys
         case win32.WM_SYSKEYUP: fallthrough
-        case win32.WM_KEYDOWN: fallthrough
-        case win32.WM_KEYUP:
-            queue.push(&events, WindowsEvent{
-                type = msg,
-                lparam = lparam,
-                wparam = wparam,
-            })
+        case win32.WM_SYSKEYDOWN: fallthrough
+        case win32.WM_KEYUP: fallthrough
+        case win32.WM_KEYDOWN:
+            // Bits 16-23 hold the scancode
+            win32_scancode := (lparam & 0xFF0000) >> 16
+            is_extended := lparam & (1 << 24) != 0
+            win32_keycode := cast(u32)wparam
+
+            scancode := scan1_scancode_to_zephr_scancode_map(cast(u8)win32_scancode, is_extended)
+			os_event_queue_virt_key_changed(msg == win32.WM_KEYDOWN || msg == win32.WM_SYSKEYDOWN, scancode)
+
+            // Pass down the sys keys so ALT + F4 works but only if it's not F10 because that locks us up until it's pressed again
+            if (msg == win32.WM_SYSKEYDOWN || msg == win32.WM_SYSKEYUP) && scancode != .F10 {
+                return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+
+			//wchar_t utf16_string[32]
+			// flags := 0x4 // do not change keyboard state
+			// key_state: [256]u8
+			// win32.GetKeyboardState(key_state)
+			// ret := win32.ToUnicode(win32_keycode, win32_scancode, key_state, utf16_string, CORE_ARRAY_COUNT(utf16_string), flags)
+			// if ret > 0 {
+			// 	// CoreIAlctor frame_alctor = game_tls_frame_alctor();
+			// 	// CoreString string = os_windows_utf16_to_utf8(utf16_string, frame_alctor);
+			// 	os_event_queue_virt_key_input_utf8(string.data, string.size - 1);
+			// }
+        case win32.WM_DEVICECHANGE:
+            // TODO: detect other types of devices (Touchpad) and add them
+        case win32.WM_INPUT:
+            switch wparam {
+                case 0: // RIM_INPUT
+                    raw_input_handle := cast(win32.HRAWINPUT)lparam
+
+					raw_input_size: win32.UINT = 0
+					res := win32.GetRawInputData(raw_input_handle, win32.RID_INPUT, nil, &raw_input_size, size_of(win32.RAWINPUTHEADER))
+					if (res != 0) {
+                        log.errorf("Failed to GetRawInputData: %d. Last Error: %d", res, win32.GetLastError())
+                        break
+					}
+
+                    raw_input: win32.RAWINPUT
+					res = win32.GetRawInputData(raw_input_handle, win32.RID_INPUT, &raw_input, &raw_input_size, size_of(win32.RAWINPUTHEADER))
+					if res != raw_input_size {
+                        log.errorf("GetRawInputData returned an unexpected size. Expected: %d, got: %d", raw_input_size, res)
+                        break
+					}
+
+					raw_input_device_handle := raw_input.header.hDevice
+					key := transmute(u64)raw_input_device_handle
+					found_device := key in zephr_ctx.input_devices_map
+					if !found_device {
+                        break
+					}
+
+                    switch raw_input.header.dwType {
+                        case win32.RIM_TYPEMOUSE:
+                            if (raw_input.data.mouse.usFlags & win32.MOUSE_MOVE_ABSOLUTE) == 0 && (raw_input.data.mouse.lLastX != 0 || raw_input.data.mouse.lLastY != 0) {
+								rel_pos := m.vec2{cast(f32)raw_input.data.mouse.lLastX, cast(f32)raw_input.data.mouse.lLastY}
+								os_event_queue_raw_mouse_moved(key, rel_pos)
+
+                                // Get relative position for the virt mouse from raw input when the cursor is captured
+                                if zephr_ctx.virt_mouse.captured {
+                                    e: Event
+                                    e.type = .VIRT_MOUSE_MOVED
+                                    e.mouse_moved.device_id = 0
+                                    e.mouse_moved.pos = zephr_ctx.virt_mouse.pos + rel_pos
+                                    e.mouse_moved.rel_pos = rel_pos
+                                    zephr_ctx.virt_mouse.pos = zephr_ctx.virt_mouse.pos + rel_pos
+                                    zephr_ctx.virt_mouse.rel_pos = rel_pos
+                                    zephr_ctx.virt_mouse.virtual_pos = zephr_ctx.virt_mouse.pos + rel_pos
+
+                                    queue.push(&zephr_ctx.event_queue, e)
+                                }
+							}
+
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_WHEEL == win32.RI_MOUSE_WHEEL {
+								rel_pos := m.vec2{0, cast(f32)raw_input.data.mouse.usButtonData / win32.WHEEL_DELTA}
+								os_event_queue_raw_mouse_scroll(key, rel_pos)
+							}
+
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_HWHEEL == win32.RI_MOUSE_HWHEEL {
+								rel_pos := m.vec2{cast(f32)raw_input.data.mouse.usButtonData / win32.WHEEL_DELTA, 0}
+								os_event_queue_raw_mouse_scroll(key, rel_pos);
+							}
+
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_1_DOWN == win32.RI_MOUSE_BUTTON_1_DOWN {
+								os_event_queue_raw_mouse_button(key, .BUTTON_LEFT, true)
+							}
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_2_DOWN == win32.RI_MOUSE_BUTTON_2_DOWN {
+								os_event_queue_raw_mouse_button(key, .BUTTON_RIGHT, true)
+							}
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_3_DOWN == win32.RI_MOUSE_BUTTON_3_DOWN {
+								os_event_queue_raw_mouse_button(key, .BUTTON_MIDDLE, true)
+							}
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_4_DOWN == win32.RI_MOUSE_BUTTON_4_DOWN {
+								os_event_queue_raw_mouse_button(key, .BUTTON_BACK, true)
+							}
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_5_DOWN == win32.RI_MOUSE_BUTTON_5_DOWN {
+								os_event_queue_raw_mouse_button(key, .BUTTON_FORWARD, true)
+							}
+
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_1_UP == win32.RI_MOUSE_BUTTON_1_UP {
+								os_event_queue_raw_mouse_button(key, .BUTTON_LEFT, false)
+							}
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_2_UP == win32.RI_MOUSE_BUTTON_2_UP {
+								os_event_queue_raw_mouse_button(key, .BUTTON_RIGHT, false)
+							}
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_3_UP == win32.RI_MOUSE_BUTTON_3_UP {
+								os_event_queue_raw_mouse_button(key, .BUTTON_MIDDLE, false)
+							}
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_4_UP == win32.RI_MOUSE_BUTTON_4_UP {
+								os_event_queue_raw_mouse_button(key, .BUTTON_BACK, false)
+							}
+							if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_5_UP == win32.RI_MOUSE_BUTTON_5_UP {
+								os_event_queue_raw_mouse_button(key, .BUTTON_FORWARD, false)
+							}
+                        case win32.RIM_TYPEKEYBOARD:
+                            win32_scancode := raw_input.data.keyboard.MakeCode
+                            if raw_input.data.keyboard.Flags & RI_KEY_E0 == RI_KEY_E0 {
+								win32_scancode |= 0xE000
+							} else if raw_input.data.keyboard.Flags & RI_KEY_E1 == RI_KEY_E1 {
+								win32_scancode |= 0xE100
+							}
+							is_pressed := !(raw_input.data.keyboard.Flags & RI_KEY_BREAK == RI_KEY_BREAK)
+
+                            input_device := &zephr_ctx.input_devices_map[key]
+							input_device_backend := windows_input_device(input_device)
+
+							switch (win32_scancode) {
+								//0xE11D: first part of the Pause
+								//0xE02A: first part of the PrintScreen scancode if no Shift, Control or Alt keys are pressed
+								//0xE02A, 0xE0AA, 0xE036, 0xE0B6: generated in addition of Insert, Delete, Home, End, Page Up, Page Down, Up, Down, Left, Right when num lock is on; or when num lock is off but one or both shift keys are pressed
+								//0xE02A, 0xE0AA, 0xE036, 0xE0B6: generated in addition of Numpad Divide and one or both Shift keys are pressed
+								//When holding a key down, the pre/postfix (0xE02A) is not repeated!
+								case 0xE11D: input_device_backend.found_e11d = true; return 0;
+								case 0xE02A: return 0
+								case 0xE0AA: return 0
+								case 0xE0B6: return 0
+								case 0xE036: return 0
+							}
+
+							if (input_device_backend.found_e11d) {
+								if (win32_scancode == 0x45) {
+									os_event_queue_raw_key_changed(key, is_pressed, .PAUSE)
+								}
+								input_device_backend.found_e11d = false
+								break
+							}
+
+							scancode := win32_scancode_to_zephr_scancode(cast(u32)win32_scancode)
+							os_event_queue_raw_key_changed(key, is_pressed, scancode)
+
+							//win32_keycode := win32.MapVirtualKeyW(cast(u32)win32_scancode, win32.MAPVK_VSC_TO_VK_EX)
+
+							//wchar_t utf16_string[32]
+							//UINT flags = 0x4 // do not change keyboard state
+							//BYTE key_state[256]
+							//win32.GetKeyboardState(key_state)
+							//int ret = win32.ToUnicode(win32_keycode, win32_scancode, key_state, utf16_string, len(utf16_string), flags)
+							//if ret > 0 {
+							//	CoreIAlctor frame_alctor = game_tls_frame_alctor()
+							//	CoreString string = os_windows_utf16_to_utf8(utf16_string, frame_alctor)
+							//	os_event_queue_raw_key_input_utf8(input_device_id, string.data, string.size - 1)
+							//}
+                        case win32.RIM_TYPEHID:
+                            // TODO:
+                    }
+            }
+        case win32.WM_INPUT_DEVICE_CHANGE:
+            raw_input_device_handle := transmute(win32.HANDLE)lparam
+
+            switch wparam {
+                case 1: // GIDC_ARRIVAL
+                    device_info: win32.RID_DEVICE_INFO
+                    device_info.cbSize = size_of(win32.RID_DEVICE_INFO)
+                    device_info_size: u32 = size_of(win32.RID_DEVICE_INFO)
+                    res := win32.GetRawInputDeviceInfoW(raw_input_device_handle, RIDI_DEVICEINFO, &device_info, &device_info_size)
+
+                    if cast(i32)res == -1 || res == 0 {
+                        log.error("Failed to query raw input device's info")
+                        break
+                    }
+
+                    device_name_len: win32.UINT
+					res = win32.GetRawInputDeviceInfoW(
+						raw_input_device_handle,
+						RIDI_DEVICENAME,
+						nil,
+						&device_name_len,
+					)
+
+					if cast(i32)res == -1 {
+                        log.error("Failed to query raw input device's name length")
+                        break
+					}
+
+                    device_name := make([^]win32.wchar_t, device_name_len)
+                    
+					res = win32.GetRawInputDeviceInfoW(
+						raw_input_device_handle,
+						RIDI_DEVICENAME,
+						device_name,
+						&device_name_len,
+					);
+
+					if cast(i32)res == -1 || res == 0 {
+                        log.error("Failed to query raw input device's name ")
+                        break
+					}
+
+                    hid_device_handle := win32.CreateFileW(device_name, 0, win32.FILE_SHARE_READ | win32.FILE_SHARE_WRITE | win32.FILE_SHARE_DELETE, nil, win32.OPEN_EXISTING, 0, nil)
+                    if hid_device_handle == win32.INVALID_HANDLE_VALUE {
+                        log.error("Got an invalid HID handle for input device")
+                        break
+                    }
+
+                    attr: win32.HIDD_ATTRIBUTES
+                    attr.Size = size_of(win32.HIDD_ATTRIBUTES)
+                    win32.HidD_GetAttributes(hid_device_handle, &attr)
+
+                    manufacturer_name: [HID_STRING_CAP]win32.wchar_t
+					have_manufacturer_name := win32.HidD_GetManufacturerString(hid_device_handle, &manufacturer_name, HID_STRING_BYTE_CAP)
+
+                    product_name: [HID_STRING_CAP]win32.wchar_t
+					have_product_name := win32.HidD_GetProductString(hid_device_handle, &product_name, HID_STRING_BYTE_CAP)
+
+                    name := fmt.tprintf("unknown input device 0x%x 0x%x", attr.VendorID, attr.ProductID)
+					switch cast(int)have_manufacturer_name * 2 + cast(int)have_product_name {
+                        case 1:
+                            name_utf8, _ := win32.utf16_to_utf8(product_name[:])
+                            name = strings.trim_space(name_utf8)
+                        case 2:
+                            name_utf8, _ := win32.utf16_to_utf8(manufacturer_name[:])
+                            name = strings.trim_space(name_utf8)
+                        case 3:
+                            manufacturer_utf8, _ := win32.utf16_to_utf8(manufacturer_name[:])
+                            product_utf8, _ := win32.utf16_to_utf8(product_name[:])
+                            name = fmt.tprintf("%s %s", strings.trim_space(manufacturer_utf8), strings.trim_space(product_utf8))
+                    }
+
+                    switch device_info.dwType {
+                        case win32.RIM_TYPEMOUSE:
+							key := transmute(u64)raw_input_device_handle
+							input_device := os_event_queue_input_device_connected(key, name, {.MOUSE}, attr.VendorID, attr.ProductID)
+							input_device_backend := windows_input_device(input_device)
+							input_device_backend.raw_input_device_handle = raw_input_device_handle
+							input_device_backend.hid_device_handle = hid_device_handle
+                        case win32.RIM_TYPEKEYBOARD:
+							key := transmute(u64)raw_input_device_handle
+							input_device := os_event_queue_input_device_connected(key, name, {.KEYBOARD}, attr.VendorID, attr.ProductID)
+							input_device_backend := windows_input_device(input_device)
+							input_device_backend.raw_input_device_handle = raw_input_device_handle
+							input_device_backend.hid_device_handle = hid_device_handle
+                        case win32.RIM_TYPEHID:
+                            // TODO: figure this out
+                            // switch device_info.hid.usUsage {
+                            //     case HID_USAGE_GENERIC_GAMEPAD:
+                            //         log.debug("A gamepad was connected")
+                            //         preparsed_data_size: u32 = 0
+                            //         res := win32.GetRawInputDeviceInfoW(raw_input_device_handle, RIDI_PREPARSEDDATA, nil, &preparsed_data_size)
+                            //         if (res != 0) {
+                            //             log.error("Failed to get gamepad's preparsed data size")
+                            //             break
+                            //         }
+                            //         if (preparsed_data_size == 0) {
+                            //             log.error("Failed to get gamepad's preparsed data size")
+                            //             break
+                            //         }
+
+                            //         preparsed_data_capacity := preparsed_data_size
+                            //         preparsed_data: win32.PHIDP_PREPARSED_DATA
+                            //         res = win32.GetRawInputDeviceInfoW(raw_input_device_handle, RIDI_PREPARSEDDATA, &preparsed_data, &preparsed_data_size)
+                            //         if (cast(int)res == -1 || res == 0) {
+                            //             log.error("Failed to get gamepad's preparsed data")
+                            //             log.debug(res)
+                            //             break
+                            //         }
+
+                            //         caps: win32.HIDP_CAPS
+                            //         nts := win32.HidP_GetCaps(&preparsed_data, &caps)
+                            //         if (nts != win32.HIDP_STATUS_SUCCESS) {
+                            //             log.error("Failed to get gamepad device's capabilities")
+                            //             break
+                            //         }
+
+                            //         if (caps.NumberInputButtonCaps == 0) {
+                            //             log.warn("Gamepad device reports it has 0 button capabilities, skipping device")
+                            //             break
+                            //         }
+
+                            //         if (caps.NumberInputValueCaps == 0) {
+                            //             log.warn("Gamepad device reports it has 0 buttons, skipping device")
+                            //             break
+                            //         }
+
+                            //         button_caps_count := caps.NumberInputButtonCaps;
+                            //         button_caps := make([^]win32.HIDP_BUTTON_CAPS, caps.NumberInputButtonCaps)
+                            //         nts = win32.HidP_GetButtonCaps(.Input, button_caps, &button_caps_count, &preparsed_data)
+                            //         if (nts != win32.HIDP_STATUS_SUCCESS) {
+                            //             log.error("Failed to get gamepad device's button capabilities")
+                            //             break
+                            //         }
+
+                            //         value_caps_count := caps.NumberInputValueCaps;
+                            //         value_caps := make([^]win32.HIDP_VALUE_CAPS, caps.NumberInputValueCaps)
+                            //         nts = win32.HidP_GetValueCaps(.Input, value_caps, &value_caps_count, &preparsed_data)
+                            //         if (nts != win32.HIDP_STATUS_SUCCESS) {
+                            //             log.error("Failed to get gamepad device's value capabilities")
+                            //             break
+                            //         }
+
+                            //         log.debug("caps", caps)
+                            //         log.debug("buttons caps", button_caps)
+                            //         log.debug("value caps", value_caps)
+
+                            //         // TODO: assign butons bindings to the device based on something ???
+                            //         gamepad_button_usage_bindings_count: u32
+
+                            //         key := transmute(u64)raw_input_device_handle
+							// 		input_device := os_event_queue_input_device_connected(key, name, {.GAMEPAD}, cast(u16)device_info.hid.dwVendorId, cast(u16)device_info.hid.dwProductId)
+							// 		input_device_backend := windows_input_device(input_device)
+							// 		input_device_backend.raw_input_device_handle = raw_input_device_handle
+							// 		input_device_backend.hid_device_handle = hid_device_handle
+							// 		input_device_backend.preparsed_data = preparsed_data
+							// 		input_device_backend.preparsed_data_size = cast(u64)preparsed_data_size
+							// 		input_device_backend.gamepad_data_index_to_action_infos = make([dynamic]WindowsGamepadActionInfo, caps.NumberInputDataIndices)
+							// 		input_device_backend.gamepad_data_index_to_action_infos_count = cast(u32)caps.NumberInputDataIndices;
+							// 		input_device_backend.hatswitch_data_index = max(u32)
+
+                            //         for button_idx in 0..<button_caps_count {
+							// 			bc := &button_caps[button_idx]
+							// 			if bc.UsagePage != HID_USAGE_PAGE_BUTTON {
+							// 				continue
+							// 			}
+
+							// 			if bc.IsRange {
+							// 				usage_min := bc.Range.UsageMin
+							// 				usage_max := bc.Range.UsageMax
+							// 				usage := usage_min - 1
+
+                            //                 // for {
+                            //                 //     usage += 1
+                            //                 //     data_index := (cast(win32.USHORT)(usage - usage_min)) + bc.Range.DataIndexMin
+                            //                 //     if cast(u32)usage >= gamepad_button_usage_bindings_count {
+                            //                 //         continue
+                            //                 //     }
+                            //                 //     action := gamepad_button_usage_bindings[usage]
+                            //                 //     info := &input_device_backend.gamepad_data_index_to_action_infos[data_index]
+                            //                 //     info.action_pair.pos = action
+                            //                 //     info.action_pair.neg = .NONE
+                            //                 //     info.bit_count = 1
+
+                            //                 //     // TODO: conditon
+                            //                 // }
+							// 				// do {
+							// 				// 	usage += 1
+							// 				// 	data_index = ((USHORT)(usage - usage_min)) + bc->Range.DataIndexMin
+							// 				// 	if usage >= gamepad_button_usage_bindings_count {
+							// 				// 		continue
+							// 				// 	}
+							// 				// 	action = gamepad_button_usage_bindings[usage]
+							// 				// 	OsWindowsGamepadActionInfo* info = &input_device_backend->gamepad_data_index_to_action_infos[data_index]
+							// 				// 	info.action_pair.pos = action
+							// 				// 	info.action_pair.neg = OS_GAMEPAD_ACTION_NONE
+							// 				// 	info.bit_count = 1
+							// 				// } while (usage_max != usage)
+							// 			} else {
+							// 				usage := bc.NotRange.Usage
+							// 				data_index := bc.NotRange.DataIndex
+							// 				if cast(u32)usage >= gamepad_button_usage_bindings_count {
+							// 					continue
+							// 				}
+							// 				// action := gamepad_button_usage_bindings[usage]
+							// 				// info := &input_device_backend.gamepad_data_index_to_action_infos[data_index]
+							// 				// info.action_pair.pos = action
+							// 				// info.action_pair.neg = .NONE
+							// 				// info.bit_count = 1
+							// 			}
+							// 		}
+                            // }
+                    }
+                case 2: // GIDC_REMOVAL
+                    key := transmute(u64)raw_input_device_handle
+                    device := &zephr_ctx.input_devices_map[key]
+					if (device != nil) {
+						input_device_backend := windows_input_device(device)
+                        delete(input_device_backend.gamepad_data_index_to_action_infos)
+						os_event_queue_input_device_disconnected(key)
+					}
+            }
         case:
             result = win32.DefWindowProcW(hwnd, msg, wparam, lparam)
     }
@@ -332,11 +1371,12 @@ window_proc :: proc(hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lpa
 backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
     context.logger = logger
 
+    queue.init(&events)
+
     class_name := win32.L("zephr.main_window")
     window_title := win32.utf8_to_wstring(string(window_title))
 
     hInstance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
-    // TODO: what happens if icon_path is empty?
     hIcon := win32.LoadImageW(nil, win32.utf8_to_wstring(string(icon_path)), win32.IMAGE_ICON, 0, 0, win32.LR_DEFAULTSIZE | win32.LR_LOADFROMFILE)
     wc := win32.WNDCLASSEXW {
         cbSize        = size_of(win32.WNDCLASSEXW),
@@ -359,156 +1399,82 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
 
     init_legacy_gl(class_name, hInstance)
     init_gl(class_name, window_title, window_size, window_non_resizable, hInstance)
+
+    input_devices_types := []win32.RAWINPUTDEVICE {
+        {
+            usUsagePage = HID_USAGE_PAGE_GENERIC,
+            dwFlags = win32.RIDEV_DEVNOTIFY,
+            usUsage = HID_USAGE_GENERIC_MOUSE,
+            hwndTarget = hwnd,
+        },
+        {
+            usUsagePage = HID_USAGE_PAGE_GENERIC,
+            dwFlags = win32.RIDEV_DEVNOTIFY,
+            usUsage = HID_USAGE_GENERIC_KEYBOARD,
+            hwndTarget = hwnd,
+        },
+        {
+            usUsagePage = HID_USAGE_PAGE_GENERIC,
+            dwFlags = win32.RIDEV_DEVNOTIFY,
+            usUsage = HID_USAGE_GENERIC_GAMEPAD,
+            hwndTarget = hwnd,
+        },
+    }
+
+    if win32.RegisterRawInputDevices(raw_data(input_devices_types), cast(u32)len(input_devices_types), size_of(win32.RAWINPUTDEVICE)) == win32.FALSE {
+        log.error("Failed to register raw input devices. Error: %x", win32.GetLastError())
+        return
+    }
+
+    keyboard_map_update()
 }
 
-// TODO: the signature for this changed, make appropriate changes
-// it takes no arguments and returns nothing now.
-// Instead of returning or assigning the event thru a pointer,
-// just push the event to the zephr_ctx.event_queue queue
-backend_get_os_events :: proc(e_out: ^Event) -> bool {
-    context.logger = logger
+@(private="file")
+keyboard_map_update :: proc() {
+	// reset the key codes to map directly to the virtual key codes
+	for sc in Scancode {
+		zephr_ctx.keyboard_scancode_to_keycode[sc] = auto_cast sc
+		zephr_ctx.keyboard_keycode_to_scancode[auto_cast sc] = sc
+	}
+
+    for win32_scancode in 0..<0xff {
+		keyboard_map_apply_scancode(cast(u32)win32_scancode)
+	}
+
+    for win32_scancode in 0xE000..<0xE06E {
+		keyboard_map_apply_scancode(cast(u32)win32_scancode)
+	}
+
+	keyboard_map_apply_scancode(0xE11D) // PAUSE
+}
+
+keyboard_map_apply_scancode :: proc(win32_scancode: u32) {
+	scancode := win32_scancode_to_zephr_scancode(win32_scancode)
+	if scancode == .NULL {
+		return
+	}
+
+	keycode: Keycode
+	win32_keycode := win32.MapVirtualKeyW(win32_scancode, win32.MAPVK_VSC_TO_VK_EX)
+	if win32_keycode < cast(u32)len(win32_keycode_to_zephr_keycode_map) {
+		keycode = win32_keycode_to_zephr_keycode_map[win32_keycode];
+	} else {
+		keycode = .NULL
+	}
+
+	if keycode != .NULL {
+		zephr_ctx.keyboard_scancode_to_keycode[scancode] = keycode
+		zephr_ctx.keyboard_keycode_to_scancode[keycode] = scancode
+	}
+}
+
+backend_get_os_events :: proc() {
     msg: win32.MSG
 
     for win32.PeekMessageW(&msg, hwnd, 0, 0, win32.PM_REMOVE) != win32.FALSE {
         win32.TranslateMessage(&msg)
         win32.DispatchMessageW(&msg)
     }
-
-    for queue.len(events) != 0 {
-        event := queue.pop_front(&events)
-
-        e_out.type = os_event_to_zephr_event(event.type)
-
-        switch event.type {
-            case win32.WM_CLOSE:
-                return true
-            case win32.WM_SIZE:
-                width := win32.LOWORD(auto_cast event.lparam)
-                height := win32.HIWORD(auto_cast event.lparam)
-                zephr_ctx.window.size = m.vec2{cast(f32)width, cast(f32)height}
-                zephr_ctx.projection = orthographic_projection_2d(0, zephr_ctx.window.size.x, zephr_ctx.window.size.y, 0)
-                gl.Viewport(0, 0, cast(i32)zephr_ctx.window.size.x, cast(i32)zephr_ctx.window.size.y)
-
-                e_out.window.width = cast(u32)width
-                e_out.window.height = cast(u32)height
-
-                return true
-            case win32.WM_LBUTTONDOWN, win32.WM_LBUTTONUP:
-                x := win32.GET_X_LPARAM(event.lparam)
-                y := win32.GET_Y_LPARAM(event.lparam)
-
-                e_out.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
-
-                e_out.mouse.button = .BUTTON_LEFT
-                zephr_ctx.mouse.button = .BUTTON_LEFT
-
-                if event.type == win32.WM_LBUTTONDOWN {
-                    zephr_ctx.mouse.pressed = true
-                } else {
-                    zephr_ctx.mouse.released = true
-                    zephr_ctx.mouse.pressed = false
-                }
-
-                return true
-            case win32.WM_MBUTTONDOWN, win32.WM_MBUTTONUP:
-                x := win32.GET_X_LPARAM(event.lparam)
-                y := win32.GET_Y_LPARAM(event.lparam)
-
-                e_out.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
-
-                e_out.mouse.button = .BUTTON_MIDDLE
-                zephr_ctx.mouse.button = .BUTTON_MIDDLE
-
-                if event.type == win32.WM_MBUTTONDOWN {
-                    zephr_ctx.mouse.pressed = true
-                } else {
-                    zephr_ctx.mouse.released = true
-                    zephr_ctx.mouse.pressed = false
-                }
-
-                return true
-            case win32.WM_RBUTTONDOWN, win32.WM_RBUTTONUP:
-                x := win32.GET_X_LPARAM(event.lparam)
-                y := win32.GET_Y_LPARAM(event.lparam)
-
-                e_out.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
-
-                e_out.mouse.button = .BUTTON_RIGHT
-                zephr_ctx.mouse.button = .BUTTON_RIGHT
-
-                if event.type == win32.WM_RBUTTONDOWN {
-                    zephr_ctx.mouse.pressed = true
-                } else {
-                    zephr_ctx.mouse.released = true
-                    zephr_ctx.mouse.pressed = false
-                }
-
-                return true
-            case win32.WM_XBUTTONDOWN, win32.WM_XBUTTONUP:
-                x := win32.GET_X_LPARAM(event.lparam)
-                y := win32.GET_Y_LPARAM(event.lparam)
-
-                e_out.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
-
-                btn := win32.HIWORD(auto_cast event.wparam)
-
-                if btn == win32.XBUTTON1 {
-                    e_out.mouse.button = .BUTTON_BACK
-                    zephr_ctx.mouse.button = .BUTTON_BACK
-                } else if btn == win32.XBUTTON2 {
-                    e_out.mouse.button = .BUTTON_FORWARD
-                    zephr_ctx.mouse.button = .BUTTON_FORWARD
-                }
-
-                if event.type == win32.WM_XBUTTONDOWN {
-                    zephr_ctx.mouse.pressed = true
-                } else {
-                    zephr_ctx.mouse.released = true
-                    zephr_ctx.mouse.pressed = false
-                }
-
-                return true
-            case win32.WM_MOUSEMOVE:
-                x := win32.GET_X_LPARAM(event.lparam)
-                y := win32.GET_Y_LPARAM(event.lparam)
-
-                zephr_ctx.mouse.pos = m.vec2{cast(f32)x, cast(f32)y}
-                e_out.mouse.pos = zephr_ctx.mouse.pos
-
-                return true
-            case win32.WM_MOUSEWHEEL:
-                // This will be a multiple of win32.WHEEL_DELTA which is 120
-                wheel_delta := win32.GET_WHEEL_DELTA_WPARAM(event.wparam)
-
-                e_out.mouse.scroll_direction = .UP if (wheel_delta > 0) else .DOWN
-
-                return true
-            case win32.WM_SYSKEYDOWN: fallthrough
-            case win32.WM_KEYDOWN:
-                // Bits 16-23 hold the scancode
-                system_scancode := (event.lparam & 0xFF0000) >> 16
-                is_extended := event.lparam & (1 << 24) != 0
-
-                scancode := scan1_scancode_to_zephr_scancode_map(auto_cast system_scancode, is_extended)
-
-                e_out.key.scancode = scancode
-                e_out.key.mods = set_zephr_mods(scancode, true)
-                return true
-            case win32.WM_SYSKEYUP: fallthrough
-            case win32.WM_KEYUP:
-                // Bits 16-23 hold the scancode
-                system_scancode := (event.lparam & 0xFF0000) >> 16
-                is_extended := event.lparam & (1 << 24) != 0
-
-                scancode := scan1_scancode_to_zephr_scancode_map(auto_cast system_scancode, is_extended)
-
-                e_out.key.scancode = scancode
-                e_out.key.mods = set_zephr_mods(scancode, false)
-                return true
-        }
-    }
-
-    return false
 }
 
 backend_shutdown :: proc() {
@@ -522,171 +1488,14 @@ backend_swapbuffers :: proc() {
     win32.SwapBuffers(device_ctx)
 }
 
-// https://learn.microsoft.com/en-us/windows/win32/inputdev/about-keyboard-input#scan-codes
-// https://download.microsoft.com/download/1/6/1/161ba512-40e2-4cc9-843a-923143f3456c/translate.pdf
-@(private="file")
-scan1_scancode_to_zephr_scancode_map :: proc(scancode: u8, is_extended: bool) -> Scancode {
-    context.logger = logger
-
-    switch scancode {
-        case 0: return .NULL
-
-        case 0x1E: return .A
-        case 0x30: return .B
-        case 0x2E: return .C
-        case 0x20: return .D
-        case 0x12: return .E
-        case 0x21: return .F
-        case 0x22: return .G
-        case 0x23: return .H
-        case 0x17: return .I
-        case 0x24: return .J
-        case 0x25: return .K
-        case 0x26: return .L
-        case 0x32: return .M
-        case 0x31: return .N
-        case 0x18: return .O
-        case 0x19: return .P
-        case 0x10: return .Q
-        case 0x13: return .R
-        case 0x1F: return .S
-        case 0x14: return .T
-        case 0x16: return .U
-        case 0x2F: return .V
-        case 0x11: return .W
-        case 0x2D: return .X
-        case 0x15: return .Y
-        case 0x2C: return .Z
-
-        case 0x02: return .KEY_1
-        case 0x03: return .KEY_2
-        case 0x04: return .KEY_3
-        case 0x05: return .KEY_4
-        case 0x06: return .KEY_5
-        case 0x07: return .KEY_6
-        case 0x08: return .KEY_7
-        case 0x09: return .KEY_8
-        case 0x0A: return .KEY_9
-        case 0x0B: return .KEY_0
-
-        case 0x1C: return .KP_ENTER if is_extended else .ENTER
-        case 0x01: return .ESCAPE
-        case 0x0E: return .BACKSPACE // Says "Keyboard Delete" on microsoft.com but it's actually backspace
-        case 0x0F: return .TAB
-        case 0x39: return .SPACE
-
-        case 0x0C: return .MINUS
-        case 0x0D: return .EQUALS
-        case 0x1A: return .LEFT_BRACKET
-        case 0x1B: return .RIGHT_BRACKET
-        case 0x2B: return .BACKSLASH
-        //case 0x2B: return = .NON_US_HASH, // European keyboards have a hash instead of a backslash. Maps to a different HID scancode
-        case 0x27: return .SEMICOLON
-        case 0x28: return .APOSTROPHE
-        case 0x29: return .GRAVE
-        case 0x33: return .COMMA
-        case 0x34: return .PERIOD
-        case 0x35: return .KP_DIVIDE if is_extended else .SLASH
-
-        case 0x3A: return .CAPS_LOCK
-
-        case 0x3B: return .F1
-        case 0x3C: return .F2
-        case 0x3D: return .F3
-        case 0x3E: return .F4
-        case 0x3F: return .F5
-        case 0x40: return .F6
-        case 0x41: return .F7
-        case 0x42: return .F8
-        case 0x43: return .F9
-        case 0x44: return .F10
-        case 0x57: return .F11
-        case 0x58: return .F12
-
-        case 0x54: return .PRINT_SCREEN // Only emitted on KeyRelease
-        case 0x46: return .PAUSE if is_extended else .SCROLL_LOCK
-        case 0x45: return .NUM_LOCK_OR_CLEAR if is_extended else .PAUSE
-        //case 0xE11D45 = .PAUSE, // Some legacy stuff ???
-        case 0x52: return .INSERT if is_extended else .KP_0
-        case 0x47: return .HOME if is_extended else .KP_7
-        case 0x49: return .PAGE_UP if is_extended else .KP_9
-        case 0x53: return .DELETE if is_extended else .KP_PERIOD
-        case 0x4F: return .END if is_extended else .KP_1
-        case 0x51: return .PAGE_DOWN if is_extended else .KP_3
-        case 0x4D: return .RIGHT if is_extended else .KP_6
-        case 0x4B: return .LEFT if is_extended else .KP_4
-        case 0x50: return .DOWN if is_extended else .KP_2
-        case 0x48: return .UP if is_extended else .KP_8
-        case 0x37: return .PRINT_SCREEN if is_extended else .KP_MULTIPLY
-        case 0x4A: return .KP_MINUS
-        case 0x4E: return .KP_PLUS
-        case 0x4C: return .KP_5
-
-        case 0x56: return .NON_US_BACKSLASH
-        case 0x5D:
-            if is_extended {
-                return .APPLICATION
-            } else {
-                log.warnf("Pressed unmapped key: %d. Extended key: %s", scancode, is_extended)
-            }
-        case 0x5E:
-            if is_extended {
-                return .POWER
-            } else {
-                log.warnf("Pressed unmapped key: %d. Extended key: %s", scancode, is_extended)
-            }
-        case 0x59: return .KP_EQUALS
-        case 0x64: return .F13
-        case 0x65: return .F14
-        case 0x66: return .F15
-        case 0x67: return .F16
-        case 0x68: return .F17
-        case 0x69: return .F18
-        case 0x6A: return .F19
-        case 0x6B: return .F20
-        case 0x6C: return .F21
-        case 0x6D: return .F22
-        case 0x6E: return .F23
-        case 0x76: return .F24
-
-        case 0x7E: return .KP_COMMA
-        case 0x73: return .INTERNATIONAL1
-        case 0x70: return .INTERNATIONAL2
-        case 0x7D: return .INTERNATIONAL3
-        case 0x79: return .INTERNATIONAL4
-        case 0x7B: return .INTERNATIONAL5
-        case 0x5C: return .RIGHT_META if is_extended else .INTERNATIONAL6
-        case 0x72: return .LANG1 // Only emitted on Key Release
-        case 0xF2: return .LANG1 // Legacy, Only emitted on Key Release
-        case 0x71: return .LANG2 // Only emitted on Key Release
-        case 0xF1: return .LANG2 // Legacy, Only emitted on Key Release
-        case 0x78: return .LANG3
-        case 0x77: return .LANG4
-        //case 0x76: return .LANG5 // Conflicts with F24
-
-        case 0x1D: return .RIGHT_CTRL if is_extended else .LEFT_CTRL
-        case 0x2A: return .LEFT_SHIFT
-        case 0x36: return .RIGHT_SHIFT
-        case 0x38: return .RIGHT_ALT if is_extended else .LEFT_ALT
-        case 0x5B:
-            if is_extended {
-                return .LEFT_META
-            } else {
-                log.warnf("Pressed unmapped key: %d. Extended key: %s", scancode, is_extended)
-            }
-        // End of Keyboard/Keypad section on microsoft.com
-        // We currently don't map or care about the Consumer section
-    }
-
-    return .NULL
-}
-
 backend_set_cursor :: proc() {
     win32.SetCursor(zephr_ctx.cursors[zephr_ctx.cursor])
 }
 
-
 backend_init_cursors :: proc() {
+  cursor_mask_and := []win32.c_int {0xFF}
+  cursor_mask_xor := []win32.c_int {0x00}
+  zephr_ctx.cursors[.INVISIBLE] = win32.CreateCursor(nil, 0, 0, 1, 1, raw_data(cursor_mask_and), raw_data(cursor_mask_xor))
   zephr_ctx.cursors[.ARROW] = auto_cast win32.LoadImageW(nil, auto_cast win32._IDC_ARROW, win32.IMAGE_CURSOR, 0, 0, win32.LR_DEFAULTSIZE | win32.LR_SHARED)
   zephr_ctx.cursors[.IBEAM] = auto_cast win32.LoadImageW(nil, auto_cast win32._IDC_IBEAM, win32.IMAGE_CURSOR, 0, 0, win32.LR_DEFAULTSIZE | win32.LR_SHARED)
   zephr_ctx.cursors[.CROSSHAIR] = auto_cast win32.LoadImageW(nil, auto_cast win32._IDC_CROSS, win32.IMAGE_CURSOR, 0, 0, win32.LR_DEFAULTSIZE | win32.LR_SHARED)
@@ -694,4 +1503,62 @@ backend_init_cursors :: proc() {
   zephr_ctx.cursors[.HRESIZE] = auto_cast win32.LoadImageW(nil, auto_cast win32._IDC_SIZEWE, win32.IMAGE_CURSOR, 0, 0, win32.LR_DEFAULTSIZE | win32.LR_SHARED)
   zephr_ctx.cursors[.VRESIZE] = auto_cast win32.LoadImageW(nil, auto_cast win32._IDC_SIZENS, win32.IMAGE_CURSOR, 0, 0, win32.LR_DEFAULTSIZE | win32.LR_SHARED)
   zephr_ctx.cursors[.DISABLED] = auto_cast win32.LoadImageW(nil, auto_cast win32._IDC_NO, win32.IMAGE_CURSOR, 0, 0, win32.LR_DEFAULTSIZE | win32.LR_SHARED)
+}
+
+backend_gamepad_rumble :: proc(device: ^InputDevice, weak_motor: u16, strong_motor: u16, duration: time.Duration, delay: time.Duration) {
+    // TODO:
+}
+
+backend_grab_cursor :: proc() {
+    pos: win32.POINT
+    win32.GetCursorPos(&pos)
+    zephr_ctx.virt_mouse.pos_before_capture = {cast(f32)pos.x, cast(f32)pos.y}
+    zephr_ctx.virt_mouse.virtual_pos = {cast(f32)pos.x, cast(f32)pos.y}
+    zephr_ctx.cursor = .INVISIBLE
+    win32.SetCursor(invisible_cursor)
+    win32.SetCapture(hwnd)
+}
+
+backend_release_cursor :: proc() {
+    win32.ReleaseCapture()
+    win32.SetCursorPos(cast(win32.c_int)zephr_ctx.virt_mouse.pos_before_capture.x, cast(win32.c_int)zephr_ctx.virt_mouse.pos_before_capture.y)
+    win32.SetCursor(zephr_ctx.cursors[.ARROW])
+}
+
+backend_get_screen_size :: proc() -> m.vec2 {
+    screen_size := m.vec2{
+        cast(f32)win32.GetSystemMetrics(win32.SM_CXSCREEN),
+        cast(f32)win32.GetSystemMetrics(win32.SM_CYSCREEN),
+    }
+    return screen_size
+}
+
+backend_toggle_fullscreen :: proc(fullscreen: bool) {
+    context.logger = logger
+    // TODO: handle multiple monitors
+
+    if fullscreen {
+        w := cast(i32)zephr_ctx.window.pre_fullscreen_size.x
+        h := cast(i32)zephr_ctx.window.pre_fullscreen_size.y
+
+        win_style := (win32.WS_OVERLAPPEDWINDOW if !zephr_ctx.window.non_resizable else win32.WS_OVERLAPPEDWINDOW & ~win32.WS_MAXIMIZEBOX & ~win32.WS_THICKFRAME) | win32.WS_VISIBLE
+
+        // Adjust the rect to account for the window titlebar and frame sizes
+        rect := win32.RECT{0, 0, w, h}
+        win32.AdjustWindowRect(&rect, win_style, false)
+
+        w = rect.right - rect.left
+        h = rect.bottom - rect.top
+        x := cast(i32)(zephr_ctx.screen_size.x / 2 - cast(f32)w / 2)
+        y := cast(i32)(zephr_ctx.screen_size.y / 2 - cast(f32)h / 2)
+
+        win32.SetWindowLongPtrW(hwnd, win32.GWL_STYLE, cast(win32.LONG_PTR)(win_style))
+        win32.SetWindowPos(hwnd, nil, x, y, w, h, win32.SWP_FRAMECHANGED)
+    } else {
+        zephr_ctx.window.pre_fullscreen_size = zephr_ctx.window.size
+        w := cast(i32)zephr_ctx.screen_size.x
+        h := cast(i32)zephr_ctx.screen_size.y
+        result := win32.SetWindowLongPtrW(hwnd, win32.GWL_STYLE, cast(win32.LONG_PTR)(win32.WS_VISIBLE | win32.WS_POPUPWINDOW))
+        win32.SetWindowPos(hwnd, win32.HWND_TOP, 0, 0, w, h, win32.SWP_FRAMECHANGED)
+    }
 }
