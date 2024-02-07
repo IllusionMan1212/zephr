@@ -10,6 +10,7 @@ import "core:mem"
 import "core:os"
 import "core:container/queue"
 import "core:time"
+import "core:runtime"
 import m "core:math/linalg/glsl"
 
 import x11 "vendor:x11/xlib"
@@ -819,7 +820,7 @@ keyboard_map_update :: proc() {
   }
 }
 
-@private
+@(private="file")
 keyboard_keysym_to_keycode :: proc(key_sym: x11.KeySym) -> Keycode {
   key_sym := cast(u32)key_sym
   if key_sym >= 0xff00 && key_sym <= 0xffff {
@@ -835,8 +836,20 @@ keyboard_keysym_to_keycode :: proc(key_sym: x11.KeySym) -> Keycode {
   }
 }
 
+x11_error_handler :: proc "c" (display: ^x11.Display, event: ^x11.XErrorEvent) -> i32 {
+  context = runtime.default_context()
+  context.logger = logger
+
+  buf := make([^]u8, 2048)
+	x11.XGetErrorText(display, cast(i32)event.error_code, buf, size_of(buf));
+  log.errorf("X11 Error: %s", transmute(cstring)buf)
+  return 0
+}
+
 backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
   x11_display = x11.XOpenDisplay(nil)
+
+  x11.XSetErrorHandler(x11_error_handler)
 
   if x11_display == nil {
     log.error("Failed to open X11 display")
@@ -916,7 +929,6 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
   x11_create_window(window_title, window_size, icon_path, window_non_resizable)
 }
 
-@private
 backend_gamepad_rumble :: proc(device: ^InputDevice, weak_motor: u16, strong_motor: u16, duration: time.Duration, delay: time.Duration) {
   context.logger = logger
 
@@ -945,10 +957,12 @@ backend_gamepad_rumble :: proc(device: ^InputDevice, weak_motor: u16, strong_mot
   }
 }
 
+@(private="file")
 linux_input_device :: proc(input_device: ^InputDevice) -> ^LinuxInputDevice {
 	return cast(^LinuxInputDevice)&input_device.backend_data
 }
 
+@(private="file")
 udev_device_try_add :: proc(dev: ^udev.udev_device) {
 	context.logger = logger
 
@@ -1031,6 +1045,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
         log.errorf("failed to open accelerometer device node '%s' for device '%s': errno %s", accelerometer_devnode, dev_name, errno)
       }
     }
+    // TODO: ignoring DEVLINKS also ignores my bluetooth keyboard
     if prop_val := udev.device_get_property_value(dev, "ID_INPUT_MOUSE"); prop_val == "1" {
       if devlinks := udev.device_get_property_value(dev, "DEVLINKS"); devlinks != "" {
         mouse_devnode = strings.clone_from_cstring(udev.device_get_devnode(dev))
@@ -1200,6 +1215,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
 	}
 }
 
+@(private="file")
 udev_device_try_remove :: proc(dev: ^udev.udev_device) {
   parent := udev.device_get_parent_with_subsystem_devtype(dev, "usb", "usb_device")
   key := udev.device_get_devnum(parent if parent != nil else dev)
@@ -1209,6 +1225,7 @@ udev_device_try_remove :: proc(dev: ^udev.udev_device) {
   }
 }
 
+@(private="file")
 udev_has_event :: proc() -> bool {
 	context.logger = logger
 
@@ -1231,6 +1248,7 @@ udev_has_event :: proc() -> bool {
 	return (.IN in fds[0].revents)
 }
 
+@(private="file")
 evdev_device_info :: proc(fd: os.Handle, evdevice: ^^evdev.libevdev) -> (name: string, vendor_id: u16, product_id: u16) {
   context.logger = logger
 
@@ -1251,6 +1269,7 @@ evdev_device_info :: proc(fd: os.Handle, evdevice: ^^evdev.libevdev) -> (name: s
 	return name, vendor_id, product_id
 }
 
+@(private="file")
 evdev_check_bit_from_string :: proc(str: cstring, string_size: u64, bit_idx: u32) -> bool {
 	bit_word_idx := bit_idx / 4;
 	if (cast(u64)bit_word_idx >= string_size) {
