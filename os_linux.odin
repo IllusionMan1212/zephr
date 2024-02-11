@@ -59,7 +59,26 @@ LinuxInputDevice :: struct {
     gamepad_rumble_id:     i16,
 }
 
+XdndState :: struct {
+    transient:       struct {
+        exchange_started: bool,
+        source_window:    x11.Window,
+        proposed_type:    x11.Atom,
+    },
+    xdnd_version:    u32,
+    xdnd_aware:      x11.Atom,
+    xdnd_enter:      x11.Atom,
+    xdnd_leave:      x11.Atom,
+    xdnd_drop:       x11.Atom,
+    xdnd_selection:  x11.Atom,
+    XDND_DATA:       x11.Atom,
+    xdnd_type_list:  x11.Atom,
+    supported_types: [6]x11.Atom,
+}
+
 OsCursor :: x11.Cursor
+
+// TODO: group these globals into a single struct
 
 @(private = "file")
 PropModeReplace :: 0
@@ -69,6 +88,8 @@ XA_ATOM :: x11.Atom(4)
 XA_STRING :: x11.Atom(31)
 @(private = "file")
 XA_CARDINAL :: x11.Atom(6)
+@(private = "file")
+XDND_PROTOCOL_VERSION :: 5
 
 @(private = "file")
 x11_display: ^x11.Display
@@ -84,6 +105,8 @@ xim: x11.XIM
 glx_context: glx.Context
 @(private = "file")
 window_delete_atom: x11.Atom
+@(private = "file")
+xdnd: XdndState
 @(private = "file")
 xinput_opcode: i32
 @(private = "file")
@@ -651,6 +674,8 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         .ButtonPress,
         .ButtonRelease,
         .PointerMotion,
+        .EnterWindow,
+        .LeaveWindow,
     }
     attributes.colormap = x11_colormap
 
@@ -692,6 +717,28 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         &net_wm_window_type_normal,
         1,
     )
+
+    // define Xdnd atoms
+    xdnd.xdnd_enter = x11.XInternAtom(x11_display, "XdndEnter", false)
+    xdnd.xdnd_leave = x11.XInternAtom(x11_display, "XdndLeave", false)
+    xdnd.xdnd_drop = x11.XInternAtom(x11_display, "XdndDrop", false)
+    xdnd.xdnd_selection = x11.XInternAtom(x11_display, "XdndSelection", false)
+    xdnd.XDND_DATA = x11.XInternAtom(x11_display, "XDND_DATA", false)
+    xdnd.xdnd_type_list = x11.XInternAtom(x11_display, "XdndTypeList", false)
+    xdnd.supported_types = [?]x11.Atom {
+        x11.XInternAtom(x11_display, "text/plain", false),
+        x11.XInternAtom(x11_display, "text/plain;charset=utf-8", false),
+        x11.XInternAtom(x11_display, "text/uri-list", false),
+        x11.XInternAtom(x11_display, "UTF8_STRING", false),
+        x11.XInternAtom(x11_display, "TEXT", false),
+        x11.XInternAtom(x11_display, "STRING", false),
+    }
+
+    xdnd.xdnd_version = XDND_PROTOCOL_VERSION
+
+    // Add XdndAware property to the window
+    xdnd.xdnd_aware = x11.XInternAtom(x11_display, "XdndAware", false)
+    x11.XChangeProperty(x11_display, x11_window, xdnd.xdnd_aware, XA_ATOM, 32, PropModeReplace, &xdnd.xdnd_version, 1)
 
     wm_delete_window := x11.XInternAtom(x11_display, "WM_DELETE_WINDOW", false)
     x11.XSetWMProtocols(x11_display, x11_window, &wm_delete_window, 1)
@@ -1739,6 +1786,24 @@ backend_get_os_events :: proc() {
             if (cast(x11.Atom)xev.xclient.data.l[0] == window_delete_atom) {
                 e.type = .WINDOW_CLOSED
                 queue.push(&zephr_ctx.event_queue, e)
+            } else if xev.xclient.message_type == xdnd.xdnd_enter {
+                xdnd_enter(xev.xclient.data.l)
+            } else if xev.xclient.message_type == xdnd.xdnd_leave {
+                // clear xdnd's transient state
+                xdnd.transient = {}
+            } else if xev.xclient.message_type == xdnd.xdnd_drop {
+                if xev.xclient.data.l[0] != cast(int)xdnd.transient.source_window {
+                    break
+                }
+
+                x11.XConvertSelection(
+                    x11_display,
+                    xdnd.xdnd_selection,
+                    xdnd.transient.proposed_type,
+                    xdnd.XDND_DATA,
+                    x11_window,
+                    cast(x11.Time)xev.xclient.data.l[2],
+                )
             }
         } else if xev.type == .KeyPress || xev.type == .KeyRelease {
             // TODO:
@@ -1860,6 +1925,13 @@ backend_get_os_events :: proc() {
 
                 x11.XFreeEventData(x11_display, &xev.xcookie)
             }
+        } else if xev.type == .SelectionNotify {
+            if xev.xselection.property != xdnd.XDND_DATA {
+                break
+            }
+            if paths := xdnd_receive_data(xev.xselection); paths != nil {
+                os_event_queue_drag_and_drop_file(paths)
+            }
         }
     }
 }
@@ -1962,4 +2034,109 @@ backend_release_cursor :: proc() {
     )
     x11.XUngrabPointer(x11_display, x11.CurrentTime)
     xfixes.ShowCursor(x11_display, x11_window)
+}
+
+@(private = "file")
+xdnd_enter :: proc(client_data_l: [5]int) {
+    if client_data_l[1] & 0x1 == 1 {
+        // More than three data types
+        xdnd.transient.exchange_started = true
+        xdnd.transient.source_window = cast(x11.Window)client_data_l[0]
+        actual_type: x11.Atom
+        actual_format: i32
+        num_of_items, bytes_after_return: uint
+        data: rawptr
+        res := x11.XGetWindowProperty(
+            x11_display,
+            xdnd.transient.source_window,
+            xdnd.xdnd_type_list,
+            0,
+            1024,
+            false,
+            x11.AnyPropertyType,
+            &actual_type,
+            &actual_format,
+            &num_of_items,
+            &bytes_after_return,
+            &data,
+        )
+        if res == cast(i32)x11.Status.Success && actual_type != x11.None {
+            source_types := cast([^]x11.Atom)data
+            out: for i in 0 ..< num_of_items {
+                for supported_type in xdnd.supported_types {
+                    if supported_type == source_types[i] {
+                        xdnd.transient.proposed_type = supported_type
+                        break out
+                    }
+                }
+            }
+            x11.XFree(data)
+        }
+    } else {
+        // Only three data types
+        outer: for i in 2 ..< 5 {
+            for supported_type in xdnd.supported_types {
+                if supported_type == cast(x11.Atom)client_data_l[i] {
+                    xdnd.transient.proposed_type = supported_type
+                    break outer
+                }
+            }
+        }
+    }
+}
+
+// TODO: paths with spaces are encoded but that doesn't seem to work
+// when reading the file
+xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
+    context.logger = logger
+
+    actual_type: x11.Atom = x11.None
+    actual_format: i32
+    num_of_items, bytes_after_return: uint
+    data: rawptr
+
+    res := x11.XGetWindowProperty(
+        x11_display,
+        x11_window,
+        xdnd.XDND_DATA,
+        0,
+        1024,
+        false,
+        x11.AnyPropertyType,
+        &actual_type,
+        &actual_format,
+        &num_of_items,
+        &bytes_after_return,
+        &data,
+    )
+
+    if res == cast(i32)x11.Status.Success {
+        defer x11.XFree(data)
+        defer x11.XDeleteProperty(x11_display, x11_window, xdnd.XDND_DATA)
+
+        bytes := transmute([^]u8)data
+
+        // if CR is present, we replace it with a null terminator
+        for i in 0 ..< num_of_items {
+            if bytes[i] == 0xD {
+                bytes[i] = 0
+            }
+        }
+
+        unsplit_str := strings.clone(strings.string_from_ptr(bytes, cast(int)num_of_items - 2))
+        // we trim unsplit_str here so we don't get an empty string in the slice
+        strs := strings.split_lines(unsplit_str)
+
+        for str in &strs {
+            str = strings.trim_prefix(strings.trim_space(str), "file://")
+            // get rid of the null terminator we added in place of the carriage return
+            str = strings.trim_suffix(str, "\x00")
+        }
+
+        return strs
+    } else {
+        log.error("Failed to receive Drag n Drop data")
+
+        return nil
+    }
 }

@@ -49,6 +49,7 @@ EventType :: enum {
     VIRT_MOUSE_MOVED,
     VIRT_KEY_PRESSED,
     VIRT_KEY_RELEASED,
+    FILE_DROP,
     WINDOW_RESIZED,
     WINDOW_CLOSED,
 }
@@ -428,6 +429,9 @@ Event :: struct {
         mouse_scroll:    struct {
             device_id:  u64, // 0 for virtual mouse
             scroll_rel: m.vec2,
+        },
+        file_drop:       struct {
+            paths: []string,
         },
         window:          struct {
             width:  u32,
@@ -1148,6 +1152,15 @@ os_event_queue_virt_key_changed :: proc(is_pressed: bool, scancode: Scancode) {
     e.key.is_repeat = is_repeat
     e.key.scancode = scancode
     e.key.keycode = keycode
+
+    queue.push(&zephr_ctx.event_queue, e)
+}
+
+@(private)
+os_event_queue_drag_and_drop_file :: proc(paths: []string) {
+    e: Event
+    e.type = .FILE_DROP
+    e.file_drop.paths = paths
 
     queue.push(&zephr_ctx.event_queue, e)
 }

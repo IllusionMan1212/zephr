@@ -15,6 +15,7 @@ import "core:time"
 
 import gl "vendor:OpenGL"
 
+// TODO: drag and drop event
 // BUG: setting the cursor every frame messes with the cursor for resizing when on the edge of the window
 // TODO: handle start window in fullscreen
 //       currently the way to "start" a window in fullscreen is to just create a regular window
@@ -91,6 +92,8 @@ WindowsEvent :: struct {
     lparam: win32.LPARAM,
     wparam: win32.WPARAM,
 }
+
+// TODO: group these globals into a single struct
 
 @(private = "file")
 invisible_cursor: win32.HCURSOR
