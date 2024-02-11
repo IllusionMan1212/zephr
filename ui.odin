@@ -515,26 +515,25 @@ draw_button :: proc(
     }
 
     if (is_hovered && state == .ACTIVE) {
-        set_cursor(Cursor.HAND)
+        set_cursor(.HAND)
 
         if (is_held) {
             style.bg_color = mult_color(style.bg_color, 0.8)
-            draw_quad(constraints, style)
+            style.fg_color = mult_color(style.fg_color, 0.8)
         } else {
             style.bg_color = mult_color(style.bg_color, 0.9)
-            draw_quad(constraints, style)
+            style.fg_color = mult_color(style.fg_color, 0.9)
         }
     } else if (state == .DISABLED) {
         if (is_hovered) {
-            set_cursor(Cursor.DISABLED)
+            set_cursor(.DISABLED)
         }
 
         style.bg_color.a = 100
         style.fg_color.a = 100
-        draw_quad(constraints, style)
-    } else {
-        draw_quad(constraints, style)
     }
+
+    draw_quad(constraints, style)
 
     if (text != "") {
         text_constraints := DEFAULT_UI_CONSTRAINTS
@@ -570,13 +569,17 @@ draw_icon_button :: proc(
     icon_tex_id: TextureId,
     style: UiStyle,
     state: ButtonState,
+    id: u32 = 0,
     caller := #caller_location,
 ) -> bool {
     assert(icon_tex_id != 0, "draw_icon_button() requires that you provide an icon texture")
 
     line := caller.line
     line_bytes := mem.byte_slice(&line, size_of(line))
-    hash := fnv_hash32(transmute([]byte)caller.file_path, cast(u32)len(caller.file_path), FNV_HASH32_INIT)
+    id := id
+    id_bytes := mem.byte_slice(&id, size_of(id))
+    hash := fnv_hash32(id_bytes, size_of(id), FNV_HASH32_INIT)
+    hash = fnv_hash32(transmute([]byte)caller.file_path, cast(u32)len(caller.file_path), hash)
     hash = fnv_hash32(line_bytes, size_of(caller.line), hash)
 
     style := style
@@ -585,8 +588,8 @@ draw_icon_button :: proc(
     apply_constraints(constraints, &rect.pos, &rect.size)
     apply_alignment(style.align, constraints, rect.size, &rect.pos)
 
-    is_held := zephr_ctx.ui.active_element == hash
     is_hovered := zephr_ctx.ui.hovered_element == hash
+    is_held := zephr_ctx.ui.active_element == hash
     left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
     left_mouse_released := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
     clicked := false
@@ -639,16 +642,16 @@ draw_icon_button :: proc(
     }
     draw_texture(&icon_constraints, icon_tex_id, tex_style)
 
-    if (clicked && state == .ACTIVE) {
-        return true
-    }
-
     element := UiElement {
         id   = hash,
         rect = rect,
     }
 
     append(&zephr_ctx.ui.elements, element)
+
+    if (clicked && state == .ACTIVE) {
+        return true
+    }
 
     return false
 }

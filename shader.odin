@@ -51,7 +51,19 @@ set_vec3f :: proc(shader: Shader, name: cstring, val1: f32, val2: f32, val3: f32
     gl.Uniform3f(loc, val1, val2, val3)
 }
 
+set_vec3fv :: proc(shader: Shader, name: cstring, vec: m.vec3) {
+    vec := vec
+    loc := gl.GetUniformLocation(shader.program, name)
+    gl.Uniform3fv(loc, 1, raw_data(&vec))
+}
+
 set_vec4f :: proc(shader: Shader, name: cstring, val1: f32, val2: f32, val3: f32, val4: f32) {
     loc := gl.GetUniformLocation(shader.program, name)
     gl.Uniform4f(loc, val1, val2, val3, val4)
+}
+
+set_vec4fv :: proc(shader: Shader, name: cstring, vec: m.vec4) {
+    vec := vec
+    loc := gl.GetUniformLocation(shader.program, name)
+    gl.Uniform4fv(loc, 1, raw_data(&vec))
 }
