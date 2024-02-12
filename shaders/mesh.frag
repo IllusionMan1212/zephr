@@ -9,8 +9,8 @@ out vec4 fragColor;
 struct Material {
   sampler2D texture_diffuse;
   sampler2D texture_specular;
-  sampler2D texture_ambient;
-  sampler2D texture_emission;
+  sampler2D texture_normal;
+  sampler2D texture_emissive;
 
   vec4 ambient;
   vec4 diffuse;
@@ -63,7 +63,7 @@ uniform DirLight dirLight;
 //uniform PointLight pointLights[NR_POINT_LIGHTS];
 //uniform SpotLight spotLight;
 uniform bool useTextures;
-//uniform bool hasEmissionTexture;
+//uniform bool hasEmissiveTexture;
 //uniform bool isAABB;
 
 vec3 CalculateDirLight(DirLight light, vec3 normal, vec3 viewDir) {
@@ -85,7 +85,7 @@ vec3 CalculateDirLight(DirLight light, vec3 normal, vec3 viewDir) {
   vec3 specular = vec3(0.0, 0.0, 0.0);
 
   if (useTextures) {
-    ambient = light.ambient * vec3(texture(material.texture_ambient, fragTexCoords)) * vec3(material.ambient);
+    ambient = light.ambient * vec3(texture(material.texture_diffuse, fragTexCoords)) * vec3(material.ambient);
     diffuse = light.diffuse * diff * vec3(texture(material.texture_diffuse, fragTexCoords)) * vec3(material.diffuse);
     specular = light.specular * spec * vec3(texture(material.texture_specular, fragTexCoords)) * vec3(material.specular);
   } else {
@@ -99,9 +99,9 @@ vec3 CalculateDirLight(DirLight light, vec3 normal, vec3 viewDir) {
 
 void main() {
   // discard completely transparent fragments
-  if (useTextures && texture(material.texture_diffuse, fragTexCoords).a == 0.0) {
-    discard;
-  }
+  //if (useTextures && texture(material.texture_diffuse, fragTexCoords).a == 0.0) {
+  //  discard;
+  //}
 
   vec3 norm = normalize(fragNormal);
   vec3 viewDir = normalize(viewPos - fragPos);
