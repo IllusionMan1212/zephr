@@ -575,7 +575,7 @@ deinit :: proc() {
 should_quit :: proc() -> bool {
     frame_init()
 
-    gl.ClearColor(0.4, 0.4, 0.4, 1)
+    gl.ClearColor(0.2, 0.2, 0.2, 1)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
     if zephr_ctx.virt_mouse.captured {

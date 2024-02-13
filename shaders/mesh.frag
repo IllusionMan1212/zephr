@@ -3,6 +3,7 @@
 in vec3 fragPos;
 in vec3 fragNormal;
 in vec2 fragTexCoords;
+in mat3 TBN;
 
 out vec4 fragColor;
 
@@ -55,16 +56,18 @@ struct SpotLight {
   float quadratic;
 };
 
-#define NR_POINT_LIGHTS 4
+#define NR_POINT_LIGHTS 2
 #define BLINN_LIGHTING true
+#define GAMMA 2.2
 
 uniform vec3 viewPos;
 uniform Material material;
 uniform DirLight dirLight;
-//uniform PointLight pointLights[NR_POINT_LIGHTS];
+uniform PointLight pointLights[NR_POINT_LIGHTS];
 //uniform SpotLight spotLight;
 uniform bool useTextures;
 uniform bool hasEmissiveTexture;
+uniform bool hasNormalTexture;
 //uniform bool isAABB;
 
 vec3 CalculateDirLight(DirLight light, vec3 normal, vec3 viewDir) {
@@ -98,6 +101,45 @@ vec3 CalculateDirLight(DirLight light, vec3 normal, vec3 viewDir) {
   return (ambient + diffuse + specular);
 }
 
+vec3 CalculatePointLight(PointLight light, vec3 normal, vec3 viewDir) {
+  vec3 lightDir = normalize(light.position - fragPos);
+
+  float diff = max(dot(lightDir, normal), 0.0);
+  float spec = 0.0f;
+
+  if (BLINN_LIGHTING) {
+    vec3 halfwayDir = normalize(lightDir + viewDir);
+    spec = pow(max(dot(normal, halfwayDir), 0.0), material.shininess);
+  } else {
+    vec3 reflectDir = reflect(-lightDir, normal);
+    spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess);
+  }
+
+  // attenuation
+  float distance = length(light.position - fragPos);
+  float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance));
+
+  vec3 ambient = vec3(0.0, 0.0, 0.0);
+  vec3 diffuse = vec3(0.0, 0.0, 0.0);
+  vec3 specular = vec3(0.0, 0.0, 0.0);
+
+  if (useTextures) {
+    ambient = light.ambient * vec3(texture(material.texture_diffuse, fragTexCoords)) * material.ambient.rgb;
+    diffuse = light.diffuse * diff * vec3(texture(material.texture_diffuse, fragTexCoords)) * material.diffuse.rgb;
+    specular = light.specular * spec * vec3(texture(material.texture_specular, fragTexCoords)) * material.specular.rgb;
+  } else {
+    ambient = light.ambient * vec3(material.ambient);
+    diffuse = light.diffuse * vec3(diff * material.diffuse);
+    specular = light.specular * vec3(spec * material.specular);
+  }
+
+  ambient *= attenuation;
+  diffuse *= attenuation;
+  specular *= attenuation;
+
+  return (ambient + diffuse + specular);
+}
+
 void main() {
   // discard completely transparent fragments
   if (useTextures && texture(material.texture_diffuse, fragTexCoords).a == 0.0) {
@@ -105,9 +147,20 @@ void main() {
   }
 
   vec3 norm = normalize(fragNormal);
+
+  if (useTextures && hasNormalTexture) {
+    vec3 normal = texture(material.texture_normal, fragTexCoords).rgb;
+    normal = normal * 2.0 - 1.0;
+    norm = normalize(TBN * normal);
+  }
+
   vec3 viewDir = normalize(viewPos - fragPos);
 
   vec3 result = CalculateDirLight(dirLight, norm, viewDir);
+
+  for (int i = 0; i < NR_POINT_LIGHTS; i++) {
+    result += CalculatePointLight(pointLights[i], norm, viewDir);
+  }
 
   if (useTextures && hasEmissiveTexture) {
     result += texture(material.texture_emissive, fragTexCoords).rgb * material.emissive;
@@ -115,5 +168,5 @@ void main() {
     result += material.emissive;
   }
 
-  fragColor = vec4(result, 1.0);
+  fragColor = vec4(pow(result, vec3(1.0/GAMMA)), 1.0);
 }

@@ -9,6 +9,7 @@ TextureId :: u32
 
 load_texture :: proc(
     path: string,
+    is_diffuse: bool,
     generate_mipmap := true,
     wrap_s: i32 = gl.REPEAT,
     wrap_t: i32 = gl.REPEAT,
@@ -27,20 +28,29 @@ load_texture :: proc(
     defer stb.image_free(data)
 
     format := gl.RGBA
+    internal_format := gl.RGBA
 
     switch (channels) {
         case 1:
             format = gl.RED
+            internal_format = gl.RED
             break
         case 2:
             format = gl.RG
+            internal_format = gl.RG
             break
         case 3:
             format = gl.RGB
+            internal_format = gl.SRGB
             break
         case 4:
             format = gl.RGBA
+            internal_format = gl.SRGB_ALPHA
             break
+    }
+
+    if !is_diffuse {
+        internal_format = format
     }
 
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
@@ -54,7 +64,17 @@ load_texture :: proc(
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min_filter)
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag_filter)
 
-    gl.TexImage2D(gl.TEXTURE_2D, 0, cast(i32)format, width, height, 0, cast(u32)format, gl.UNSIGNED_BYTE, data)
+    gl.TexImage2D(
+        gl.TEXTURE_2D,
+        0,
+        cast(i32)internal_format,
+        width,
+        height,
+        0,
+        cast(u32)format,
+        gl.UNSIGNED_BYTE,
+        data,
+    )
 
     gl.GenerateMipmap(gl.TEXTURE_2D)
 
@@ -66,6 +86,7 @@ load_texture :: proc(
 load_texture_from_memory :: proc(
     tex_data: rawptr,
     tex_data_len: i32,
+    is_diffuse: bool,
     generate_mipmap := true,
     wrap_s: i32 = gl.REPEAT,
     wrap_t: i32 = gl.REPEAT,
@@ -84,20 +105,29 @@ load_texture_from_memory :: proc(
     defer stb.image_free(data)
 
     format := gl.RGBA
+    internal_format := gl.RGBA
 
     switch (channels) {
         case 1:
             format = gl.RED
+            internal_format = gl.RED
             break
         case 2:
             format = gl.RG
+            internal_format = gl.RG
             break
         case 3:
             format = gl.RGB
+            internal_format = gl.SRGB
             break
         case 4:
             format = gl.RGBA
+            internal_format = gl.SRGB_ALPHA
             break
+    }
+
+    if !is_diffuse {
+        internal_format = format
     }
 
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
@@ -111,7 +141,17 @@ load_texture_from_memory :: proc(
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min_filter)
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag_filter)
 
-    gl.TexImage2D(gl.TEXTURE_2D, 0, cast(i32)format, width, height, 0, cast(u32)format, gl.UNSIGNED_BYTE, data)
+    gl.TexImage2D(
+        gl.TEXTURE_2D,
+        0,
+        cast(i32)internal_format,
+        width,
+        height,
+        0,
+        cast(u32)format,
+        gl.UNSIGNED_BYTE,
+        data,
+    )
 
     gl.GenerateMipmap(gl.TEXTURE_2D)
 
