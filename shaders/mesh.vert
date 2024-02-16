@@ -3,7 +3,7 @@
 layout (location = 0) in vec3 position;
 layout (location = 1) in vec3 normal;
 layout (location = 2) in vec2 texCoords;
-layout (location = 3) in vec3 tangent;
+layout (location = 3) in vec4 tangent;
 
 out vec3 fragPos;
 out vec3 fragNormal;
@@ -20,10 +20,10 @@ void main() {
     fragPos = vec3(model * vec4(position, 1.0));
     fragTexCoords = texCoords;
 
-    vec3 T = normalize(vec3(model * vec4(tangent, 0.0)));
+    vec3 T = normalize(vec3(model * vec4(tangent.xyz, 0.0)));
     vec3 N = normalize(vec3(model * vec4(normal, 0.0)));
     // re-orthogonalize T with respect to N
     T = normalize(T - dot(T, N) * N);
-    vec3 B = cross(N, T);
+    vec3 B = cross(N, T) * tangent.w;
     TBN = mat3(T, B, N);
 }
