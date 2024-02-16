@@ -159,3 +159,39 @@ load_texture_from_memory :: proc(
 
     return texture_id
 }
+
+load_cubemap :: proc(faces_paths: [6]string) -> TextureId {
+    cubemap_tex_id: TextureId
+    width, height, nr_channels: i32
+
+    gl.GenTextures(1, &cubemap_tex_id)
+    gl.BindTexture(gl.TEXTURE_CUBE_MAP, cubemap_tex_id)
+
+    for face, i in faces_paths {
+        data := stb.load(cstring(raw_data(face)), &width, &height, &nr_channels, 0)
+        if data == nil {
+            log.errorf("Failed to load cubemap texture: \"%s\"", face)
+            return 0
+        }
+
+        gl.TexImage2D(
+            gl.TEXTURE_CUBE_MAP_POSITIVE_X + cast(u32)i,
+            0,
+            gl.RGB,
+            width,
+            height,
+            0,
+            gl.RGB,
+            gl.UNSIGNED_BYTE,
+            data,
+        )
+    }
+
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+
+    return cubemap_tex_id
+}
