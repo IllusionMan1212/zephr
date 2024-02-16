@@ -7,6 +7,7 @@ import "core:fmt"
 import "core:log"
 import m "core:math/linalg/glsl"
 import "core:mem"
+import "core:net"
 import "core:os"
 import "core:runtime"
 import "core:strings"
@@ -843,7 +844,8 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         glx.RED_SIZE, 8,
         glx.GREEN_SIZE, 8,
         glx.BLUE_SIZE, 8,
-        glx.ALPHA_SIZE, 8,
+        // BUG: This causes a crash when running the engine on the dGPU
+        //glx.ALPHA_SIZE, 8,
         glx.DEPTH_SIZE, 24,
         glx.DOUBLEBUFFER, 1,
         glx.SAMPLES, 4, // MSAA
@@ -2085,8 +2087,6 @@ xdnd_enter :: proc(client_data_l: [5]int) {
     }
 }
 
-// TODO: paths with spaces are encoded but that doesn't seem to work
-// when reading the file
 xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
     context.logger = logger
 
@@ -2131,6 +2131,9 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
             str = strings.trim_prefix(strings.trim_space(str), "file://")
             // get rid of the null terminator we added in place of the carriage return
             str = strings.trim_suffix(str, "\x00")
+            // we decode the string because it may contain unicode or uri encoded characters
+            decoded_str, _ := net.percent_decode(str)
+            str = strings.clone(decoded_str)
         }
 
         return strs
