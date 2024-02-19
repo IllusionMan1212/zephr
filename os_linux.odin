@@ -20,6 +20,7 @@ import x11 "vendor:x11/xlib"
 
 import "3rdparty/evdev"
 import "3rdparty/glx"
+import "3rdparty/inotify"
 import "3rdparty/udev"
 import "3rdparty/xcursor"
 import "3rdparty/xfixes"
@@ -114,6 +115,8 @@ xinput_opcode: i32
 udevice: ^udev.udev
 @(private = "file")
 udev_monitor: ^udev.udev_monitor
+@(private = "file")
+inotify_fd: os.Handle
 
 @(private = "file")
 os_linux_gamepad_evdev_default_bindings := #partial [GamepadAction]LinuxEvdevBinding {
@@ -1052,6 +1055,20 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
     }
 
     x11_create_window(window_title, window_size, icon_path, window_non_resizable)
+
+    inotify_fd = inotify.init1(os.O_NONBLOCK)
+    watch_shaders()
+}
+
+@(private = "file")
+watch_shaders :: proc() {
+    context.logger = logger
+
+    wd := inotify.add_watch(inotify_fd, "engine/shaders", inotify.IN_MODIFY)
+
+    if wd < 0 {
+        log.errorf("Failed to watch shaders directory")
+    }
 }
 
 backend_gamepad_rumble :: proc(
@@ -1781,6 +1798,35 @@ backend_get_os_events :: proc() {
         }
         if .GYROSCOPE in input_device.features {
             // TODO:
+        }
+    }
+
+    for {
+        bytes := make([]byte, 8 * size_of(inotify.Event) + 256, context.temp_allocator)
+        bytes_read, err := os.read(inotify_fd, bytes)
+
+        if bytes_read == -1 && err == os.EAGAIN {
+            break
+        }
+
+        if err != os.ERROR_NONE {
+            log.errorf("Failed to read inotify events. Errno: %d", err)
+            break
+        }
+
+        i := 0
+        for i < bytes_read {
+            event := (^inotify.Event)(&bytes[i])
+            if event.mask & inotify.IN_MODIFY != 0 {
+                n := 0
+                #no_bounds_check for n < int(event.length) && event.name[n] != 0 {
+                    n += 1
+                }
+                #no_bounds_check name := cast(string)mem.slice_ptr(&event.name[0], n)
+                queue.push(&zephr_ctx.changed_shaders_queue, name)
+            }
+
+            i += size_of(inotify.Event) + cast(int)event.length
         }
     }
 

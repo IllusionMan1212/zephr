@@ -484,6 +484,8 @@ Context :: struct {
     cursors:                      [Cursor]OsCursor,
     ui:                           Ui,
     projection:                   m.mat4,
+    shaders:                      [dynamic]^Shader,
+    changed_shaders_queue:        queue.Queue(string),
 }
 
 @(private)
@@ -494,6 +496,8 @@ FNV_HASH32_PRIME :: 0x01000193
 INIT_UI_STACK_SIZE :: 256
 @(private)
 EVENT_QUEUE_INIT_CAP :: 128
+@(private)
+CHANGED_SHADERS_QUEUE_CAP :: 32
 @(private)
 INPUT_DEVICE_MAP_CAP :: 256
 when ODIN_OS == .Linux {
@@ -545,6 +549,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     //CORE_ASSERT(res == 0, "Failed to initialize audio");
 
     queue.init(&zephr_ctx.event_queue, EVENT_QUEUE_INIT_CAP)
+    queue.init(&zephr_ctx.changed_shaders_queue, CHANGED_SHADERS_QUEUE_CAP)
     zephr_ctx.input_devices_map = make(map[u64]InputDevice)
 
     backend_init(window_title, window_size, icon_path, window_non_resizable)
@@ -567,7 +572,9 @@ deinit :: proc() {
     backend_shutdown()
     delete(zephr_ctx.input_devices_map)
     queue.destroy(&zephr_ctx.event_queue)
+    queue.destroy(&zephr_ctx.changed_shaders_queue)
     delete(zephr_ctx.ui.elements)
+    delete(zephr_ctx.shaders)
     //audio_close()
 }
 
@@ -607,6 +614,7 @@ consume_mouse_events :: proc() -> bool {
 }
 
 swap_buffers :: proc() {
+    update_shaders_if_changed()
     defer free_all(context.temp_allocator)
 
     if (zephr_ctx.ui.popup_open) {

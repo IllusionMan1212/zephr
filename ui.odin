@@ -74,9 +74,9 @@ Ui :: struct {
 }
 
 @(private)
-ui_shader: Shader
+ui_shader: ^Shader
 @(private)
-color_chooser_shader: Shader
+color_chooser_shader: ^Shader
 @(private)
 ui_vao: u32
 @(private)

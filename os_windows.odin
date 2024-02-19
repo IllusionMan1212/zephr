@@ -15,6 +15,7 @@ import "core:time"
 
 import gl "vendor:OpenGL"
 
+// TODO: watch the shaders directory for hot-reloading
 // TODO: drag and drop event
 // BUG: setting the cursor every frame messes with the cursor for resizing when on the edge of the window
 // TODO: handle start window in fullscreen

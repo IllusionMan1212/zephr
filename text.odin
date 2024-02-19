@@ -41,7 +41,7 @@ FONT_PIXEL_SIZE :: 100
 LINE_HEIGHT :: 2.0
 
 @(private)
-font_shader: Shader
+font_shader: ^Shader
 @(private)
 font_vao: u32
 @(private)
