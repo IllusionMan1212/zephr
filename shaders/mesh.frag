@@ -116,113 +116,11 @@ float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
   return ggx1 * ggx2;
 }
 
-vec3 F_Schlick(vec3 f0, vec3 f90, float VdotH)
-{
-    return f0 + (f90 - f0) * pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);
-}
-
-float F_Schlick(float f0, float f90, float VdotH)
-{
-    float x = clamp(1.0 - VdotH, 0.0, 1.0);
-    float x2 = x * x;
-    float x5 = x * x2 * x2;
-    return f0 + (f90 - f0) * x5;
-}
-
-float F_Schlick(float f0, float VdotH)
-{
-    float f90 = 1.0; //clamp(50.0 * f0, 0.0, 1.0);
-    return F_Schlick(f0, f90, VdotH);
-}
-
-vec3 F_Schlick(vec3 f0, float f90, float VdotH)
-{
-    float x = clamp(1.0 - VdotH, 0.0, 1.0);
-    float x2 = x * x;
-    float x5 = x * x2 * x2;
-    return f0 + (f90 - f0) * x5;
-}
-
-vec3 F_Schlick(vec3 f0, float VdotH)
-{
-    float f90 = 1.0; //clamp(dot(f0, vec3(50.0 * 0.33)), 0.0, 1.0);
-    return F_Schlick(f0, f90, VdotH);
-}
-
-vec3 BRDF_lambertian(vec3 f0, vec3 f90, vec3 diffuseColor, float specularWeight, float VdotH) {
-    return (1.0 - specularWeight * F_Schlick(f0, f90, VdotH)) * (diffuseColor / PI);
-}
-
-float V_GGX(float NdotL, float NdotV, float alphaRoughness)
-{
-    float alphaRoughnessSq = alphaRoughness * alphaRoughness;
-
-    float GGXV = NdotL * sqrt(NdotV * NdotV * (1.0 - alphaRoughnessSq) + alphaRoughnessSq);
-    float GGXL = NdotV * sqrt(NdotL * NdotL * (1.0 - alphaRoughnessSq) + alphaRoughnessSq);
-
-    float GGX = GGXV + GGXL;
-    if (GGX > 0.0)
-    {
-        return 0.5 / GGX;
-    }
-    return 0.0;
-}
-
-
-// The following equation(s) model the distribution of microfacet normals across the area being drawn (aka D())
-// Implementation from "Average Irregularity Representation of a Roughened Surface for Ray Reflection" by T. S. Trowbridge, and K. P. Reitz
-// Follows the distribution function recommended in the SIGGRAPH 2013 course notes from EPIC Games [1], Equation 3.
-float D_GGX(float NdotH, float alphaRoughness)
-{
-    float alphaRoughnessSq = alphaRoughness * alphaRoughness;
-    float f = (NdotH * NdotH) * (alphaRoughnessSq - 1.0) + 1.0;
-    return alphaRoughnessSq / (PI * f * f);
-}
-
-vec3 BRDF_specularGGX(vec3 f0, vec3 f90, float alphaRoughness, float specularWeight, float VdotH, float NdotL, float NdotV, float NdotH)
-{
-    vec3 F = F_Schlick(f0, f90, VdotH);
-    float Vis = V_GGX(NdotL, NdotV, alphaRoughness);
-    float D = D_GGX(NdotH, alphaRoughness);
-
-    return specularWeight * F * Vis * D;
-}
-
-vec3 specular_brdf(vec3 specular, vec3 viewDir, vec3 lightDir, vec3 normal, float roughness) {
-  vec3 halfwayDir = normalize(viewDir + lightDir);
-  vec3 F = fresnelSchlick(max(dot(halfwayDir, viewDir), 0.0), specular);
-  float NDF = distributionGGX(normal, halfwayDir, roughness);
-  float G = geometrySmith(normal, viewDir, lightDir, roughness);
-
-  return F * NDF * G / (4 * max(dot(normal, viewDir), 0.0) * max(dot(normal, lightDir), 0.0));
-}
-
-vec3 diffuse_brdf(vec3 diffuse) {
-  return (1 / PI) * diffuse;
-}
-
 vec3 CalculateDirLight(vec3 albedo, float metallic, float roughness, DirLight light, vec3 normal, vec3 viewDir) {
   vec3 lightDir = normalize(-light.direction);
 
   vec3 halfwayDir = normalize(lightDir + viewDir);
   vec3 radiance = light.diffuse;
-
-  //float VdotH = dot(viewDir, halfwayDir);
-  //float NdotL = max(dot(normal, lightDir), 0.0);
-  //float NdotV = max(dot(normal, viewDir), 0.0);
-  //float NdotH = max(dot(normal, halfwayDir), 0.0);
-  //vec3 c_diff = mix(albedo, vec3(0), metallic);
-  //float alphaRoughness = roughness * roughness;
-  //float specularWeight = 1.0;
-  //vec3 F0 = mix(vec3(0.04), albedo, metallic);
-
-  //vec3 diffuse = radiance * NdotL * BRDF_lambertian(F0, vec3(1), c_diff, specularWeight, VdotH);
-  //vec3 specular = radiance * NdotL * BRDF_specularGGX(F0, vec3(1), alphaRoughness, specularWeight, VdotH, NdotL, NdotV, NdotH);
-
-  //vec3 ambient = vec3(0.03) * albedo;
-  //vec3 color = diffuse + specular + ambient;
-
-  // ----------------------------------------
 
   vec3 F0 = vec3(0.04);
   F0 = mix(F0, albedo, metallic);
@@ -262,23 +160,6 @@ vec3 CalculatePointLights(vec3 albedo, float metallic, float roughness, vec3 nor
     float distance = length(pointLights[i].position - fragPos);
     float attenuation = 1.0 / (distance * distance);
     vec3 radiance = pointLights[i].diffuse * attenuation;
-
-    //float VdotH = dot(viewDir, halfwayDir);
-    //float NdotL = max(dot(normal, lightDir), 0.0);
-    //float NdotV = max(dot(normal, viewDir), 0.0);
-    //float NdotH = max(dot(normal, halfwayDir), 0.0);
-    //vec3 c_diff = mix(albedo, vec3(0), metallic);
-    //float alphaRoughness = roughness * roughness;
-    //float specularWeight = 1.0;
-    //vec3 F0 = mix(vec3(0.04), albedo, metallic);
-
-    //vec3 diffuse = radiance * NdotL * BRDF_lambertian(F0, vec3(1), c_diff, specularWeight, VdotH);
-    //vec3 specular = radiance * NdotL * BRDF_specularGGX(F0, vec3(1), alphaRoughness, specularWeight, VdotH, NdotL, NdotV, NdotH);
-
-    //vec3 ambient = vec3(0.03) * albedo;
-    //Lo += diffuse + specular + ambient;
-
-    // -------------------------------------------
 
     vec3 F0 = vec3(0.04);
     F0 = mix(F0, albedo, metallic);
