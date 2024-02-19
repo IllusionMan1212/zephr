@@ -1,6 +1,7 @@
 package zephr
 
 import "core:log"
+import "core:strings"
 
 import gl "vendor:OpenGL"
 import stb "vendor:stb/image"
@@ -20,7 +21,8 @@ load_texture :: proc(
 
     texture_id: TextureId
     width, height, channels: i32
-    data := stb.load(cstring(raw_data(path)), &width, &height, &channels, 0)
+    path_c_str := strings.clone_to_cstring(path, context.temp_allocator)
+    data := stb.load(path_c_str, &width, &height, &channels, 0)
     if data == nil {
         log.errorf("Failed to load texture: \"%s\"", path)
         return 0
@@ -168,11 +170,13 @@ load_cubemap :: proc(faces_paths: [6]string) -> TextureId {
     gl.BindTexture(gl.TEXTURE_CUBE_MAP, cubemap_tex_id)
 
     for face, i in faces_paths {
-        data := stb.load(cstring(raw_data(face)), &width, &height, &nr_channels, 0)
+        face_c_str := strings.clone_to_cstring(face, context.temp_allocator)
+        data := stb.load(face_c_str, &width, &height, &nr_channels, 0)
         if data == nil {
             log.errorf("Failed to load cubemap texture: \"%s\"", face)
             return 0
         }
+        defer stb.image_free(data)
 
         gl.TexImage2D(
             gl.TEXTURE_CUBE_MAP_POSITIVE_X + cast(u32)i,

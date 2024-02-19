@@ -964,8 +964,10 @@ x11_error_handler :: proc "c" (display: ^x11.Display, event: ^x11.XErrorEvent) -
     context.logger = logger
 
     buf := make([^]u8, 2048)
+    defer free(buf)
     x11.XGetErrorText(display, cast(i32)event.error_code, buf, size_of(buf))
-    log.errorf("X11 Error: %s", transmute(cstring)buf)
+    str := strings.string_from_null_terminated_ptr(buf, 2048)
+    log.errorf("X11 Error: %s", str)
     return 0
 }
 
@@ -1186,7 +1188,6 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 )
             }
         }
-        // TODO: ignoring DEVLINKS also ignores my bluetooth keyboard
         if prop_val := udev.device_get_property_value(dev, "ID_INPUT_MOUSE"); prop_val == "1" {
             if devlinks := udev.device_get_property_value(dev, "DEVLINKS"); devlinks != "" {
                 mouse_devnode = strings.clone_from_cstring(udev.device_get_devnode(dev))
@@ -1223,22 +1224,32 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 )
             }
         }
+        // TODO: ignoring DEVLINKS also ignores my bluetooth keyboard
         if prop_val := udev.device_get_property_value(dev, "ID_INPUT_KEYBOARD"); prop_val == "1" {
             if devlinks := udev.device_get_property_value(dev, "DEVLINKS"); devlinks != "" {
                 keyboard_devnode = strings.clone_from_cstring(udev.device_get_devnode(dev))
                 keyboard_devnode_fd, errno := os.open(keyboard_devnode, os.O_RDONLY, os.O_NONBLOCK)
 
-                dev_name, vendor_id, product_id = evdev_device_info(keyboard_devnode_fd, &keyboard_evdev)
-                if (errno == os.ERROR_NONE) {
-                    log.debugf("keyboard device: %s", dev_name)
-                    device_features |= {.KEYBOARD}
-                } else {
+                if keyboard_devnode_fd < 0 {
                     log.errorf(
-                        "failed to open keyboard device node '%s' for device '%s': errno %s",
+                        "Failed to open keyboard device node '%s' as read-only. Errno %s",
                         keyboard_devnode,
-                        dev_name,
                         errno,
                     )
+                    keyboard_devnode_fd, errno = os.open(keyboard_devnode, os.O_RDWR, os.O_NONBLOCK)
+                } else {
+                    dev_name, vendor_id, product_id = evdev_device_info(keyboard_devnode_fd, &keyboard_evdev)
+                    if (errno == os.ERROR_NONE) {
+                        log.debugf("keyboard device: %s", dev_name)
+                        device_features |= {.KEYBOARD}
+                    } else {
+                        log.errorf(
+                            "failed to open keyboard device node '%s' for device '%s': errno %s",
+                            keyboard_devnode,
+                            dev_name,
+                            errno,
+                        )
+                    }
                 }
             }
         }
@@ -1269,6 +1280,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
 
     if devnode := strings.clone_from_cstring(udev.device_get_devnode(dev)); devnode != "" {
         log.debug(devnode)
+        delete(devnode)
     }
 
     if card(device_features) != 0 {
@@ -1406,7 +1418,22 @@ udev_device_try_remove :: proc(dev: ^udev.udev_device) {
     key := udev.device_get_devnum(parent if parent != nil else dev)
     ok := key in zephr_ctx.input_devices_map
     if (ok) {
+        device := zephr_ctx.input_devices_map[key]
+        device_backend := linux_input_device(&device)
         os_event_queue_input_device_disconnected(key)
+
+        evdev.free(device_backend.mouse_evdev)
+        evdev.free(device_backend.gamepad_evdev)
+        evdev.free(device_backend.touchpad_evdev)
+        evdev.free(device_backend.keyboard_evdev)
+        evdev.free(device_backend.accelerometer_evdev)
+        evdev.free(device_backend.gyroscope_evdev)
+        delete(device_backend.mouse_devnode)
+        delete(device_backend.gamepad_devnode)
+        delete(device_backend.touchpad_devnode)
+        delete(device_backend.keyboard_devnode)
+        delete(device_backend.accelerometer_devnode)
+        delete(device_backend.gyroscope_devnode)
     }
 }
 
@@ -1485,6 +1512,12 @@ backend_shutdown :: proc() {
         evdev.free(input_device_backend.keyboard_evdev)
         evdev.free(input_device_backend.accelerometer_evdev)
         evdev.free(input_device_backend.gyroscope_evdev)
+        delete(input_device_backend.mouse_devnode)
+        delete(input_device_backend.gamepad_devnode)
+        delete(input_device_backend.touchpad_devnode)
+        delete(input_device_backend.keyboard_devnode)
+        delete(input_device_backend.accelerometer_devnode)
+        delete(input_device_backend.gyroscope_devnode)
     }
 
     glx.MakeCurrent(x11_display, 0, nil)
@@ -2123,7 +2156,9 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
             }
         }
 
-        unsplit_str := strings.clone(strings.string_from_ptr(bytes, cast(int)num_of_items - 2))
+        str_from_ptr := strings.string_from_ptr(bytes, cast(int)num_of_items - 2)
+        unsplit_str := strings.clone(str_from_ptr)
+        defer delete(unsplit_str)
         // we trim unsplit_str here so we don't get an empty string in the slice
         strs := strings.split_lines(unsplit_str)
 
@@ -2133,7 +2168,7 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
             str = strings.trim_suffix(str, "\x00")
             // we decode the string because it may contain unicode or uri encoded characters
             decoded_str, _ := net.percent_decode(str)
-            str = strings.clone(decoded_str)
+            str = strings.clone(decoded_str, context.temp_allocator)
         }
 
         return strs

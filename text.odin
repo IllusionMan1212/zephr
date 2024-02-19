@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import m "core:math/linalg/glsl"
 import "core:path/filepath"
+import "core:strings"
 
 import gl "vendor:OpenGL"
 
@@ -177,11 +178,12 @@ init_freetype :: proc(font_path: cstring) -> i32 {
     return 0
 }
 
-init_fonts :: proc(font_path: cstring) -> i32 {
+init_fonts :: proc(font_path: string) -> i32 {
     context.logger = logger
     font_vbo, font_ebo: u32
 
-    res := init_freetype(font_path)
+    font_path_c_str := strings.clone_to_cstring(font_path, context.temp_allocator)
+    res := init_freetype(font_path_c_str)
     if (res != 0) {
         return res
     }
@@ -251,9 +253,10 @@ init_fonts :: proc(font_path: cstring) -> i32 {
         for j in 0 ..< 4 {
             buf: [24]byte
             text := fmt.bprintf(buf[:], "texcoords[%d]", (i - 32) * 4 + j)
+            text_c_str := strings.clone_to_cstring(text, context.temp_allocator)
             set_vec2f(
                 font_shader,
-                cstring(raw_data(text)),
+                text_c_str,
                 zephr_ctx.font.characters[i].tex_coords[j].x,
                 zephr_ctx.font.characters[i].tex_coords[j].y,
             )

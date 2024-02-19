@@ -13,8 +13,6 @@ import gl "vendor:OpenGL"
 
 // TODO: In the future stop drawing and processing things in the engine when the window is not focused
 //       This assumes the window is just completely hidden and not just out of focus (the user can still see it)
-// BUG: Sometimes the font fails to load for some reason
-// This is pissing me tf off now
 
 Cursor :: enum {
     INVISIBLE,
@@ -526,11 +524,6 @@ COLOR_PURPLE :: Color{128, 0, 255, 255}
 
 @(private)
 engine_rel_path := filepath.dir(#file)
-// TODO: This font is currently used for the UI elements, but we should allow the user to specify
-//       their own font for the UI elements.
-//       In the future, this font should only be used for the engine's editor.
-@(private)
-engine_font_path := cstring(raw_data(relative_path("./res/fonts/Rubik/Rubik-VariableFont_wght.ttf")))
 
 @(private)
 zephr_ctx: Context
@@ -541,7 +534,13 @@ logger: log.Logger
 init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, window_non_resizable: bool) {
     logger_init()
 
+    // TODO: This font is currently used for the UI elements, but we should allow the user to specify
+    //       their own font for the UI elements.
+    //       In the future, this font should only be used for the engine's editor.
+    engine_font_path := filepath.join([]string{engine_rel_path, "res/fonts/Rubik/Rubik-VariableFont_wght.ttf"})
+
     // TODO: should I initalize the audio here or let the game handle that??
+    // Engine should initialize audio and the game only takes care of playing sounds (+ other stuff)
     //int res = audio_init();
     //CORE_ASSERT(res == 0, "Failed to initialize audio");
 
@@ -608,6 +607,8 @@ consume_mouse_events :: proc() -> bool {
 }
 
 swap_buffers :: proc() {
+    defer free_all(context.temp_allocator)
+
     if (zephr_ctx.ui.popup_open) {
         draw_color_picker_popup(&zephr_ctx.ui.popup_parent_constraints)
     }
@@ -732,6 +733,8 @@ load_font :: proc(font_path: cstring) {
     // fonts that will be used in the game.
     // TODO: I'm not sure how the path is supposed to be resolved since relative paths
     // are relative to the engine repo dir and not the game's repo dir.
+    // I think we'll just create a custom binary format for fonts that we can load in??
+    // Or dump out a texture atlas using another tool and load that in
 
     // Ideally we'd want to create a custom binary format for fonts when this is called that we can load in
     // and use to render text after the initial loading. This would allow the engine users
@@ -874,7 +877,7 @@ os_event_queue_raw_gamepad_action :: proc(key: u64, action: GamepadAction, value
     }
 
     device := input_device_get_checked(key, {.GAMEPAD})
-    if (value_unorm < deadzone_unorm) {     // TODO user configurable deadzone, different for each stick and trigger
+    if (value_unorm < deadzone_unorm) {     // TODO: user configurable deadzone, different for each stick and trigger
         value_unorm = 0
     }
 

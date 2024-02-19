@@ -93,7 +93,7 @@ DEFAULT_UI_CONSTRAINTS :: UiConstraints {
 }
 
 @(private)
-ui_init :: proc(font_path: cstring) {
+ui_init :: proc(font_path: string) {
     context.logger = logger
 
     res := init_fonts(font_path)
