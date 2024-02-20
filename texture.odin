@@ -1,10 +1,27 @@
 package zephr
 
 import "core:log"
+import "core:mem"
+import "core:net"
+import "core:path/filepath"
 import "core:strings"
 
 import gl "vendor:OpenGL"
+import "vendor:cgltf"
 import stb "vendor:stb/image"
+
+TextureType :: enum {
+    DIFFUSE,
+    SPECULAR,
+    NORMAL,
+    METALLIC_ROUGHNESS,
+    EMISSIVE,
+}
+
+Texture :: struct {
+    id:   TextureId,
+    type: TextureType,
+}
 
 TextureId :: u32
 
@@ -198,4 +215,72 @@ load_cubemap :: proc(faces_paths: [6]string) -> TextureId {
     gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
 
     return cubemap_tex_id
+}
+
+// TODO: multithread this for faster model loading
+@(private)
+process_texture :: proc(
+    tex: ^cgltf.texture,
+    type: TextureType,
+    gltf_file_path: cstring,
+    textures_map: ^map[cstring]TextureId,
+) -> Texture {
+    context.logger = logger
+
+    texture := Texture {
+        type = type,
+        id   = 0,
+    }
+
+    // TODO: handle the case where the texture is already loaded for embedded textures (.glb)
+
+    if tex.image_.uri in textures_map {
+        texture.id = textures_map[tex.image_.uri]
+        log.debug("tex already loaded:", tex.image_.uri)
+    } else {
+        sampler := tex.sampler
+
+        if tex.image_.buffer_view == nil {
+            image_uri, _ := net.percent_decode(string(tex.image_.uri))
+            is_absolute := filepath.is_abs(image_uri)
+            tex_path :=
+                is_absolute ? image_uri : filepath.join([]string{filepath.dir(string(gltf_file_path)), image_uri})
+
+            if sampler != nil {
+                texture.id = load_texture(
+                    tex_path,
+                    type == .DIFFUSE || type == .EMISSIVE,
+                    true,
+                    sampler.wrap_s != 0 ? sampler.wrap_s : gl.REPEAT,
+                    sampler.wrap_t != 0 ? sampler.wrap_t : gl.REPEAT,
+                    sampler.min_filter != 0 ? sampler.min_filter : gl.LINEAR_MIPMAP_LINEAR,
+                    sampler.mag_filter != 0 ? sampler.mag_filter : gl.LINEAR,
+                )
+            } else {
+                texture.id = load_texture(tex_path, type == .DIFFUSE || type == .EMISSIVE)
+            }
+
+            textures_map[tex.image_.uri] = texture.id
+        } else {
+            data := mem.ptr_offset(transmute([^]byte)tex.image_.buffer_view.buffer.data, tex.image_.buffer_view.offset)
+            data_len := tex.image_.buffer_view.size
+
+            if sampler != nil {
+                texture.id = load_texture_from_memory(
+                    data,
+                    cast(i32)data_len,
+                    type == .DIFFUSE || type == .EMISSIVE,
+                    true,
+                    sampler.wrap_s != 0 ? sampler.wrap_s : gl.REPEAT,
+                    sampler.wrap_t != 0 ? sampler.wrap_t : gl.REPEAT,
+                    sampler.min_filter != 0 ? sampler.min_filter : gl.LINEAR_MIPMAP_LINEAR,
+                    sampler.mag_filter != 0 ? sampler.mag_filter : gl.LINEAR,
+                )
+            } else {
+                texture.id = load_texture_from_memory(data, cast(i32)data_len, type == .DIFFUSE || type == .EMISSIVE)
+            }
+        }
+    }
+
+    return texture
 }

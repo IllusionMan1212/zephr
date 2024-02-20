@@ -554,6 +554,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
 
     backend_init(window_title, window_size, icon_path, window_non_resizable)
 
+    init_renderer()
     ui_init(engine_font_path)
 
     zephr_ctx.ui.elements = make([dynamic]UiElement, INIT_UI_STACK_SIZE)

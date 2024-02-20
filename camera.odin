@@ -23,3 +23,26 @@ DEFAULT_CAMERA :: Camera {
     sensitivity = 0.05,
     fov         = 45,
 }
+
+move_camera_view :: proc(camera: ^Camera, xoffset: f32, yoffset: f32) {
+    xoffset := xoffset * camera.sensitivity
+    yoffset := yoffset * camera.sensitivity
+
+    camera.yaw += xoffset
+    camera.pitch += yoffset
+
+    if camera.pitch > 89.0 {
+        camera.pitch = 89.0
+    }
+    if camera.pitch < -89.0 {
+        camera.pitch = -89.0
+    }
+
+    front := m.vec3 {
+        m.cos(m.radians(camera.pitch)) * m.cos(m.radians(camera.yaw)),
+        m.sin(m.radians(camera.pitch)),
+        m.cos(m.radians(camera.pitch)) * m.sin(m.radians(camera.yaw)),
+    }
+
+    camera.front = m.normalize(front)
+}
