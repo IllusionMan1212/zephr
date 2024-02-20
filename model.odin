@@ -417,5 +417,5 @@ load_gltf_model :: proc(file_path: cstring) -> (Model, bool) {
 
     log.debugf("Loading model took: %s", time.diff(now, time.now()))
 
-    return Model{nodes = nodes, scale = {1, 1, 1}}, true
+    return Model{nodes = nodes, scale = {1, 1, 1}, rotation = {1, 1, 1}}, true
 }
