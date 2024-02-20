@@ -26,6 +26,7 @@ import "3rdparty/xcursor"
 import "3rdparty/xfixes"
 import "3rdparty/xinput2"
 
+@(private = "file")
 LinuxEvdevBinding :: struct {
     // this maps to struct input_event in <linux/input.h>
     type:        u16,
@@ -35,6 +36,7 @@ LinuxEvdevBinding :: struct {
 
 #assert(size_of(LinuxEvdevRange) == 8)
 
+@(private = "file")
 LinuxEvdevRange :: struct {
     // this maps to struct input_event in <linux/input.h>
     min: i32,
@@ -43,6 +45,7 @@ LinuxEvdevRange :: struct {
 
 #assert(size_of(LinuxInputDevice) == OS_INPUT_DEVICE_BACKEND_SIZE)
 
+@(private = "file")
 LinuxInputDevice :: struct {
     mouse_devnode:         string,
     touchpad_devnode:      string,
@@ -61,6 +64,7 @@ LinuxInputDevice :: struct {
     gamepad_rumble_id:     i16,
 }
 
+@(private = "file")
 XdndState :: struct {
     transient:       struct {
         exchange_started: bool,
@@ -78,9 +82,23 @@ XdndState :: struct {
     supported_types: [6]x11.Atom,
 }
 
-OsCursor :: x11.Cursor
+@(private = "file")
+Os :: struct {
+    x11_display:        ^x11.Display,
+    x11_window:         x11.Window,
+    x11_colormap:       x11.Colormap,
+    xkb:                x11.XkbDescPtr,
+    xim:                x11.XIM,
+    glx_context:        glx.Context,
+    window_delete_atom: x11.Atom,
+    xdnd:               XdndState,
+    xinput_opcode:      i32,
+    udevice:            ^udev.udev,
+    udev_monitor:       ^udev.udev_monitor,
+    inotify_fd:         os.Handle,
+}
 
-// TODO: group these globals into a single struct
+OsCursor :: x11.Cursor
 
 @(private = "file")
 PropModeReplace :: 0
@@ -93,30 +111,7 @@ XA_CARDINAL :: x11.Atom(6)
 @(private = "file")
 XDND_PROTOCOL_VERSION :: 5
 
-@(private = "file")
-x11_display: ^x11.Display
-@(private = "file")
-x11_window: x11.Window
-@(private = "file")
-x11_colormap: x11.Colormap
-@(private = "file")
-xkb: x11.XkbDescPtr
-@(private = "file")
-xim: x11.XIM
-@(private = "file")
-glx_context: glx.Context
-@(private = "file")
-window_delete_atom: x11.Atom
-@(private = "file")
-xdnd: XdndState
-@(private = "file")
-xinput_opcode: i32
-@(private = "file")
-udevice: ^udev.udev
-@(private = "file")
-udev_monitor: ^udev.udev_monitor
-@(private = "file")
-inotify_fd: os.Handle
+l_os: Os
 
 @(private = "file")
 os_linux_gamepad_evdev_default_bindings := #partial [GamepadAction]LinuxEvdevBinding {
@@ -537,23 +532,23 @@ x11_go_fullscreen :: proc() {
         size_hints.flags = {.PPosition, .PSize}
         size_hints.width = cast(i32)zephr_ctx.window.size.x
         size_hints.height = cast(i32)zephr_ctx.window.size.y
-        x11.XSetWMNormalHints(x11_display, x11_window, size_hints)
+        x11.XSetWMNormalHints(l_os.x11_display, l_os.x11_window, size_hints)
         x11.XFree(size_hints)
     }
 
     xev: x11.XEvent
-    wm_state := x11.XInternAtom(x11_display, "_NET_WM_STATE", false)
-    fullscreen := x11.XInternAtom(x11_display, "_NET_WM_STATE_FULLSCREEN", false)
+    wm_state := x11.XInternAtom(l_os.x11_display, "_NET_WM_STATE", false)
+    fullscreen := x11.XInternAtom(l_os.x11_display, "_NET_WM_STATE_FULLSCREEN", false)
     xev.type = .ClientMessage
-    xev.xclient.window = x11_window
+    xev.xclient.window = l_os.x11_window
     xev.xclient.message_type = wm_state
     xev.xclient.format = 32
     xev.xclient.data.l[0] = 1 // _NET_WM_STATE_ADD
     xev.xclient.data.l[1] = cast(int)fullscreen
     xev.xclient.data.l[2] = 0
     x11.XSendEvent(
-        x11_display,
-        x11.XDefaultRootWindow(x11_display),
+        l_os.x11_display,
+        x11.XDefaultRootWindow(l_os.x11_display),
         false,
         {.SubstructureNotify, .SubstructureRedirect},
         &xev,
@@ -563,18 +558,18 @@ x11_go_fullscreen :: proc() {
 @(private = "file")
 x11_return_fullscreen :: proc() {
     xev: x11.XEvent
-    wm_state := x11.XInternAtom(x11_display, "_NET_WM_STATE", false)
-    fullscreen := x11.XInternAtom(x11_display, "_NET_WM_STATE_FULLSCREEN", false)
+    wm_state := x11.XInternAtom(l_os.x11_display, "_NET_WM_STATE", false)
+    fullscreen := x11.XInternAtom(l_os.x11_display, "_NET_WM_STATE_FULLSCREEN", false)
     xev.type = .ClientMessage
-    xev.xclient.window = x11_window
+    xev.xclient.window = l_os.x11_window
     xev.xclient.message_type = wm_state
     xev.xclient.format = 32
     xev.xclient.data.l[0] = 0 // _NET_WM_STATE_REMOVE
     xev.xclient.data.l[1] = cast(int)fullscreen
     xev.xclient.data.l[2] = 0
     x11.XSendEvent(
-        x11_display,
-        x11.XDefaultRootWindow(x11_display),
+        l_os.x11_display,
+        x11.XDefaultRootWindow(l_os.x11_display),
         false,
         {.SubstructureNotify, .SubstructureRedirect},
         &xev,
@@ -595,7 +590,7 @@ x11_return_fullscreen :: proc() {
             size_hints.max_width = cast(i32)zephr_ctx.window.pre_fullscreen_size.x
             size_hints.max_height = cast(i32)zephr_ctx.window.pre_fullscreen_size.y
         }
-        x11.XSetWMNormalHints(x11_display, x11_window, size_hints)
+        x11.XSetWMNormalHints(l_os.x11_display, l_os.x11_window, size_hints)
         x11.XFree(size_hints)
     }
 }
@@ -632,10 +627,10 @@ x11_assign_window_icon :: proc(icon_path: cstring, window_title: cstring) {
             (cast(u64)icon_data[i * 4 + 3] << 24)
     }
 
-    net_wm_icon := x11.XInternAtom(x11_display, "_NET_WM_ICON", false)
+    net_wm_icon := x11.XInternAtom(l_os.x11_display, "_NET_WM_ICON", false)
     x11.XChangeProperty(
-        x11_display,
-        x11_window,
+        l_os.x11_display,
+        l_os.x11_window,
         net_wm_icon,
         XA_CARDINAL,
         32,
@@ -646,7 +641,7 @@ x11_assign_window_icon :: proc(icon_path: cstring, window_title: cstring) {
 }
 
 backend_get_screen_size :: proc() -> m.vec2 {
-    screen := x11.XDefaultScreenOfDisplay(x11_display)
+    screen := x11.XDefaultScreenOfDisplay(l_os.x11_display)
 
     return m.vec2{cast(f32)screen.width, cast(f32)screen.height}
 }
@@ -654,7 +649,7 @@ backend_get_screen_size :: proc() -> m.vec2 {
 @(private = "file")
 x11_resize_window :: proc() {
     win_attrs: x11.XWindowAttributes
-    x11.XGetWindowAttributes(x11_display, x11_window, &win_attrs)
+    x11.XGetWindowAttributes(l_os.x11_display, l_os.x11_window, &win_attrs)
     gl.Viewport(0, 0, win_attrs.width, win_attrs.height)
 }
 
@@ -663,11 +658,11 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
     // TODO: window isn't centered on the active monitor when there are multiple monitors
     context.logger = logger
 
-    screen_num := x11.XDefaultScreen(x11_display)
-    root := x11.XRootWindow(x11_display, screen_num)
-    visual := x11.XDefaultVisual(x11_display, screen_num)
+    screen_num := x11.XDefaultScreen(l_os.x11_display)
+    root := x11.XRootWindow(l_os.x11_display, screen_num)
+    visual := x11.XDefaultVisual(l_os.x11_display, screen_num)
 
-    x11_colormap = x11.XCreateColormap(x11_display, root, visual, x11.ColormapAlloc.AllocNone)
+    l_os.x11_colormap = x11.XCreateColormap(l_os.x11_display, root, visual, x11.ColormapAlloc.AllocNone)
 
     attributes: x11.XSetWindowAttributes
     attributes.event_mask =  {
@@ -681,22 +676,22 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         .EnterWindow,
         .LeaveWindow,
     }
-    attributes.colormap = x11_colormap
+    attributes.colormap = l_os.x11_colormap
 
-    screen := x11.XDefaultScreenOfDisplay(x11_display)
+    screen := x11.XDefaultScreenOfDisplay(l_os.x11_display)
 
     window_start_x := screen.width / 2 - cast(i32)window_size.x / 2
     window_start_y := screen.height / 2 - cast(i32)window_size.y / 2
 
-    x11_window = x11.XCreateWindow(
-        x11_display,
+    l_os.x11_window = x11.XCreateWindow(
+        l_os.x11_display,
         root,
         window_start_x,
         window_start_y,
         cast(u32)window_size.x,
         cast(u32)window_size.y,
         0,
-        x11.XDefaultDepth(x11_display),
+        x11.XDefaultDepth(l_os.x11_display),
         .InputOutput,
         visual,
         {.CWColormap, .CWEventMask},
@@ -709,11 +704,11 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
 
     // Hints to the WM that the window is a normal window
     // Of course this is only a hint and the WM can ignore it
-    net_wm_window_type := x11.XInternAtom(x11_display, "_NET_WM_WINDOW_TYPE", false)
-    net_wm_window_type_normal := x11.XInternAtom(x11_display, "_NET_WM_WINDOW_TYPE_NORMAL", false)
+    net_wm_window_type := x11.XInternAtom(l_os.x11_display, "_NET_WM_WINDOW_TYPE", false)
+    net_wm_window_type_normal := x11.XInternAtom(l_os.x11_display, "_NET_WM_WINDOW_TYPE_NORMAL", false)
     x11.XChangeProperty(
-        x11_display,
-        x11_window,
+        l_os.x11_display,
+        l_os.x11_window,
         net_wm_window_type,
         XA_ATOM,
         32,
@@ -723,46 +718,55 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
     )
 
     // define Xdnd atoms
-    xdnd.xdnd_enter = x11.XInternAtom(x11_display, "XdndEnter", false)
-    xdnd.xdnd_leave = x11.XInternAtom(x11_display, "XdndLeave", false)
-    xdnd.xdnd_drop = x11.XInternAtom(x11_display, "XdndDrop", false)
-    xdnd.xdnd_selection = x11.XInternAtom(x11_display, "XdndSelection", false)
-    xdnd.XDND_DATA = x11.XInternAtom(x11_display, "XDND_DATA", false)
-    xdnd.xdnd_type_list = x11.XInternAtom(x11_display, "XdndTypeList", false)
-    xdnd.supported_types = [?]x11.Atom {
-        x11.XInternAtom(x11_display, "text/plain", false),
-        x11.XInternAtom(x11_display, "text/plain;charset=utf-8", false),
-        x11.XInternAtom(x11_display, "text/uri-list", false),
-        x11.XInternAtom(x11_display, "UTF8_STRING", false),
-        x11.XInternAtom(x11_display, "TEXT", false),
-        x11.XInternAtom(x11_display, "STRING", false),
+    l_os.xdnd.xdnd_enter = x11.XInternAtom(l_os.x11_display, "XdndEnter", false)
+    l_os.xdnd.xdnd_leave = x11.XInternAtom(l_os.x11_display, "XdndLeave", false)
+    l_os.xdnd.xdnd_drop = x11.XInternAtom(l_os.x11_display, "XdndDrop", false)
+    l_os.xdnd.xdnd_selection = x11.XInternAtom(l_os.x11_display, "XdndSelection", false)
+    l_os.xdnd.XDND_DATA = x11.XInternAtom(l_os.x11_display, "XDND_DATA", false)
+    l_os.xdnd.xdnd_type_list = x11.XInternAtom(l_os.x11_display, "XdndTypeList", false)
+    l_os.xdnd.supported_types = [?]x11.Atom {
+        x11.XInternAtom(l_os.x11_display, "text/plain", false),
+        x11.XInternAtom(l_os.x11_display, "text/plain;charset=utf-8", false),
+        x11.XInternAtom(l_os.x11_display, "text/uri-list", false),
+        x11.XInternAtom(l_os.x11_display, "UTF8_STRING", false),
+        x11.XInternAtom(l_os.x11_display, "TEXT", false),
+        x11.XInternAtom(l_os.x11_display, "STRING", false),
     }
 
-    xdnd.xdnd_version = XDND_PROTOCOL_VERSION
+    l_os.xdnd.xdnd_version = XDND_PROTOCOL_VERSION
 
     // Add XdndAware property to the window
-    xdnd.xdnd_aware = x11.XInternAtom(x11_display, "XdndAware", false)
-    x11.XChangeProperty(x11_display, x11_window, xdnd.xdnd_aware, XA_ATOM, 32, PropModeReplace, &xdnd.xdnd_version, 1)
+    l_os.xdnd.xdnd_aware = x11.XInternAtom(l_os.x11_display, "XdndAware", false)
+    x11.XChangeProperty(
+        l_os.x11_display,
+        l_os.x11_window,
+        l_os.xdnd.xdnd_aware,
+        XA_ATOM,
+        32,
+        PropModeReplace,
+        &l_os.xdnd.xdnd_version,
+        1,
+    )
 
-    wm_delete_window := x11.XInternAtom(x11_display, "WM_DELETE_WINDOW", false)
-    x11.XSetWMProtocols(x11_display, x11_window, &wm_delete_window, 1)
-    window_delete_atom = wm_delete_window
+    wm_delete_window := x11.XInternAtom(l_os.x11_display, "WM_DELETE_WINDOW", false)
+    x11.XSetWMProtocols(l_os.x11_display, l_os.x11_window, &wm_delete_window, 1)
+    l_os.window_delete_atom = wm_delete_window
 
     // set window name
     {
-        UTF8_STRING := x11.XInternAtom(x11_display, "UTF8_STRING", false)
-        x11.XStoreName(x11_display, x11_window, window_title)
+        UTF8_STRING := x11.XInternAtom(l_os.x11_display, "UTF8_STRING", false)
+        x11.XStoreName(l_os.x11_display, l_os.x11_window, window_title)
         text_property: x11.XTextProperty
         text_property.value = raw_data(string(window_title))
         text_property.format = 8
         text_property.encoding = UTF8_STRING
         text_property.nitems = len(window_title)
-        x11.XSetWMName(x11_display, x11_window, &text_property)
-        net_wm_name := x11.XInternAtom(x11_display, "_NET_WM_NAME", false)
-        wm_class := x11.XInternAtom(x11_display, "WM_CLASS", false)
+        x11.XSetWMName(l_os.x11_display, l_os.x11_window, &text_property)
+        net_wm_name := x11.XInternAtom(l_os.x11_display, "_NET_WM_NAME", false)
+        wm_class := x11.XInternAtom(l_os.x11_display, "WM_CLASS", false)
         x11.XChangeProperty(
-            x11_display,
-            x11_window,
+            l_os.x11_display,
+            l_os.x11_window,
             net_wm_name,
             UTF8_STRING,
             8,
@@ -771,8 +775,8 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
             cast(i32)len(window_title),
         )
         x11.XChangeProperty(
-            x11_display,
-            x11_window,
+            l_os.x11_display,
+            l_os.x11_window,
             wm_class,
             XA_STRING,
             8,
@@ -782,10 +786,10 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         )
 
         // name to be displayed when the window is reduced to an icon
-        net_wm_icon_name := x11.XInternAtom(x11_display, "_NET_WM_ICON_NAME", false)
+        net_wm_icon_name := x11.XInternAtom(l_os.x11_display, "_NET_WM_ICON_NAME", false)
         x11.XChangeProperty(
-            x11_display,
-            x11_window,
+            l_os.x11_display,
+            l_os.x11_window,
             net_wm_icon_name,
             UTF8_STRING,
             8,
@@ -795,14 +799,14 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         )
 
         text_property.encoding = XA_STRING
-        x11.XSetWMIconName(x11_display, x11_window, &text_property)
+        x11.XSetWMIconName(l_os.x11_display, l_os.x11_window, &text_property)
 
         class_hint := x11.XAllocClassHint()
 
         if (class_hint != nil) {
             class_hint.res_name = window_title
             class_hint.res_class = window_title
-            x11.XSetClassHint(x11_display, x11_window, class_hint)
+            x11.XSetClassHint(l_os.x11_display, l_os.x11_window, class_hint)
             x11.XFree(class_hint)
         }
     }
@@ -823,11 +827,11 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
             size_hints.max_width = cast(i32)window_size.x
             size_hints.max_height = cast(i32)window_size.y
         }
-        x11.XSetWMNormalHints(x11_display, x11_window, size_hints)
+        x11.XSetWMNormalHints(l_os.x11_display, l_os.x11_window, size_hints)
         x11.XFree(size_hints)
     }
 
-    x11.XMapWindow(x11_display, x11_window)
+    x11.XMapWindow(l_os.x11_display, l_os.x11_window)
 
     gl.load_up_to(
         3,
@@ -837,7 +841,7 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
 
     glx_major: i32
     glx_minor: i32
-    glx.QueryVersion(x11_display, &glx_major, &glx_minor)
+    glx.QueryVersion(l_os.x11_display, &glx_major, &glx_minor)
 
     log.infof("Loaded GLX: %d.%d", glx_major, glx_minor)
     
@@ -857,7 +861,7 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
     //odinfmt: enable
 
     num_fbc: i32
-    fbc := glx.ChooseFBConfig(x11_display, screen_num, raw_data(visual_attributes), &num_fbc)
+    fbc := glx.ChooseFBConfig(l_os.x11_display, screen_num, raw_data(visual_attributes), &num_fbc)
     
     //odinfmt: disable
     context_attributes := []i32 {
@@ -868,20 +872,20 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
     }
     //odinfmt: enable
 
-    glx_context = glx.CreateContextAttribsARB(x11_display, fbc[0], nil, true, raw_data(context_attributes))
+    l_os.glx_context = glx.CreateContextAttribsARB(l_os.x11_display, fbc[0], nil, true, raw_data(context_attributes))
 
-    if glx_context == nil {
+    if l_os.glx_context == nil {
         log.error("Failed to create GLX context")
         return
     }
 
-    glx.MakeCurrent(x11_display, x11_window, glx_context)
+    glx.MakeCurrent(l_os.x11_display, l_os.x11_window, l_os.glx_context)
 
     gl_version := gl.GetString(gl.VERSION)
 
     log.infof("GL Version: %s", gl_version)
 
-    glx.SwapIntervalEXT(x11_display, x11_window, 1)
+    glx.SwapIntervalEXT(l_os.x11_display, l_os.x11_window, 1)
     // we enable blending for text
     gl.Enable(gl.BLEND)
     gl.Enable(gl.DEPTH_TEST)
@@ -903,23 +907,23 @@ keyboard_map_update :: proc() {
     }
 
     state: x11.XkbStateRec
-    x11.XkbGetUpdatedMap(x11_display, x11.XkbAllClientInfoMask, xkb)
+    x11.XkbGetUpdatedMap(l_os.x11_display, x11.XkbAllClientInfoMask, l_os.xkb)
 
     group: u8 = 0
-    if x11.XkbGetState(x11_display, x11.XkbUseCoreKbd, &state) == .Success {
+    if x11.XkbGetState(l_os.x11_display, x11.XkbUseCoreKbd, &state) == .Success {
         group = state.group
     }
 
-    first_keycode := xkb.min_key_code
-    last_keycode := xkb.max_key_code
+    first_keycode := l_os.xkb.min_key_code
+    last_keycode := l_os.xkb.max_key_code
     if (last_keycode > cast(u8)len(evdev_scancode_to_zephr_scancode_map) - 8) {
         last_keycode = cast(u8)len(evdev_scancode_to_zephr_scancode_map) - 8 - 1
     }
 
     // documentation here: https://www.x.org/releases/current/doc/libX11/XKB/xkblib.html
     // evdev keycodes are 8 less than x11 keycodes
-    x11.XkbGetKeySyms(x11_display, cast(u32)first_keycode, cast(u32)(last_keycode - first_keycode), xkb)
-    cmap := xkb._map
+    x11.XkbGetKeySyms(l_os.x11_display, cast(u32)first_keycode, cast(u32)(last_keycode - first_keycode), l_os.xkb)
+    cmap := l_os.xkb._map
     for x11keycode in 8 ..< last_keycode {
         sym_map := &cmap.key_sym_map[x11keycode]
         sym_start_idx := sym_map.offset
@@ -975,11 +979,11 @@ x11_error_handler :: proc "c" (display: ^x11.Display, event: ^x11.XErrorEvent) -
 }
 
 backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
-    x11_display = x11.XOpenDisplay(nil)
+    l_os.x11_display = x11.XOpenDisplay(nil)
 
     x11.XSetErrorHandler(x11_error_handler)
 
-    if x11_display == nil {
+    if l_os.x11_display == nil {
         log.error("Failed to open X11 display")
         return
     }
@@ -987,32 +991,37 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
     {
         // loads the XMODIFIERS environment variable to see what IME to use
         x11.XSetLocaleModifiers("")
-        xim = x11.XOpenIM(x11_display, nil, nil, nil)
-        if (xim == nil) {
+        l_os.xim = x11.XOpenIM(l_os.x11_display, nil, nil, nil)
+        if (l_os.xim == nil) {
             // fallback to internal input method
             x11.XSetLocaleModifiers("@im=none")
-            xim = x11.XOpenIM(x11_display, nil, nil, nil)
+            l_os.xim = x11.XOpenIM(l_os.x11_display, nil, nil, nil)
         }
 
         // HACK: this is a workaround to force xlib to send us a MappingNotify
         // event when the keyboard layout changes. No event is sent if this isn't called
-        x11.XKeysymToKeycode(x11_display, .XK_F1)
+        x11.XKeysymToKeycode(l_os.x11_display, .XK_F1)
 
-        x11.XAutoRepeatOn(x11_display)
+        x11.XAutoRepeatOn(l_os.x11_display)
         major: i32 = 1
         minor: i32 = 0
-        success := x11.XkbQueryExtension(x11_display, nil, nil, nil, &major, &minor)
+        success := x11.XkbQueryExtension(l_os.x11_display, nil, nil, nil, &major, &minor)
         assert(cast(bool)success, "XKB extension not available")
-        success = x11.XkbUseExtension(x11_display, &major, &minor)
+        success = x11.XkbUseExtension(l_os.x11_display, &major, &minor)
         assert(cast(bool)success, "Failed to initialize XKB extension")
 
-        xkb = x11.XkbGetMap(x11_display, x11.XkbAllClientInfoMask, x11.XkbUseCoreKbd)
+        l_os.xkb = x11.XkbGetMap(l_os.x11_display, x11.XkbAllClientInfoMask, x11.XkbUseCoreKbd)
 
         // this will remove KeyRelease events for held keys.
         repeat: b32
-        x11.XkbSetDetectableAutoRepeat(x11_display, true, &repeat)
+        x11.XkbSetDetectableAutoRepeat(l_os.x11_display, true, &repeat)
 
-        x11.XkbSelectEvents(x11_display, x11.XkbUseCoreKbd, {.MapNotify, .ActionMessage}, {.MapNotify, .ActionMessage})
+        x11.XkbSelectEvents(
+            l_os.x11_display,
+            x11.XkbUseCoreKbd,
+            {.MapNotify, .ActionMessage},
+            {.MapNotify, .ActionMessage},
+        )
 
         keyboard_map_update()
     }
@@ -1022,20 +1031,20 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
     }
 
     {
-        udevice = udev.new()
+        l_os.udevice = udev.new()
 
         {
-            udev_monitor = udev.monitor_new_from_netlink(udevice, "udev")
+            l_os.udev_monitor = udev.monitor_new_from_netlink(l_os.udevice, "udev")
 
-            udev.monitor_filter_add_match_subsystem_devtype(udev_monitor, "input", nil)
-            udev.monitor_enable_receiving(udev_monitor)
+            udev.monitor_filter_add_match_subsystem_devtype(l_os.udev_monitor, "input", nil)
+            udev.monitor_enable_receiving(l_os.udev_monitor)
 
-            fd := udev.monitor_get_fd(udev_monitor)
+            fd := udev.monitor_get_fd(l_os.udev_monitor)
             fd_flags, err := linux.fcntl(fd, linux.F_GETFL)
             linux.fcntl(fd, linux.F_SETFL, fd_flags | {.NONBLOCK})
         }
 
-        enumerate := udev.enumerate_new(udevice)
+        enumerate := udev.enumerate_new(l_os.udevice)
         udev.enumerate_add_match_subsystem(enumerate, "input")
         udev.enumerate_scan_devices(enumerate)
 
@@ -1044,7 +1053,7 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
         list_entry: ^udev.udev_list_entry
         for list_entry = first_device; list_entry != nil; list_entry = udev.list_entry_get_next(list_entry) {
             syspath := udev.list_entry_get_name(list_entry)
-            dev := udev.device_new_from_syspath(udevice, syspath)
+            dev := udev.device_new_from_syspath(l_os.udevice, syspath)
 
             udev_device_try_add(dev)
 
@@ -1056,7 +1065,7 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
 
     x11_create_window(window_title, window_size, icon_path, window_non_resizable)
 
-    inotify_fd = inotify.init1(os.O_NONBLOCK)
+    l_os.inotify_fd = inotify.init1(os.O_NONBLOCK)
     watch_shaders()
 }
 
@@ -1064,7 +1073,7 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
 watch_shaders :: proc() {
     context.logger = logger
 
-    wd := inotify.add_watch(inotify_fd, "engine/shaders", inotify.IN_MODIFY)
+    wd := inotify.add_watch(l_os.inotify_fd, "engine/shaders", inotify.IN_MODIFY)
 
     if wd < 0 {
         log.errorf("Failed to watch shaders directory")
@@ -1458,7 +1467,7 @@ udev_device_try_remove :: proc(dev: ^udev.udev_device) {
 udev_has_event :: proc() -> bool {
     context.logger = logger
 
-    fd := udev.monitor_get_fd(udev_monitor)
+    fd := udev.monitor_get_fd(l_os.udev_monitor)
 
     fds := []linux.Poll_Fd{linux.Poll_Fd{fd = fd, events = {.IN}}}
 
@@ -1537,16 +1546,16 @@ backend_shutdown :: proc() {
         delete(input_device_backend.gyroscope_devnode)
     }
 
-    glx.MakeCurrent(x11_display, 0, nil)
-    glx.DestroyContext(x11_display, glx_context)
+    glx.MakeCurrent(l_os.x11_display, 0, nil)
+    glx.DestroyContext(l_os.x11_display, l_os.glx_context)
 
-    x11.XDestroyWindow(x11_display, x11_window)
-    x11.XFreeColormap(x11_display, x11_colormap)
-    x11.XCloseDisplay(x11_display)
+    x11.XDestroyWindow(l_os.x11_display, l_os.x11_window)
+    x11.XFreeColormap(l_os.x11_display, l_os.x11_colormap)
+    x11.XCloseDisplay(l_os.x11_display)
 }
 
 backend_swapbuffers :: proc() {
-    glx.SwapBuffers(x11_display, x11_window)
+    glx.SwapBuffers(l_os.x11_display, l_os.x11_window)
 }
 
 backend_get_os_events :: proc() {
@@ -1558,7 +1567,7 @@ backend_get_os_events :: proc() {
             return
         }
 
-        dev := udev.monitor_receive_device(udev_monitor)
+        dev := udev.monitor_receive_device(l_os.udev_monitor)
         parent_dev: ^udev.udev_device = nil
         action := udev.device_get_action(dev)
 
@@ -1803,7 +1812,7 @@ backend_get_os_events :: proc() {
 
     for {
         bytes := make([]byte, 8 * size_of(inotify.Event) + 256, context.temp_allocator)
-        bytes_read, err := os.read(inotify_fd, bytes)
+        bytes_read, err := os.read(l_os.inotify_fd, bytes)
 
         if bytes_read == -1 && err == os.EAGAIN {
             break
@@ -1831,12 +1840,12 @@ backend_get_os_events :: proc() {
     }
 
     e: Event
-    for (cast(bool)x11.XPending(x11_display)) {
+    for (cast(bool)x11.XPending(l_os.x11_display)) {
         if queue.len(zephr_ctx.event_queue) == queue.cap(zephr_ctx.event_queue) {
             return
         }
 
-        x11.XNextEvent(x11_display, &xev)
+        x11.XNextEvent(l_os.x11_display, &xev)
 
         if xev.type == .ConfigureNotify {
             xce := xev.xconfigure
@@ -1864,25 +1873,25 @@ backend_get_os_events :: proc() {
             queue.push(&zephr_ctx.event_queue, e)
         } else if xev.type == .ClientMessage {
             // window close event
-            if (cast(x11.Atom)xev.xclient.data.l[0] == window_delete_atom) {
+            if (cast(x11.Atom)xev.xclient.data.l[0] == l_os.window_delete_atom) {
                 e.type = .WINDOW_CLOSED
                 queue.push(&zephr_ctx.event_queue, e)
-            } else if xev.xclient.message_type == xdnd.xdnd_enter {
+            } else if xev.xclient.message_type == l_os.xdnd.xdnd_enter {
                 xdnd_enter(xev.xclient.data.l)
-            } else if xev.xclient.message_type == xdnd.xdnd_leave {
+            } else if xev.xclient.message_type == l_os.xdnd.xdnd_leave {
                 // clear xdnd's transient state
-                xdnd.transient = {}
-            } else if xev.xclient.message_type == xdnd.xdnd_drop {
-                if xev.xclient.data.l[0] != cast(int)xdnd.transient.source_window {
+                l_os.xdnd.transient = {}
+            } else if xev.xclient.message_type == l_os.xdnd.xdnd_drop {
+                if xev.xclient.data.l[0] != cast(int)l_os.xdnd.transient.source_window {
                     break
                 }
 
                 x11.XConvertSelection(
-                    x11_display,
-                    xdnd.xdnd_selection,
-                    xdnd.transient.proposed_type,
-                    xdnd.XDND_DATA,
-                    x11_window,
+                    l_os.x11_display,
+                    l_os.xdnd.xdnd_selection,
+                    l_os.xdnd.transient.proposed_type,
+                    l_os.xdnd.XDND_DATA,
+                    l_os.x11_window,
                     cast(x11.Time)xev.xclient.data.l[2],
                 )
             }
@@ -1977,8 +1986,8 @@ backend_get_os_events :: proc() {
             queue.push(&zephr_ctx.event_queue, e)
         } else if xev.type == .GenericEvent {
             if zephr_ctx.virt_mouse.captured &&
-               xev.xcookie.extension == xinput_opcode &&
-               x11.XGetEventData(x11_display, &xev.xcookie) &&
+               xev.xcookie.extension == l_os.xinput_opcode &&
+               x11.XGetEventData(l_os.x11_display, &xev.xcookie) &&
                xev.xcookie.evtype == cast(i32)xinput2.EventType.RawMotion {
                 re := cast(^xinput2.RawEvent)xev.xcookie.data
                 if re.valuators.mask_len > 0 {
@@ -2004,10 +2013,10 @@ backend_get_os_events :: proc() {
                     queue.push(&zephr_ctx.event_queue, e)
                 }
 
-                x11.XFreeEventData(x11_display, &xev.xcookie)
+                x11.XFreeEventData(l_os.x11_display, &xev.xcookie)
             }
         } else if xev.type == .SelectionNotify {
-            if xev.xselection.property != xdnd.XDND_DATA {
+            if xev.xselection.property != l_os.xdnd.XDND_DATA {
                 break
             }
             if paths := xdnd_receive_data(xev.xselection); paths != nil {
@@ -2018,19 +2027,19 @@ backend_get_os_events :: proc() {
 }
 
 backend_set_cursor :: proc() {
-    x11.XDefineCursor(x11_display, x11_window, zephr_ctx.cursors[zephr_ctx.cursor])
+    x11.XDefineCursor(l_os.x11_display, l_os.x11_window, zephr_ctx.cursors[zephr_ctx.cursor])
 }
 
 backend_init_cursors :: proc() {
-    zephr_ctx.cursors[.ARROW] = x11.XCreateFontCursor(x11_display, .XC_left_ptr)
-    zephr_ctx.cursors[.IBEAM] = x11.XCreateFontCursor(x11_display, .XC_xterm)
-    zephr_ctx.cursors[.CROSSHAIR] = x11.XCreateFontCursor(x11_display, .XC_crosshair)
-    zephr_ctx.cursors[.HAND] = x11.XCreateFontCursor(x11_display, .XC_hand1)
-    zephr_ctx.cursors[.HRESIZE] = x11.XCreateFontCursor(x11_display, .XC_sb_h_double_arrow)
-    zephr_ctx.cursors[.VRESIZE] = x11.XCreateFontCursor(x11_display, .XC_sb_v_double_arrow)
+    zephr_ctx.cursors[.ARROW] = x11.XCreateFontCursor(l_os.x11_display, .XC_left_ptr)
+    zephr_ctx.cursors[.IBEAM] = x11.XCreateFontCursor(l_os.x11_display, .XC_xterm)
+    zephr_ctx.cursors[.CROSSHAIR] = x11.XCreateFontCursor(l_os.x11_display, .XC_crosshair)
+    zephr_ctx.cursors[.HAND] = x11.XCreateFontCursor(l_os.x11_display, .XC_hand1)
+    zephr_ctx.cursors[.HRESIZE] = x11.XCreateFontCursor(l_os.x11_display, .XC_sb_h_double_arrow)
+    zephr_ctx.cursors[.VRESIZE] = x11.XCreateFontCursor(l_os.x11_display, .XC_sb_v_double_arrow)
 
     // non-standard cursors
-    zephr_ctx.cursors[.DISABLED] = xcursor.LibraryLoadCursor(x11_display, "crossed_circle")
+    zephr_ctx.cursors[.DISABLED] = xcursor.LibraryLoadCursor(l_os.x11_display, "crossed_circle")
 }
 
 @(private = "file")
@@ -2038,14 +2047,14 @@ enable_raw_mouse_input :: proc() {
     context.logger = logger
 
     ev, err: i32
-    if !x11.XQueryExtension(x11_display, "XInputExtension", &xinput_opcode, &ev, &err) {
+    if !x11.XQueryExtension(l_os.x11_display, "XInputExtension", &l_os.xinput_opcode, &ev, &err) {
         log.error("XInput extension not available")
         return
     }
 
     major: i32 = 2
     minor: i32 = 0
-    if xinput2.QueryVersion(x11_display, &major, &minor) == .BadRequest {
+    if xinput2.QueryVersion(l_os.x11_display, &major, &minor) == .BadRequest {
         log.error("XInput2 not available")
         return
     }
@@ -2061,7 +2070,7 @@ enable_raw_mouse_input :: proc() {
 
     xinput2.SetMask(em.mask, .RawMotion)
     // This ONLY works with the root window
-    xinput2.SelectEvents(x11_display, x11.XDefaultRootWindow(x11_display), &em, 1)
+    xinput2.SelectEvents(l_os.x11_display, x11.XDefaultRootWindow(l_os.x11_display), &em, 1)
 }
 
 @(private = "file")
@@ -2074,7 +2083,7 @@ disable_raw_mouse_input :: proc() {
         mask     = raw_data(mask[:]),
     }
 
-    xinput2.SelectEvents(x11_display, x11.XDefaultRootWindow(x11_display), &em, 1)
+    xinput2.SelectEvents(l_os.x11_display, x11.XDefaultRootWindow(l_os.x11_display), &em, 1)
 }
 
 backend_grab_cursor :: proc() {
@@ -2083,29 +2092,29 @@ backend_grab_cursor :: proc() {
     int, root_x, root_y, child_x, child_y: i32
     mask: x11.KeyMask
 
-    x11.XQueryPointer(x11_display, x11_window, &root, &child, &root_x, &root_y, &child_x, &child_y, &mask)
+    x11.XQueryPointer(l_os.x11_display, l_os.x11_window, &root, &child, &root_x, &root_y, &child_x, &child_y, &mask)
     zephr_ctx.virt_mouse.pos_before_capture = {cast(f32)child_x, cast(f32)child_y}
     zephr_ctx.virt_mouse.virtual_pos = {cast(f32)child_x, cast(f32)child_y}
     x11.XGrabPointer(
-        x11_display,
-        x11_window,
+        l_os.x11_display,
+        l_os.x11_window,
         true,
         {.PointerMotion, .ButtonPress, .ButtonRelease},
         .GrabModeAsync,
         .GrabModeAsync,
-        x11_window,
+        l_os.x11_window,
         x11.None,
         x11.CurrentTime,
     )
-    xfixes.HideCursor(x11_display, x11_window)
+    xfixes.HideCursor(l_os.x11_display, l_os.x11_window)
 }
 
 backend_release_cursor :: proc() {
     disable_raw_mouse_input()
     x11.XWarpPointer(
-        x11_display,
+        l_os.x11_display,
         x11.None,
-        x11_window,
+        l_os.x11_window,
         0,
         0,
         0,
@@ -2113,24 +2122,24 @@ backend_release_cursor :: proc() {
         cast(i32)zephr_ctx.virt_mouse.pos_before_capture.x,
         cast(i32)zephr_ctx.virt_mouse.pos_before_capture.y,
     )
-    x11.XUngrabPointer(x11_display, x11.CurrentTime)
-    xfixes.ShowCursor(x11_display, x11_window)
+    x11.XUngrabPointer(l_os.x11_display, x11.CurrentTime)
+    xfixes.ShowCursor(l_os.x11_display, l_os.x11_window)
 }
 
 @(private = "file")
 xdnd_enter :: proc(client_data_l: [5]int) {
     if client_data_l[1] & 0x1 == 1 {
         // More than three data types
-        xdnd.transient.exchange_started = true
-        xdnd.transient.source_window = cast(x11.Window)client_data_l[0]
+        l_os.xdnd.transient.exchange_started = true
+        l_os.xdnd.transient.source_window = cast(x11.Window)client_data_l[0]
         actual_type: x11.Atom
         actual_format: i32
         num_of_items, bytes_after_return: uint
         data: rawptr
         res := x11.XGetWindowProperty(
-            x11_display,
-            xdnd.transient.source_window,
-            xdnd.xdnd_type_list,
+            l_os.x11_display,
+            l_os.xdnd.transient.source_window,
+            l_os.xdnd.xdnd_type_list,
             0,
             1024,
             false,
@@ -2144,9 +2153,9 @@ xdnd_enter :: proc(client_data_l: [5]int) {
         if res == cast(i32)x11.Status.Success && actual_type != x11.None {
             source_types := cast([^]x11.Atom)data
             out: for i in 0 ..< num_of_items {
-                for supported_type in xdnd.supported_types {
+                for supported_type in l_os.xdnd.supported_types {
                     if supported_type == source_types[i] {
-                        xdnd.transient.proposed_type = supported_type
+                        l_os.xdnd.transient.proposed_type = supported_type
                         break out
                     }
                 }
@@ -2156,9 +2165,9 @@ xdnd_enter :: proc(client_data_l: [5]int) {
     } else {
         // Only three data types
         outer: for i in 2 ..< 5 {
-            for supported_type in xdnd.supported_types {
+            for supported_type in l_os.xdnd.supported_types {
                 if supported_type == cast(x11.Atom)client_data_l[i] {
-                    xdnd.transient.proposed_type = supported_type
+                    l_os.xdnd.transient.proposed_type = supported_type
                     break outer
                 }
             }
@@ -2175,9 +2184,9 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
     data: rawptr
 
     res := x11.XGetWindowProperty(
-        x11_display,
-        x11_window,
-        xdnd.XDND_DATA,
+        l_os.x11_display,
+        l_os.x11_window,
+        l_os.xdnd.XDND_DATA,
         0,
         1024,
         false,
@@ -2191,7 +2200,7 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
 
     if res == cast(i32)x11.Status.Success {
         defer x11.XFree(data)
-        defer x11.XDeleteProperty(x11_display, x11_window, xdnd.XDND_DATA)
+        defer x11.XDeleteProperty(l_os.x11_display, l_os.x11_window, l_os.xdnd.XDND_DATA)
 
         bytes := transmute([^]u8)data
 
