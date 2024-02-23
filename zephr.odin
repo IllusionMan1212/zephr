@@ -1201,8 +1201,7 @@ fnv_hash32 :: proc(data: []byte, size: u32, hash: u32) -> u32 {
 
 @(private)
 logger_init :: proc() {
-    buf: [128]byte
-    log_file_name := fmt.bprintf(buf[:], "%s.log", ODIN_BUILD_PROJECT_NAME)
+    log_file_name := fmt.tprintf("%s.log", ODIN_BUILD_PROJECT_NAME)
 
     log_file, err := os.open(log_file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
     if err != os.ERROR_NONE {

@@ -251,8 +251,7 @@ init_fonts :: proc(font_path: string) -> i32 {
 
     for i in 32 ..< 128 {
         for j in 0 ..< 4 {
-            buf: [24]byte
-            text := fmt.bprintf(buf[:], "texcoords[%d]", (i - 32) * 4 + j)
+            text := fmt.tprintf("texcoords[%d]", (i - 32) * 4 + j)
             text_c_str := strings.clone_to_cstring(text, context.temp_allocator)
             set_vec2f(
                 font_shader,
