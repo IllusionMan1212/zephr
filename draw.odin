@@ -97,38 +97,114 @@ draw :: proc(models: []Model, lights: []Light) {
 
     draw_lights(lights)
 
-    for model in models {
-        draw_model(model)
+    models := models
+
+    for model in &models {
+        draw_model(&model)
     }
 }
 
 @(private = "file")
-draw_model :: proc(model: Model) {
+draw_model :: proc(model: ^Model) {
     use_shader(mesh_shader)
     model_mat := m.identity(m.mat4)
     model_mat = m.mat4Scale(model.scale) * model_mat
     model_mat = m.mat4Rotate(model.rotation, m.radians(model.rotation_angle_d)) * model_mat
     model_mat = m.mat4Translate(model.position) * model_mat
 
-    for node in model.nodes {
-        draw_node(node, model_mat)
+    for node in &model.nodes {
+        draw_node(&node, model_mat, &model.animations)
     }
 }
 
 @(private = "file")
-draw_node :: proc(node: Node, parent_transform: m.mat4) {
-    for mesh in node.meshes {
-        draw_mesh(mesh, parent_transform * node.transform)
+draw_node :: proc(node: ^Node, parent_transform: m.mat4, animations: ^[]Animation) {
+    context.logger = logger
+
+    transform := parent_transform
+
+    for anim in animations {
+        if anim.timer.running {
+            advance_animation(anim, node, &anim.timer, anim.max_time)
+        }
     }
 
-    for child in node.children {
-        draw_node(child, parent_transform * node.transform)
+    if node.has_transform {
+        transform *= node.transform
+    } else {
+        t := m.identity(m.mat4)
+        t = m.mat4Scale(node.scale) * t
+        t = m.mat4FromQuat(node.rotation) * t
+        t = m.mat4Translate(node.translation) * t
+        transform *= t
+    }
+
+    for mesh in node.meshes {
+        draw_mesh(mesh, transform)
+    }
+
+    for child in &node.children {
+        draw_node(&child, transform, animations)
     }
 }
 
 @(private = "file")
 draw_mesh :: proc(mesh: Mesh, transform: m.mat4) {
     context.logger = logger
+
+    if len(mesh.morph_targets) != 0 {
+        vertices := make([]Vertex, len(mesh.vertices))
+        copy(vertices, mesh.vertices)
+
+        for morph_target, i in mesh.morph_targets {
+            for vert, j in vertices {
+                pos := vert.position
+                norm := vert.normal
+                tangent := vert.tangents
+
+                if len(morph_target.positions) != 0 {
+                    pos +=
+                        m.vec3 {
+                            morph_target.positions[j * 3],
+                            morph_target.positions[j * 3 + 1],
+                            morph_target.positions[j * 3 + 2],
+                        } *
+                        mesh.weights[i]
+
+                    vertices[j].position = pos
+                }
+                if len(morph_target.normals) != 0 {
+                    norm +=
+                        m.vec3 {
+                            morph_target.normals[j * 3],
+                            morph_target.normals[j * 3 + 1],
+                            morph_target.normals[j * 3 + 2],
+                        } *
+                        mesh.weights[i]
+
+                    vertices[j].normal = norm
+                }
+                if len(morph_target.tangents) != 0 {
+                    tangent +=
+                        m.vec4 {
+                            morph_target.tangents[j * 3],
+                            morph_target.tangents[j * 3 + 1],
+                            morph_target.tangents[j * 3 + 2],
+                            tangent.w,
+                        } *
+                        mesh.weights[i]
+
+                    vertices[j].tangents = tangent
+                }
+            }
+
+            gl.BindBuffer(gl.ARRAY_BUFFER, mesh.vbo)
+            gl.BufferSubData(gl.ARRAY_BUFFER, 0, size_of(Vertex) * len(vertices), raw_data(vertices))
+            gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+        }
+        delete(vertices)
+    }
 
     if mesh.material.double_sided {
         gl.Disable(gl.CULL_FACE)
@@ -184,7 +260,6 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4) {
                 set_int(mesh_shader, "material.texture_emissive", cast(i32)i)
         }
     }
-
 
     gl.BindVertexArray(mesh.vao)
     gl.DrawElements(gl.TRIANGLES, cast(i32)len(mesh.indices), gl.UNSIGNED_INT, nil)

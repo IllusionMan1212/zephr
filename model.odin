@@ -1,5 +1,6 @@
 package zephr
 
+import "core:fmt"
 import "core:intrinsics"
 import "core:log"
 import m "core:math/linalg/glsl"
@@ -10,7 +11,6 @@ import gl "vendor:OpenGL"
 import "vendor:cgltf"
 
 #assert(size_of(Vertex) == 48)
-@(private = "file")
 Vertex :: struct {
     position:   m.vec3,
     normal:     m.vec3,
@@ -19,21 +19,35 @@ Vertex :: struct {
 }
 
 @(private)
+MorphTarget :: struct {
+    positions: []f32,
+    normals:   []f32,
+    tangents:  []f32,
+}
+
+@(private)
 Mesh :: struct {
-    primitive: cgltf.primitive_type,
-    vertices:  []Vertex,
-    indices:   []u32,
-    material:  Material,
-    vao:       u32,
-    vbo:       u32,
-    ebo:       u32,
+    primitive:     cgltf.primitive_type,
+    vertices:      []Vertex,
+    indices:       []u32,
+    material:      Material,
+    weights:       []f32,
+    morph_targets: []MorphTarget,
+    vao:           u32,
+    vbo:           u32,
+    ebo:           u32,
 }
 
 Node :: struct {
-    name:      string,
-    meshes:    [dynamic]Mesh,
-    transform: m.mat4,
-    children:  []Node,
+    id:            uintptr,
+    name:          string,
+    meshes:        [dynamic]Mesh,
+    transform:     m.mat4,
+    has_transform: bool,
+    scale:         m.vec3,
+    translation:   m.vec3,
+    rotation:      m.quat,
+    children:      []Node,
 }
 
 Model :: struct {
@@ -42,6 +56,7 @@ Model :: struct {
     scale:            m.vec3,
     rotation:         m.vec3,
     rotation_angle_d: f32,
+    animations:       []Animation,
 }
 
 @(private = "file")
@@ -49,6 +64,7 @@ process_mesh :: proc(
     primitive: ^cgltf.primitive,
     materials: ^map[string]Material,
     textures: ^map[cstring]TextureId,
+    weights_len: int,
 ) -> (
     Mesh,
     bool,
@@ -125,7 +141,7 @@ process_mesh :: proc(
                     append(&texcoords_arr, texcoords[i * (accessor.buffer_view.stride / size_of(f32)) + 1])
                 }
             }
-        } else if attribute.type == .tangent {
+        } else if attribute.type == .tangent {     // This is explicitly defined as a vec4 in the spec
             tangents := intrinsics.ptr_offset(
                 transmute([^]f32)accessor.buffer_view.buffer.data,
                 (offset_into_buf_view + offset_into_buffer) / size_of(f32),
@@ -141,6 +157,79 @@ process_mesh :: proc(
                 }
             }
         }
+    }
+
+    morph_targets := make([dynamic]MorphTarget, 0, 8)
+    morph_pos := make([dynamic]f32, 0, 32)
+    morph_normals := make([dynamic]f32, 0, 32)
+    morph_tangents := make([dynamic]f32, 0, 32)
+
+    for target, i in primitive.targets {
+        for attr in target.attributes {
+            accessor := attr.data
+            offset_into_buf_view := accessor.offset
+            offset_into_buffer := accessor.buffer_view.offset
+
+            #partial switch attr.type {
+                case .position:
+                    positions := intrinsics.ptr_offset(
+                        transmute([^]f32)accessor.buffer_view.buffer.data,
+                        (offset_into_buf_view + offset_into_buffer) / size_of(f32),
+                    )
+                    if accessor.buffer_view.stride == 0 {
+                        append(&morph_pos, ..positions[:accessor.count * 3])
+                    } else {
+                        for i in 0 ..< accessor.count {
+                            append(&morph_pos, positions[i * accessor.buffer_view.stride / size_of(f32)])
+                            append(&morph_pos, positions[i * (accessor.buffer_view.stride / size_of(f32)) + 1])
+                            append(&morph_pos, positions[i * (accessor.buffer_view.stride / size_of(f32)) + 2])
+                        }
+                    }
+                case .normal:
+                    normals := intrinsics.ptr_offset(
+                        transmute([^]f32)accessor.buffer_view.buffer.data,
+                        (offset_into_buf_view + offset_into_buffer) / size_of(f32),
+                    )
+                    if accessor.buffer_view.stride == 0 {
+                        append(&morph_normals, ..normals[:accessor.count * 3])
+                    } else {
+                        for i in 0 ..< accessor.count {
+                            append(&morph_normals, normals[i * accessor.buffer_view.stride / size_of(f32)])
+                            append(&morph_normals, normals[i * (accessor.buffer_view.stride / size_of(f32)) + 1])
+                            append(&morph_normals, normals[i * (accessor.buffer_view.stride / size_of(f32)) + 2])
+                        }
+                    }
+                // This is explicitly defined as a vec3 in the spec
+                case .tangent:
+                    tangents := intrinsics.ptr_offset(
+                        transmute([^]f32)accessor.buffer_view.buffer.data,
+                        (offset_into_buf_view + offset_into_buffer) / size_of(f32),
+                    )
+                    if accessor.buffer_view.stride == 0 {
+                        append(&morph_tangents, ..tangents[:accessor.count * 3])
+                    } else {
+                        for i in 0 ..< accessor.count {
+                            append(&morph_tangents, tangents[i * accessor.buffer_view.stride / size_of(f32)])
+                            append(&morph_tangents, tangents[i * (accessor.buffer_view.stride / size_of(f32)) + 1])
+                            append(&morph_tangents, tangents[i * (accessor.buffer_view.stride / size_of(f32)) + 2])
+                        }
+                    }
+            }
+        }
+
+        target := MorphTarget {
+            positions = make([]f32, len(morph_pos)),
+            normals   = make([]f32, len(morph_normals)),
+            tangents  = make([]f32, len(morph_tangents)),
+        }
+        copy(target.positions, morph_pos[:])
+        copy(target.normals, morph_normals[:])
+        copy(target.tangents, morph_tangents[:])
+
+        append(&morph_targets, target)
+        clear(&morph_pos)
+        clear(&morph_normals)
+        clear(&morph_tangents)
     }
 
     if len(norms_arr) == 0 {
@@ -204,19 +293,27 @@ process_mesh :: proc(
             log.warn("Unsupported index type")
     }
 
-    return new_mesh(primitive_type, vertices[:], indices[:], material), true
+    return new_mesh(primitive_type, vertices[:], indices[:], material, weights_len, morph_targets[:]), true
 }
 
 @(private = "file")
-process_node :: proc(node: ^cgltf.node, materials: ^map[string]Material, textures: ^map[cstring]TextureId) -> Node {
+process_node :: proc(
+    node: ^cgltf.node,
+    materials: ^map[string]Material,
+    textures: ^map[cstring]TextureId,
+    node_name_idx: ^int,
+) -> Node {
     context.logger = logger
 
+    id := transmute(uintptr)node
     name := strings.clone_from_cstring(node.name)
     if node.name == nil {
-        //name = fmt.tprintf("node_%d", idx)
-        name = "node"
+        name = fmt.aprintf("Node %d", node_name_idx^)
     }
     transform := m.identity(m.mat4)
+    translation := m.vec3{0, 0, 0}
+    rotation := cast(m.quat)quaternion(x = 0, y = 0, z = 0, w = 1)
+    scale := m.vec3{1, 1, 1}
     if node.has_matrix {
         transform = m.mat4 {
             node.matrix_[0],
@@ -238,16 +335,14 @@ process_node :: proc(node: ^cgltf.node, materials: ^map[string]Material, texture
         }
     } else {
         if node.has_scale {
-            transform = m.mat4Scale(m.vec3(node.scale)) * transform
+            scale = m.vec3(node.scale)
         }
         if node.has_rotation {
-            rot_mat := m.mat4FromQuat(
-                quaternion(w = node.rotation.w, x = node.rotation.x, y = node.rotation.y, z = node.rotation.z),
-            )
-            transform = rot_mat * transform
+            rotation =
+            cast(m.quat)quaternion(w = node.rotation.w, x = node.rotation.x, y = node.rotation.y, z = node.rotation.z)
         }
         if node.has_translation {
-            transform = m.mat4Translate(m.vec3(node.translation)) * transform
+            translation = m.vec3(node.translation)
         }
     }
 
@@ -255,8 +350,9 @@ process_node :: proc(node: ^cgltf.node, materials: ^map[string]Material, texture
     if node.mesh != nil {
         // we consider primitives to be different meshes
         for idx in 0 ..< len(node.mesh.primitives) {
-            mesh, ok := process_mesh(&node.mesh.primitives[idx], materials, textures)
+            mesh, ok := process_mesh(&node.mesh.primitives[idx], materials, textures, len(node.mesh.weights))
             if ok {
+                copy(mesh.weights, node.mesh.weights)
                 append(&meshes, mesh)
             }
         }
@@ -264,13 +360,14 @@ process_node :: proc(node: ^cgltf.node, materials: ^map[string]Material, texture
 
     children := make([dynamic]Node, 0, 8)
 
+    node_name_idx^ += 1
     for idx in 0 ..< len(node.children) {
         child := node.children[idx]
-        our_node := process_node(child, materials, textures)
+        our_node := process_node(child, materials, textures, node_name_idx)
         append(&children, our_node)
     }
 
-    return Node{name, meshes, transform, children[:]}
+    return Node{id, name, meshes, transform, cast(bool)node.has_matrix, scale, translation, rotation, children[:]}
 }
 
 @(private = "file")
@@ -279,6 +376,8 @@ new_mesh :: proc(
     vertices: []Vertex,
     indices: []u32,
     material: Maybe(Material),
+    weights_len: int,
+    morph_targets: []MorphTarget,
 ) -> Mesh {
     context.logger = logger
 
@@ -287,13 +386,18 @@ new_mesh :: proc(
 
     vao, vbo, ebo: u32
 
+    usage: u32 = gl.STATIC_DRAW
+    if len(morph_targets) != 0 {
+        usage = gl.DYNAMIC_DRAW
+    }
+
     gl.GenVertexArrays(1, &vao)
     gl.GenBuffers(1, &vbo)
     gl.GenBuffers(1, &ebo)
 
     gl.BindVertexArray(vao)
     gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-    gl.BufferData(gl.ARRAY_BUFFER, size_of(Vertex) * len(vertices), raw_data(vertices), gl.STATIC_DRAW)
+    gl.BufferData(gl.ARRAY_BUFFER, size_of(Vertex) * len(vertices), raw_data(vertices), usage)
 
     // positions
     gl.EnableVertexAttribArray(0)
@@ -316,13 +420,28 @@ new_mesh :: proc(
 
     material, ok := material.?
 
-    return Mesh{primitive, vertices, indices, ok ? material : DEFAULT_MATERIAL, vao, vbo, ebo}
+    return(
+        Mesh {
+            primitive,
+            vertices,
+            indices,
+            ok ? material : DEFAULT_MATERIAL,
+            make([]f32, weights_len),
+            morph_targets,
+            vao,
+            vbo,
+            ebo,
+        } \
+    )
 }
 
 load_gltf_model :: proc(file_path: cstring) -> (Model, bool) {
     context.logger = logger
 
-    now := time.now()
+    node_name_idx := 0
+    animation_name_idx := 0
+
+    start := time.now()
     data, res := cgltf.parse_file(cgltf.options{}, file_path)
     defer cgltf.free(data)
 
@@ -338,6 +457,7 @@ load_gltf_model :: proc(file_path: cstring) -> (Model, bool) {
     }
 
     nodes := make([dynamic]Node, 0, 8)
+    animations := make([dynamic]Animation, 0, 8)
     materials := make(map[string]Material)
     defer delete(materials)
     textures_map := make(map[cstring]TextureId)
@@ -410,12 +530,84 @@ load_gltf_model :: proc(file_path: cstring) -> (Model, bool) {
         }
     }
 
+    for anim in data.animations {
+        name := strings.clone_from_cstring(anim.name)
+        if anim.name == nil {
+            name = fmt.aprintf("Animation %d", animation_name_idx)
+        }
+
+        animation := Animation {
+            name   = name,
+            tracks = make([dynamic]AnimationTrack, 0, 8),
+            timer  = time.Stopwatch{},
+        }
+
+        for channel in anim.channels {
+            track: AnimationTrack
+
+            if channel.target_node == nil {
+                continue
+            }
+
+            track.interpolation = channel.sampler.interpolation
+
+            input := channel.sampler.input
+            output := channel.sampler.output
+
+            lin_time := make([dynamic]f32, 0, 16)
+            anim_data := make([dynamic]f32, 0, 16)
+
+            // TODO: strides modCheck
+
+            time_offset_into_buf_view := input.offset
+            time_offset_into_buffer := input.buffer_view.offset
+
+            // always scalar
+            time := intrinsics.ptr_offset(
+                transmute([^]f32)input.buffer_view.buffer.data,
+                (time_offset_into_buf_view + time_offset_into_buffer) / size_of(f32),
+            )
+
+            animation.max_time = max(time[input.count - 1], animation.max_time)
+
+            append(&lin_time, ..time[:input.count])
+
+            data_offset_into_buf_view := output.offset
+            data_offset_into_buffer := output.buffer_view.offset
+
+            data := intrinsics.ptr_offset(
+                transmute([^]f32)output.buffer_view.buffer.data,
+                (data_offset_into_buf_view + data_offset_into_buffer) / size_of(f32),
+            )
+
+            #partial switch output.type {
+                case .vec4:
+                    append(&anim_data, ..data[:output.count * 4])
+                case .vec3:
+                    append(&anim_data, ..data[:output.count * 3])
+                case .scalar:
+                    append(&anim_data, ..data[:output.count])
+                case:
+                    log.warnf("Unsupported animation sampler output type: %s", output.type)
+            }
+
+            track.time = lin_time[:]
+            track.data = anim_data[:]
+            track.node_id = transmute(uintptr)channel.target_node
+            track.property = channel.target_path
+
+            append(&animation.tracks, track)
+        }
+        append(&animations, animation)
+        animation_name_idx += 1
+    }
+
     for idx in 0 ..< len(data.scene.nodes) {
-        node := process_node(data.scene.nodes[idx], &materials, &textures_map)
+        node := process_node(data.scene.nodes[idx], &materials, &textures_map, &node_name_idx)
         append(&nodes, node)
     }
 
-    log.debugf("Loading model took: %s", time.diff(now, time.now()))
+    log.debugf("Loading model took: %s", time.diff(start, time.now()))
 
-    return Model{nodes = nodes, scale = {1, 1, 1}, rotation = {1, 1, 1}}, true
+    return Model{nodes = nodes, scale = {1, 1, 1}, rotation = {0, 1, 0}, animations = animations[:]}, true
 }
