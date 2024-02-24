@@ -17,24 +17,24 @@ missing_texture: TextureId
 @(private = "file")
 editor_camera: Camera
 
-@(private = "file")
-sort_by_transparency :: proc(i, j: Node) -> bool {
-    sort :: proc(node: Node) -> bool {
-        for mesh in node.meshes {
-            if mesh.material.alpha_mode == .blend {
-                return false
-            }
-        }
-
-        for child in node.children {
-            return sort(child)
-        }
-
-        return true
-    }
-
-    return sort(i)
-}
+//@(private = "file")
+//sort_by_transparency :: proc(i, j: Node) -> bool {
+//    sort :: proc(node: Node) -> bool {
+//        for mesh in node.meshes {
+//            if mesh.material.alpha_mode == .blend {
+//                return false
+//            }
+//        }
+//
+//        for child in node.children {
+//            return sort(child)
+//        }
+//
+//        return true
+//    }
+//
+//    return sort(i)
+//}
 
 init_renderer :: proc() {
     context.logger = logger
@@ -91,7 +91,7 @@ draw :: proc(models: []Model, lights: []Light) {
     // TODO: also sort ALL models first
     if len(models) > 0 {
         // TODO: don't sort nodes that don't have meshes (camera nodes, etc..)
-        slice.sort_by(models[0].nodes[:], sort_by_transparency)
+        //slice.sort_by(models[0].nodes[:], sort_by_transparency)
         //slice.sort_by(game.models[0].nodes[:], sort_by_distance)
     }
 
@@ -113,12 +113,12 @@ draw_model :: proc(model: ^Model) {
     model_mat = m.mat4Translate(model.position) * model_mat
 
     for node in &model.nodes {
-        draw_node(&node, model_mat, &model.animations)
+        draw_node(&node, model_mat, &model.animations, &model.materials)
     }
 }
 
 @(private = "file")
-draw_node :: proc(node: ^Node, parent_transform: m.mat4, animations: ^[]Animation) {
+draw_node :: proc(node: ^Node, parent_transform: m.mat4, animations: ^[]Animation, materials: ^map[uintptr]Material) {
     context.logger = logger
 
     transform := parent_transform
@@ -140,21 +140,21 @@ draw_node :: proc(node: ^Node, parent_transform: m.mat4, animations: ^[]Animatio
     }
 
     for mesh in node.meshes {
-        draw_mesh(mesh, transform)
+        draw_mesh(mesh, transform, materials)
     }
 
     for child in &node.children {
-        draw_node(&child, transform, animations)
+        draw_node(&child, transform, animations, materials)
     }
 }
 
 @(private = "file")
-draw_mesh :: proc(mesh: Mesh, transform: m.mat4) {
+draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Material) {
     context.logger = logger
 
     if len(mesh.morph_targets) != 0 {
         vertices := make([]Vertex, len(mesh.vertices))
-        copy(vertices, mesh.vertices)
+        copy(vertices, mesh.vertices[:])
 
         for morph_target, i in mesh.morph_targets {
             for vert, j in vertices {
@@ -206,13 +206,15 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4) {
         delete(vertices)
     }
 
-    if mesh.material.double_sided {
+    material := &materials[mesh.material_id]
+
+    if material.double_sided {
         gl.Disable(gl.CULL_FACE)
     } else {
         gl.Enable(gl.CULL_FACE)
     }
 
-    if mesh.material.alpha_mode == .blend {
+    if material.alpha_mode == .blend {
         gl.Enable(gl.BLEND)
         gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
         gl.BlendEquation(gl.FUNC_ADD)
@@ -222,24 +224,24 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4) {
 
     set_mat4f(mesh_shader, "model", transform)
 
-    set_bool(mesh_shader, "useTextures", len(mesh.material.textures) != 0)
-    set_vec4fv(mesh_shader, "material.diffuse", mesh.material.diffuse)
-    set_vec3fv(mesh_shader, "material.specular", mesh.material.specular)
-    set_vec3fv(mesh_shader, "material.emissive", mesh.material.emissive)
-    set_float(mesh_shader, "material.shininess", mesh.material.shininess)
-    set_float(mesh_shader, "material.metallic", mesh.material.metallic)
-    set_float(mesh_shader, "material.roughness", mesh.material.roughness)
-    set_bool(mesh_shader, "doubleSided", mesh.material.double_sided)
-    set_bool(mesh_shader, "unlit", mesh.material.unlit)
-    set_float(mesh_shader, "alphaCutoff", mesh.material.alpha_cutoff)
-    set_int(mesh_shader, "alphaMode", cast(i32)mesh.material.alpha_mode)
+    set_bool(mesh_shader, "useTextures", len(material.textures) != 0)
+    set_vec4fv(mesh_shader, "material.diffuse", material.diffuse)
+    set_vec3fv(mesh_shader, "material.specular", material.specular)
+    set_vec3fv(mesh_shader, "material.emissive", material.emissive)
+    set_float(mesh_shader, "material.shininess", material.shininess)
+    set_float(mesh_shader, "material.metallic", material.metallic)
+    set_float(mesh_shader, "material.roughness", material.roughness)
+    set_bool(mesh_shader, "doubleSided", material.double_sided)
+    set_bool(mesh_shader, "unlit", material.unlit)
+    set_float(mesh_shader, "alphaCutoff", material.alpha_cutoff)
+    set_int(mesh_shader, "alphaMode", cast(i32)material.alpha_mode)
 
     set_bool(mesh_shader, "hasDiffuseTexture", false)
     set_bool(mesh_shader, "hasNormalTexture", false)
     set_bool(mesh_shader, "hasEmissiveTexture", false)
     set_bool(mesh_shader, "hasMetallicRoughnessTexture", false)
 
-    for texture, i in mesh.material.textures {
+    for texture, i in material.textures {
         texture_id := texture.id != 0 ? texture.id : missing_texture
 
         gl.ActiveTexture(gl.TEXTURE0 + cast(u32)i)

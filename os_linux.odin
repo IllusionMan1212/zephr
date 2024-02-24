@@ -2215,14 +2215,14 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
         unsplit_str := strings.clone(str_from_ptr)
         defer delete(unsplit_str)
         // we trim unsplit_str here so we don't get an empty string in the slice
-        strs := strings.split_lines(unsplit_str)
+        strs := strings.split_lines(unsplit_str, context.temp_allocator)
 
         for str in &strs {
             str = strings.trim_prefix(strings.trim_space(str), "file://")
             // get rid of the null terminator we added in place of the carriage return
             str = strings.trim_suffix(str, "\x00")
             // we decode the string because it may contain unicode or uri encoded characters
-            decoded_str, _ := net.percent_decode(str)
+            decoded_str, _ := net.percent_decode(str, context.temp_allocator)
             str = strings.clone(decoded_str, context.temp_allocator)
         }
 

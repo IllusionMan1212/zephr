@@ -78,6 +78,11 @@ set_float :: proc(shader: ^Shader, name: cstring, val: f32) {
     gl.Uniform1f(loc, val)
 }
 
+set_float_array :: proc(shader: ^Shader, name: cstring, val: []f32) {
+    loc := gl.GetUniformLocation(shader.program, name)
+    gl.Uniform1fv(loc, cast(i32)len(val), &val[0])
+}
+
 set_int :: proc(shader: ^Shader, name: cstring, val: i32) {
     loc := gl.GetUniformLocation(shader.program, name)
     gl.Uniform1i(loc, val)

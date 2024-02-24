@@ -4,7 +4,6 @@ import "core:log"
 import m "core:math/linalg/glsl"
 import "core:mem"
 import "core:os"
-import "core:path/filepath"
 
 import gl "vendor:OpenGL"
 

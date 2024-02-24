@@ -222,7 +222,7 @@ load_cubemap :: proc(faces_paths: [6]string) -> TextureId {
 process_texture :: proc(
     tex: ^cgltf.texture,
     type: TextureType,
-    gltf_file_path: cstring,
+    gltf_file_path: string,
     textures_map: ^map[cstring]TextureId,
 ) -> Texture {
     context.logger = logger
@@ -241,10 +241,16 @@ process_texture :: proc(
         sampler := tex.sampler
 
         if tex.image_.buffer_view == nil {
-            image_uri, _ := net.percent_decode(string(tex.image_.uri))
+            image_uri := strings.clone_from_cstring(tex.image_.uri, context.temp_allocator)
+            image_uri, _ = net.percent_decode(image_uri, context.temp_allocator)
             is_absolute := filepath.is_abs(image_uri)
             tex_path :=
-                is_absolute ? image_uri : filepath.join([]string{filepath.dir(string(gltf_file_path)), image_uri})
+                is_absolute \
+                ? image_uri \
+                : filepath.join(
+                    []string{filepath.dir(gltf_file_path, context.temp_allocator), image_uri},
+                    context.temp_allocator,
+                )
 
             if sampler != nil {
                 texture.id = load_texture(

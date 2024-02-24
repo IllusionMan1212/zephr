@@ -3,7 +3,6 @@ package zephr
 import "core:fmt"
 import "core:log"
 import m "core:math/linalg/glsl"
-import "core:path/filepath"
 import "core:strings"
 
 import gl "vendor:OpenGL"

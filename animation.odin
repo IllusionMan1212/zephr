@@ -18,7 +18,7 @@ AnimationTrack :: struct {
 
 Animation :: struct {
     name:     string,
-    tracks:   [dynamic]AnimationTrack,
+    tracks:   []AnimationTrack,
     max_time: f32,
     timer:    time.Stopwatch,
 }
@@ -219,6 +219,7 @@ interpolate_weights :: proc(track: AnimationTrack, tc, max_time: f32, weights_le
 
     prev_val := track.data[(tk_prev_idx * weights_len):(tk_prev_idx * weights_len) + weights_len]
     next_val := track.data[(tk_prev_idx * weights_len) + weights_len:(tk_prev_idx * weights_len) + (weights_len * 2)]
+    // FIXME: this is never cleaned up
     val := make([]f32, weights_len)
 
     switch track.interpolation {
