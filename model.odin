@@ -3,6 +3,7 @@ package zephr
 import "core:fmt"
 import "core:intrinsics"
 import "core:log"
+import "core:math"
 import m "core:math/linalg/glsl"
 import "core:strings"
 import "core:time"
@@ -19,23 +20,18 @@ Vertex :: struct {
 }
 
 @(private)
-MorphTarget :: struct {
-    positions: []f32,
-    normals:   []f32,
-    tangents:  []f32,
-}
-
-@(private)
 Mesh :: struct {
-    primitive:     cgltf.primitive_type,
-    vertices:      [dynamic]Vertex,
-    indices:       []u32,
-    material_id:   uintptr,
-    weights:       []f32,
-    morph_targets: []MorphTarget,
-    vao:           u32,
-    vbo:           u32,
-    ebo:           u32,
+    primitive:             cgltf.primitive_type,
+    vertices:              [dynamic]Vertex,
+    indices:               []u32,
+    material_id:           uintptr,
+    weights:               []f32,
+    morph_targets_tex:     TextureId,
+    morph_normals_offset:  int,
+    morph_tangents_offset: int,
+    vao:                   u32,
+    vbo:                   u32,
+    ebo:                   u32,
 }
 
 Node :: struct {
@@ -324,36 +320,6 @@ process_mesh :: proc(
         }
     }
 
-    morph_targets := make([]MorphTarget, len(primitive.targets))
-    morph_positions: []f32
-    morph_normals: []f32
-    morph_tangents: []f32
-
-    for target, i in primitive.targets {
-        for attr in target.attributes {
-            accessor := attr.data
-
-            #partial switch attr.type {
-                case .position:
-                    morph_positions = make([]f32, accessor.count * 3)
-                    process_accessor_vec3(accessor, morph_positions)
-                case .normal:
-                    morph_normals = make([]f32, accessor.count * 3)
-                    process_accessor_vec3(accessor, morph_normals)
-                // This is explicitly defined as a vec3 in the spec
-                case .tangent:
-                    morph_tangents = make([]f32, accessor.count * 3)
-                    process_accessor_vec3(accessor, morph_tangents)
-            }
-        }
-
-        morph_targets[i] = {
-            positions = morph_positions,
-            normals   = morph_normals,
-            tangents  = morph_tangents,
-        }
-    }
-
     if len(normals) == 0 {
         log.warn("No normals found. Some meshes will fall back to flat shading")
     }
@@ -380,6 +346,81 @@ process_mesh :: proc(
         )
     }
 
+    morph_normals_offset := 0
+    morph_tangents_offset := 0
+    morph_attribute_count := 0
+    found_pos := false
+    found_norm := false
+    found_tan := false
+
+    tex_width := math.ceil(math.sqrt(cast(f32)len(vertices)))
+    single_texture_size := cast(int)math.pow(tex_width, 2) * 3 // 3 for vec3
+
+    for target, i in primitive.targets {
+        for attr in target.attributes {
+            if attr.type == .position && !found_pos {
+                morph_attribute_count += 1
+                found_pos = true
+            } else if attr.type == .normal && !found_norm {
+                morph_attribute_count += 1
+                found_norm = true
+            } else if attr.type == .tangent && !found_tan {
+                morph_attribute_count += 1
+                found_tan = true
+            }
+        }
+    }
+
+    overall_offset := 0
+
+    morph_targets := make([]f32, single_texture_size * len(primitive.targets) * morph_attribute_count)
+    defer delete(morph_targets)
+
+    // Looping over all targets 3 times is obviously slow but this is fine since
+    // it allows us to have the POS, NORM, TAN layout that we want and is only done once when loading a model
+    for target, i in primitive.targets {
+        offset := i * single_texture_size
+
+        for attr in target.attributes {
+            accessor := attr.data
+
+            if attr.type == .position {
+                process_accessor_vec3(accessor, morph_targets[offset:cast(uint)offset + accessor.count * 3])
+            }
+        }
+
+        overall_offset = (i + 1) * single_texture_size
+    }
+
+    morph_normals_offset = overall_offset
+    for target, i in primitive.targets {
+        offset := i * single_texture_size + morph_normals_offset
+
+        for attr in target.attributes {
+            accessor := attr.data
+
+            if attr.type == .normal {
+                process_accessor_vec3(accessor, morph_targets[offset:cast(uint)offset + accessor.count * 3])
+            }
+        }
+
+        overall_offset = (i + 1) * single_texture_size + morph_normals_offset
+    }
+
+    morph_tangents_offset = overall_offset
+    for target, i in primitive.targets {
+        offset := i * single_texture_size + morph_tangents_offset
+
+        for attr in target.attributes {
+            accessor := attr.data
+
+            // This is explicitly defined as a vec3 in the spec
+            if attr.type == .tangent {
+                process_accessor_vec3(accessor, morph_targets[offset:cast(uint)offset + accessor.count * 3])
+            }
+        }
+    }
+
     indices := make([]u32, primitive.indices.count)
     offset_into_buffer := primitive.indices.buffer_view.offset
     offset_into_buf_view := primitive.indices.offset
@@ -391,7 +432,18 @@ process_mesh :: proc(
         indices,
     )
 
-    return new_mesh(primitive_type, vertices, indices, material_id, weights_len, morph_targets), true
+    return new_mesh(
+            primitive_type,
+            vertices,
+            indices,
+            material_id,
+            weights_len,
+            morph_targets,
+            morph_attribute_count,
+            morph_normals_offset,
+            morph_tangents_offset,
+        ),
+        true
 }
 
 @(private = "file")
@@ -485,17 +537,53 @@ new_mesh :: proc(
     indices: []u32,
     material_id: uintptr,
     weights_len: int,
-    morph_targets: []MorphTarget,
+    morph_targets: []f32,
+    morph_attribute_count: int,
+    morph_normals_offset: int,
+    morph_tangents_offset: int,
 ) -> Mesh {
     context.logger = logger
 
     vertices := vertices
     indices := indices
 
-    vao, vbo, ebo: u32
-
+    vao, vbo, ebo, morph_texture: u32
     usage: u32 = gl.STATIC_DRAW
+
     if len(morph_targets) != 0 {
+        temp_max_tex_size, temp_max_tex_array_size: i32
+        gl.GetIntegerv(gl.MAX_TEXTURE_SIZE, &temp_max_tex_size)
+        gl.GetIntegerv(gl.MAX_ARRAY_TEXTURE_LAYERS, &temp_max_tex_array_size)
+        max_tex_size := cast(u32)math.pow(cast(f32)temp_max_tex_size, 2)
+        max_tex_array_size := cast(u32)temp_max_tex_array_size
+
+        if weights_len * morph_attribute_count > cast(int)max_tex_array_size {
+            log.warn("Morph targets exceed the maximum texture size limit")
+        }
+
+        width := cast(i32)math.ceil(math.sqrt(cast(f32)len(vertices)))
+
+        gl.GenTextures(1, &morph_texture)
+        gl.ActiveTexture(gl.TEXTURE0)
+        gl.BindTexture(gl.TEXTURE_2D_ARRAY, morph_texture)
+        gl.TexImage3D(
+            gl.TEXTURE_2D_ARRAY,
+            0,
+            gl.RGB32F,
+            width,
+            width,
+            cast(i32)weights_len,
+            0,
+            gl.RGB,
+            gl.FLOAT,
+            raw_data(morph_targets),
+        )
+
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+
         usage = gl.DYNAMIC_DRAW
     }
 
@@ -526,7 +614,21 @@ new_mesh :: proc(
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(u32) * len(indices), raw_data(indices), gl.STATIC_DRAW)
 
-    return Mesh{primitive, vertices, indices, material_id, make([]f32, weights_len), morph_targets, vao, vbo, ebo}
+    return(
+        Mesh {
+            primitive,
+            vertices,
+            indices,
+            material_id,
+            make([]f32, weights_len),
+            morph_texture,
+            morph_normals_offset,
+            morph_tangents_offset,
+            vao,
+            vbo,
+            ebo,
+        } \
+    )
 }
 
 @(private = "file")

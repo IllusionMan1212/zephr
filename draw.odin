@@ -152,58 +152,22 @@ draw_node :: proc(node: ^Node, parent_transform: m.mat4, animations: ^[]Animatio
 draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Material) {
     context.logger = logger
 
-    if len(mesh.morph_targets) != 0 {
-        vertices := make([]Vertex, len(mesh.vertices))
-        copy(vertices, mesh.vertices[:])
-
-        for morph_target, i in mesh.morph_targets {
-            for vert, j in vertices {
-                pos := vert.position
-                norm := vert.normal
-                tangent := vert.tangents
-
-                if len(morph_target.positions) != 0 {
-                    pos +=
-                        m.vec3 {
-                            morph_target.positions[j * 3],
-                            morph_target.positions[j * 3 + 1],
-                            morph_target.positions[j * 3 + 2],
-                        } *
-                        mesh.weights[i]
-
-                    vertices[j].position = pos
-                }
-                if len(morph_target.normals) != 0 {
-                    norm +=
-                        m.vec3 {
-                            morph_target.normals[j * 3],
-                            morph_target.normals[j * 3 + 1],
-                            morph_target.normals[j * 3 + 2],
-                        } *
-                        mesh.weights[i]
-
-                    vertices[j].normal = norm
-                }
-                if len(morph_target.tangents) != 0 {
-                    tangent +=
-                        m.vec4 {
-                            morph_target.tangents[j * 3],
-                            morph_target.tangents[j * 3 + 1],
-                            morph_target.tangents[j * 3 + 2],
-                            tangent.w,
-                        } *
-                        mesh.weights[i]
-
-                    vertices[j].tangents = tangent
-                }
-            }
-
-            gl.BindBuffer(gl.ARRAY_BUFFER, mesh.vbo)
-            gl.BufferSubData(gl.ARRAY_BUFFER, 0, size_of(Vertex) * len(vertices), raw_data(vertices))
-            gl.BindBuffer(gl.ARRAY_BUFFER, 0)
-
-        }
-        delete(vertices)
+    if mesh.morph_targets_tex != 0 {
+        gl.ActiveTexture(gl.TEXTURE0)
+        gl.BindTexture(gl.TEXTURE_2D_ARRAY, mesh.morph_targets_tex)
+        set_bool(mesh_shader, "useMorphing", true)
+        set_int(mesh_shader, "morphTargetNormalsOffset", cast(i32)mesh.morph_normals_offset)
+        set_int(mesh_shader, "morphTargetTangentsOffset", cast(i32)mesh.morph_tangents_offset)
+        // We make the assumption that normals and tangents will never be morphed if positions aren't morphed
+        // There's a chance of breaking if someone decides to only morph normals or tangents but idc.
+        set_bool(mesh_shader, "hasMorphTargetNormals", mesh.morph_normals_offset != 0)
+        set_bool(mesh_shader, "hasMorphTargetTangents", mesh.morph_tangents_offset != 0)
+        set_int(mesh_shader, "morphTargetsCount", cast(i32)len(mesh.weights))
+        set_float_array(mesh_shader, "morphTargetWeights", mesh.weights)
+    } else {
+        set_bool(mesh_shader, "useMorphing", false)
+        set_bool(mesh_shader, "hasMorphTargetNormals", false)
+        set_bool(mesh_shader, "hasMorphTargetTangents", false)
     }
 
     material := &materials[mesh.material_id]
@@ -241,26 +205,31 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Materia
     set_bool(mesh_shader, "hasEmissiveTexture", false)
     set_bool(mesh_shader, "hasMetallicRoughnessTexture", false)
 
-    for texture, i in material.textures {
-        texture_id := texture.id != 0 ? texture.id : missing_texture
+    set_int(mesh_shader, "material.texture_diffuse", 1)
+    set_int(mesh_shader, "material.texture_normal", 2)
+    set_int(mesh_shader, "material.texture_metallic_roughness", 3)
+    set_int(mesh_shader, "material.texture_emissive", 4)
 
-        gl.ActiveTexture(gl.TEXTURE0 + cast(u32)i)
-        gl.BindTexture(gl.TEXTURE_2D, texture_id)
+    for texture, i in material.textures {
+        idx := i + 1
+        texture_id := texture.id != 0 ? texture.id : missing_texture
 
         #partial switch texture.type {
             case .DIFFUSE:
+                gl.ActiveTexture(gl.TEXTURE1)
                 set_bool(mesh_shader, "hasDiffuseTexture", true)
-                set_int(mesh_shader, "material.texture_diffuse", cast(i32)i)
             case .NORMAL:
+                gl.ActiveTexture(gl.TEXTURE2)
                 set_bool(mesh_shader, "hasNormalTexture", true)
-                set_int(mesh_shader, "material.texture_normal", cast(i32)i)
             case .METALLIC_ROUGHNESS:
+                gl.ActiveTexture(gl.TEXTURE3)
                 set_bool(mesh_shader, "hasMetallicRoughnessTexture", true)
-                set_int(mesh_shader, "material.texture_metallic_roughness", cast(i32)i)
             case .EMISSIVE:
+                gl.ActiveTexture(gl.TEXTURE4)
                 set_bool(mesh_shader, "hasEmissiveTexture", true)
-                set_int(mesh_shader, "material.texture_emissive", cast(i32)i)
         }
+
+        gl.BindTexture(gl.TEXTURE_2D, texture_id)
     }
 
     gl.BindVertexArray(mesh.vao)
