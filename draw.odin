@@ -64,6 +64,13 @@ init_renderer :: proc() {
         gl.NEAREST,
     )
 
+    max_tex_size: i32
+    max_tex_arr_size: i32
+    gl.GetIntegerv(gl.MAX_TEXTURE_SIZE, &max_tex_size)
+    gl.GetIntegerv(gl.MAX_ARRAY_TEXTURE_LAYERS, &max_tex_arr_size)
+
+    log.debugf("Max texture size: %d", max_tex_size)
+    log.debugf("Max texture layers: %d", max_tex_arr_size)
 }
 
 // MUST be called every frame
