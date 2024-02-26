@@ -11,6 +11,7 @@ out vec2 v_TexCoords;
 out vec4 textColor;
 uniform mat4 projection;
 // buffer for all the 96 ascii characters' texcoords
+// TODO: an ssbo would be good for this whenever we support unicode
 uniform vec2 texcoords[96 * 4];
 
 void main() {

@@ -9,7 +9,6 @@ out vec4 fragColor;
 
 struct Material {
   sampler2D texture_diffuse;
-  sampler2D texture_specular;
   sampler2D texture_normal;
   sampler2D texture_emissive;
   sampler2D texture_metallic_roughness;

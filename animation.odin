@@ -289,8 +289,9 @@ advance_animation :: proc(anim: Animation, node: ^Node, elapsed_t: ^time.Stopwat
                 node.scale = scale
             case .weights:
                 weights := interpolate_weights(track, tc, max_time, len(node.meshes[0].weights))
+                defer delete(weights)
                 for mesh in &node.meshes {
-                    mesh.weights = weights
+                    copy(mesh.weights, weights)
                 }
         }
     }
@@ -326,7 +327,7 @@ reset_animation :: proc(anim: ^Animation, model: ^Model) {
                         node.scale = m.vec3{track.data[0], track.data[1], track.data[2]}
                     case .weights:
                         for mesh in &node.meshes {
-                            mesh.weights = track.data[:len(mesh.weights)]
+                            copy(mesh.weights, track.data[:len(mesh.weights)])
                         }
                 }
             }
