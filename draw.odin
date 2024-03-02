@@ -85,8 +85,7 @@ draw :: proc(models: []Model, lights: []Light) {
 
     use_shader(mesh_shader)
     set_vec3fv(mesh_shader, "viewPos", editor_camera.position)
-    set_mat4f(mesh_shader, "view", view_mat)
-    set_mat4f(mesh_shader, "projection", projection)
+    set_mat4f(mesh_shader, "projectionView", projection * view_mat)
     set_bool(mesh_shader, "useTextures", false)
 
     // sort meshes by transparency for proper alpha blending
@@ -103,7 +102,25 @@ draw :: proc(models: []Model, lights: []Light) {
     models := models
 
     for model in &models {
+        apply_transform_hierarchy(&model)
         draw_model(&model)
+    }
+}
+
+apply_transform_hierarchy :: proc(model: ^Model) {
+    apply_transform :: proc(node: ^Node) {
+        node.world_transform = get_local_transform(node)
+        if node.parent != nil {
+            node.world_transform = node.parent.world_transform * node.world_transform
+        }
+
+        for child in node.children {
+            apply_transform(child)
+        }
+    }
+
+    for node in model.nodes {
+        apply_transform(node)
     }
 }
 
@@ -111,66 +128,89 @@ draw :: proc(models: []Model, lights: []Light) {
 draw_model :: proc(model: ^Model) {
     use_shader(mesh_shader)
     model_mat := m.identity(m.mat4)
-    model_mat = m.mat4Scale(model.scale) * model_mat
-    model_mat = m.mat4Rotate(model.rotation, m.radians(model.rotation_angle_d)) * model_mat
-    model_mat = m.mat4Translate(model.position) * model_mat
+    //model_mat = m.mat4Scale(model.scale) * model_mat
+    //model_mat = m.mat4Rotate(model.rotation, m.radians(model.rotation_angle_d)) * model_mat
+    //model_mat = m.mat4Translate(model.position) * model_mat
+
+    if model.active_animation != nil && model.active_animation.timer.running {
+        advance_animation(model.active_animation)
+    }
 
     for node in &model.nodes {
-        draw_node(&node, model_mat, &model.animations, &model.materials)
+        draw_node(node, &model.materials)
+    }
+}
+
+get_local_transform :: proc(node: ^Node) -> m.mat4 {
+    if node.has_transform {
+        return node.transform
+    } else {
+        mat := m.identity(m.mat4)
+        mat = m.mat4Scale(node.scale) * mat
+        mat = m.mat4FromQuat(node.rotation) * mat
+        mat = m.mat4Translate(node.translation) * mat
+        return mat
     }
 }
 
 @(private = "file")
-draw_node :: proc(node: ^Node, parent_transform: m.mat4, animations: ^[]Animation, materials: ^map[uintptr]Material) {
+draw_node :: proc(node: ^Node, materials: ^map[uintptr]Material) {
     context.logger = logger
 
-    transform := parent_transform
+    joint_matrices: []m.mat4
+    defer delete(joint_matrices)
 
-    for anim in animations {
-        if anim.timer.running {
-            advance_animation(anim, node, &anim.timer, anim.max_time)
+    if len(node.joints) != 0 {
+        joint_matrices = make([]m.mat4, len(node.joints))
+        for joint, i in node.joints {
+            j_transform := get_local_transform(joint)
+            if joint.parent != nil {
+                j_transform = joint.parent.world_transform * j_transform
+            }
+            // TODO: skeleton node ??
+
+            joint_matrices[i] = j_transform * node.inverse_bind_matrices[i]
         }
     }
 
-    if node.has_transform {
-        transform *= node.transform
-    } else {
-        t := m.identity(m.mat4)
-        t = m.mat4Scale(node.scale) * t
-        t = m.mat4FromQuat(node.rotation) * t
-        t = m.mat4Translate(node.translation) * t
-        transform *= t
-    }
-
     for mesh in node.meshes {
-        draw_mesh(mesh, transform, materials)
+        draw_mesh(mesh, node.world_transform, materials, joint_matrices)
     }
 
-    for child in &node.children {
-        draw_node(&child, transform, animations, materials)
+    for child in node.children {
+        draw_node(child, materials)
     }
 }
 
 @(private = "file")
-draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Material) {
+draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Material, joint_matrices: []m.mat4) {
     context.logger = logger
 
+    set_int(mesh_shader, "morphTargets", 0)
+    set_int(mesh_shader, "morphTargetWeights", 1)
+    set_int(mesh_shader, "jointMatrices", 2)
+    set_int(mesh_shader, "material.texture_diffuse", 3)
+    set_int(mesh_shader, "material.texture_normal", 4)
+    set_int(mesh_shader, "material.texture_metallic_roughness", 5)
+    set_int(mesh_shader, "material.texture_emissive", 6)
+    // TODO: group all uniforms into a UBO so that we don't have to set a lot of them every frame.
+    // No idea if this will have any impact on performance.
+    // All these uniforms are baaaaad for performance. Especially conditionals
+    // What I see a lot of projects do is set the conditionals as ifdefs in the shader and basically modifying the
+    // shader during runtime afaik.
     if mesh.morph_targets_tex != 0 {
         gl.ActiveTexture(gl.TEXTURE0)
         gl.BindTexture(gl.TEXTURE_2D_ARRAY, mesh.morph_targets_tex)
         set_bool(mesh_shader, "useMorphing", true)
         set_int(mesh_shader, "morphTargetNormalsOffset", cast(i32)mesh.morph_normals_offset)
         set_int(mesh_shader, "morphTargetTangentsOffset", cast(i32)mesh.morph_tangents_offset)
-        // We make the assumption that normals and tangents will never be morphed if positions aren't morphed
-        // There's a chance of breaking if someone decides to only morph normals or tangents but idc.
-        set_bool(mesh_shader, "hasMorphTargetNormals", mesh.morph_normals_offset != 0)
-        set_bool(mesh_shader, "hasMorphTargetTangents", mesh.morph_tangents_offset != 0)
         set_int(mesh_shader, "morphTargetsCount", cast(i32)len(mesh.weights))
-        set_float_array(mesh_shader, "morphTargetWeights", mesh.weights)
+        gl.ActiveTexture(gl.TEXTURE1)
+        gl.BindTexture(gl.TEXTURE_BUFFER, mesh.morph_weights_tex)
+        gl.BindBuffer(gl.ARRAY_BUFFER, mesh.morph_weights_buf)
+        gl.BufferSubData(gl.ARRAY_BUFFER, 0, len(mesh.weights) * size_of(f32), raw_data(mesh.weights))
     } else {
         set_bool(mesh_shader, "useMorphing", false)
-        set_bool(mesh_shader, "hasMorphTargetNormals", false)
-        set_bool(mesh_shader, "hasMorphTargetTangents", false)
     }
 
     material := &materials[mesh.material_id]
@@ -202,33 +242,36 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Materia
     set_bool(mesh_shader, "unlit", material.unlit)
     set_float(mesh_shader, "alphaCutoff", material.alpha_cutoff)
     set_int(mesh_shader, "alphaMode", cast(i32)material.alpha_mode)
+    if len(joint_matrices) != 0 {
+        set_bool(mesh_shader, "useSkinning", true)
+        gl.ActiveTexture(gl.TEXTURE2)
+        gl.BindTexture(gl.TEXTURE_BUFFER, mesh.joint_matrices_tex)
+        gl.BindBuffer(gl.ARRAY_BUFFER, mesh.joint_matrices_buf)
+        gl.BufferSubData(gl.ARRAY_BUFFER, 0, size_of(m.mat4) * len(joint_matrices), raw_data(joint_matrices))
+    } else {
+        set_bool(mesh_shader, "useSkinning", false)
+    }
 
     set_bool(mesh_shader, "hasDiffuseTexture", false)
     set_bool(mesh_shader, "hasNormalTexture", false)
     set_bool(mesh_shader, "hasEmissiveTexture", false)
     set_bool(mesh_shader, "hasMetallicRoughnessTexture", false)
 
-    set_int(mesh_shader, "material.texture_diffuse", 1)
-    set_int(mesh_shader, "material.texture_normal", 2)
-    set_int(mesh_shader, "material.texture_metallic_roughness", 3)
-    set_int(mesh_shader, "material.texture_emissive", 4)
-
-    for texture, i in material.textures {
-        idx := i + 1
+    for texture in material.textures {
         texture_id := texture.id != 0 ? texture.id : missing_texture
 
         #partial switch texture.type {
             case .DIFFUSE:
-                gl.ActiveTexture(gl.TEXTURE1)
+                gl.ActiveTexture(gl.TEXTURE3)
                 set_bool(mesh_shader, "hasDiffuseTexture", true)
             case .NORMAL:
-                gl.ActiveTexture(gl.TEXTURE2)
+                gl.ActiveTexture(gl.TEXTURE4)
                 set_bool(mesh_shader, "hasNormalTexture", true)
             case .METALLIC_ROUGHNESS:
-                gl.ActiveTexture(gl.TEXTURE3)
+                gl.ActiveTexture(gl.TEXTURE5)
                 set_bool(mesh_shader, "hasMetallicRoughnessTexture", true)
             case .EMISSIVE:
-                gl.ActiveTexture(gl.TEXTURE4)
+                gl.ActiveTexture(gl.TEXTURE6)
                 set_bool(mesh_shader, "hasEmissiveTexture", true)
         }
 

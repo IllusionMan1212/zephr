@@ -5,18 +5,22 @@ import "core:intrinsics"
 import "core:log"
 import "core:math"
 import m "core:math/linalg/glsl"
+import "core:mem"
+import "core:mem/virtual"
 import "core:strings"
 import "core:time"
 
 import gl "vendor:OpenGL"
 import "vendor:cgltf"
 
-#assert(size_of(Vertex) == 48)
+#assert(size_of(Vertex) == 80)
 Vertex :: struct {
     position:   m.vec3,
     normal:     m.vec3,
     tex_coords: m.vec2,
     tangents:   m.vec4,
+    joints:     [4]u32,
+    weights:    m.vec4,
 }
 
 @(private)
@@ -29,32 +33,46 @@ Mesh :: struct {
     morph_targets_tex:     TextureId,
     morph_normals_offset:  int,
     morph_tangents_offset: int,
+    joint_matrices_buf:    u32,
+    joint_matrices_tex:    TextureId,
     vao:                   u32,
     vbo:                   u32,
     ebo:                   u32,
+    morph_weights_buf:     u32,
+    morph_weights_tex:     TextureId,
 }
 
 Node :: struct {
-    id:            uintptr,
-    name:          string,
-    meshes:        [dynamic]Mesh,
-    transform:     m.mat4,
-    has_transform: bool,
-    scale:         m.vec3,
-    translation:   m.vec3,
-    rotation:      m.quat,
-    children:      [dynamic]Node,
+    name:                  string,
+    parent:                ^Node,
+    is_bone:               bool,
+    joints:                []^Node,
+    skeleton:              ^Node,
+    meshes:                []Mesh,
+    transform:             m.mat4,
+    has_transform:         bool,
+    world_transform:       m.mat4,
+    scale:                 m.vec3,
+    translation:           m.vec3,
+    rotation:              m.quat,
+    children:              []^Node,
+    inverse_bind_matrices: []m.mat4,
 }
 
 Model :: struct {
-    nodes:            [dynamic]Node,
+    nodes:            []^Node,
     materials:        map[uintptr]Material,
+    arena:            virtual.Arena,
     position:         m.vec3,
     scale:            m.vec3,
     rotation:         m.vec3,
     rotation_angle_d: f32,
     animations:       []Animation,
+    active_animation: ^Animation,
 }
+
+node_name_idx: ^int
+bone_name_idx: ^int
 
 @(private = "file")
 process_sparse_accessor_vec2 :: proc(accessor: ^cgltf.accessor_sparse, data_out: []f32) {
@@ -67,6 +85,7 @@ process_sparse_accessor_vec2 :: proc(accessor: ^cgltf.accessor_sparse, data_out:
     )
 
     indices := make([]u32, accessor.count)
+    defer delete(indices)
 
     process_indices(accessor.indices_buffer_view, accessor.indices_component_type, indices_byte_offset, indices)
 
@@ -87,6 +106,7 @@ process_sparse_accessor_vec3 :: proc(accessor: ^cgltf.accessor_sparse, data_out:
     )
 
     indices := make([]u32, accessor.count)
+    defer delete(indices)
 
     process_indices(accessor.indices_buffer_view, accessor.indices_component_type, indices_byte_offset, indices)
 
@@ -108,6 +128,7 @@ process_sparse_accessor_vec4 :: proc(accessor: ^cgltf.accessor_sparse, data_out:
     )
 
     indices := make([]u32, accessor.count)
+    defer delete(indices)
 
     process_indices(accessor.indices_buffer_view, accessor.indices_component_type, indices_byte_offset, indices)
 
@@ -210,6 +231,77 @@ process_accessor_vec4 :: proc(accessor: ^cgltf.accessor, data_out: []f32) {
 }
 
 @(private = "file")
+process_joints :: proc(accessor: ^cgltf.accessor, data_out: []u32) {
+    byte_offset := accessor.offset + accessor.buffer_view.offset
+
+    if accessor.is_sparse {
+        log.error("Sparse joints accessors are not supported yet.")
+    }
+
+    #partial switch accessor.component_type {
+        case .r_8u:
+            buf := intrinsics.ptr_offset(transmute([^]u8)accessor.buffer_view.buffer.data, byte_offset / size_of(u8))
+
+            for i in 0 ..< accessor.count {
+                offset := accessor.buffer_view.stride == 0 ? i * 4 : i * (accessor.buffer_view.stride / size_of(u8))
+                data_out[i * 4 + 0] = cast(u32)buf[offset + 0]
+                data_out[i * 4 + 1] = cast(u32)buf[offset + 1]
+                data_out[i * 4 + 2] = cast(u32)buf[offset + 2]
+                data_out[i * 4 + 3] = cast(u32)buf[offset + 3]
+            }
+        case .r_16u:
+            buf := intrinsics.ptr_offset(transmute([^]u16)accessor.buffer_view.buffer.data, byte_offset / size_of(u16))
+
+            for i in 0 ..< accessor.count {
+                offset := accessor.buffer_view.stride == 0 ? i * 4 : i * (accessor.buffer_view.stride / size_of(u16))
+                data_out[i * 4 + 0] = cast(u32)buf[offset + 0]
+                data_out[i * 4 + 1] = cast(u32)buf[offset + 1]
+                data_out[i * 4 + 2] = cast(u32)buf[offset + 2]
+                data_out[i * 4 + 3] = cast(u32)buf[offset + 3]
+            }
+        case .r_32u:
+            buf := intrinsics.ptr_offset(transmute([^]u32)accessor.buffer_view.buffer.data, byte_offset / size_of(u32))
+
+            for i in 0 ..< accessor.count {
+                offset := accessor.buffer_view.stride == 0 ? i * 4 : i * (accessor.buffer_view.stride / size_of(u32))
+                data_out[i * 4 + 0] = buf[offset + 0]
+                data_out[i * 4 + 1] = buf[offset + 1]
+                data_out[i * 4 + 2] = buf[offset + 2]
+                data_out[i * 4 + 3] = buf[offset + 3]
+            }
+    }
+}
+
+@(private = "file")
+process_accessor_mat4 :: proc(accessor: ^cgltf.accessor, data_out: []m.mat4) {
+    byte_offset := accessor.offset + accessor.buffer_view.offset
+
+    buf := intrinsics.ptr_offset(transmute([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
+    stride := accessor.stride / size_of(f32) // 16 floats, 64 bytes always ??
+
+    for i in 0 ..< accessor.count {
+        data_out[i] = m.mat4 {
+            buf[i * stride + 0],
+            buf[i * stride + 4],
+            buf[i * stride + 8],
+            buf[i * stride + 12],
+            buf[i * stride + 1],
+            buf[i * stride + 5],
+            buf[i * stride + 9],
+            buf[i * stride + 13],
+            buf[i * stride + 2],
+            buf[i * stride + 6],
+            buf[i * stride + 10],
+            buf[i * stride + 14],
+            buf[i * stride + 3],
+            buf[i * stride + 7],
+            buf[i * stride + 11],
+            buf[i * stride + 15],
+        }
+    }
+}
+
+@(private = "file")
 process_accessor_scalar_float :: proc(accessor: ^cgltf.accessor, data_out: []f32) {
     byte_offset := accessor.offset + accessor.buffer_view.offset
 
@@ -234,6 +326,10 @@ process_indices :: proc(
 ) {
     context.logger = logger
 
+    if buffer_view.stride != 0 {
+        log.error("We don't support non zero stride for indices. Faces might not look correct")
+    }
+
     #partial switch type {
         case .r_8u:
             start := byte_offset / size_of(u8)
@@ -256,7 +352,7 @@ process_indices :: proc(
             end := start + len(indices_out)
             copy(indices_out, (transmute([^]u32)buffer_view.buffer.data)[start:end])
         case:
-            log.warn("Unsupported index type")
+            log.error("Unsupported index type")
     }
 }
 
@@ -267,6 +363,8 @@ process_mesh :: proc(
     model_path: string,
     textures: ^map[cstring]TextureId,
     weights_len: int,
+    joints_len: int,
+    allocator: ^mem.Allocator,
 ) -> (
     Mesh,
     bool,
@@ -278,7 +376,7 @@ process_mesh :: proc(
         return Mesh{}, false
     }
 
-    vertices: [dynamic]Vertex
+    vertices := make([dynamic]Vertex, 0, 256, allocator^)
     material_id: uintptr = 0
 
     primitive_type := primitive.type
@@ -288,7 +386,7 @@ process_mesh :: proc(
     if primitive.material != nil {
         material_id = transmute(uintptr)primitive.material
         if !(material_id in materials) {
-            materials[material_id] = process_material(primitive.material, model_path, textures)
+            materials[material_id] = process_material(primitive.material, model_path, textures, allocator)
         }
     }
     positions: []f32
@@ -299,41 +397,68 @@ process_mesh :: proc(
     defer delete(texcoords)
     tangents: []f32
     defer delete(tangents)
+    joints: []u32
+    defer delete(joints)
+    weights: []f32
+    defer delete(weights)
 
     for a in 0 ..< len(primitive.attributes) {
         attribute := primitive.attributes[a]
         accessor := attribute.data
 
-        if attribute.type == .position {
-            positions = make([]f32, accessor.count * 3)
-            process_accessor_vec3(accessor, positions)
-        } else if attribute.type == .normal {
-            normals = make([]f32, accessor.count * 3)
-            process_accessor_vec3(accessor, normals)
-        } else if attribute.type == .texcoord {
-            // BUG: we leak memory here for models that have mutiple texcoords
-            texcoords = make([]f32, accessor.count * 2)
-            process_accessor_vec2(accessor, texcoords)
-        } else if attribute.type == .tangent {     // This is explicitly defined as a vec4 in the spec
-            tangents = make([]f32, accessor.count * 4)
-            process_accessor_vec4(accessor, tangents)
+        #partial switch attribute.type {
+            case .position:
+                positions = make([]f32, accessor.count * 3)
+                process_accessor_vec3(accessor, positions)
+            case .normal:
+                normals = make([]f32, accessor.count * 3)
+                process_accessor_vec3(accessor, normals)
+            case .texcoord:
+                // BUG: we leak memory here for models that have mutiple texcoords.
+                // Same with the joints and weights attributes.
+                texcoords = make([]f32, accessor.count * 2)
+                process_accessor_vec2(accessor, texcoords)
+            case .tangent:
+                // This is explicitly defined as a vec4 in the spec
+                tangents = make([]f32, accessor.count * 4)
+                process_accessor_vec4(accessor, tangents)
+            case .joints:
+                joints = make([]u32, accessor.count * 4)
+                process_joints(accessor, joints)
+            case .weights:
+                weights = make([]f32, accessor.count * 4)
+                process_accessor_vec4(accessor, weights)
         }
     }
 
     if len(normals) == 0 {
-        log.warn("No normals found. Some meshes will fall back to flat shading")
+        log.warn("No normals found. Falling back to flat shading")
     }
 
     if len(tangents) == 0 {
+        // TODO: calculate tangents using mikkTSpace??
+        // Not sure if worth because I can just export with tangents from blender.
         log.warn("No tangents found. Some meshes will not have lighting applied")
     }
 
+    // TODO: different pipeline and mesh shader for static meshes to reduce GPU memory usage
+    // Instead of a different shader or pipeline we can use preprocessor directives to remove
+    // any attribute that is not used for the specific mesh. This requires that we implement some sort of
+    // runtime shader modification stuff or something.
     for i in 0 ..< len(positions) / 3 {
         tex_coords := len(texcoords) != 0 ? m.vec2{texcoords[i * 2], texcoords[i * 2 + 1]} : m.vec2{0, 0}
         normal := len(normals) != 0 ? m.vec3{normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]} : m.vec3{0, 0, 0}
         tangents :=
             len(tangents) != 0 \
             ? m.vec4{tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2], tangents[i * 4 + 3]} \
+            : m.vec4{0, 0, 0, 0}
+        joints :=
+            len(joints) != 0 \
+            ? [4]u32{joints[i * 4], joints[i * 4 + 1], joints[i * 4 + 2], joints[i * 4 + 3]} \
+            : [4]u32{0, 0, 0, 0}
+        weights :=
+            len(weights) != 0 \
+            ? m.vec4{weights[i * 4], weights[i * 4 + 1], weights[i * 4 + 2], weights[i * 4 + 3]} \
             : m.vec4{0, 0, 0, 0}
         append(
             &vertices,
@@ -342,12 +467,12 @@ process_mesh :: proc(
                 normal = normal,
                 tex_coords = tex_coords,
                 tangents = tangents,
+                joints = joints,
+                weights = weights,
             },
         )
     }
 
-    morph_normals_offset := 0
-    morph_tangents_offset := 0
     morph_attribute_count := 0
     found_pos := false
     found_norm := false
@@ -371,57 +496,35 @@ process_mesh :: proc(
         }
     }
 
-    overall_offset := 0
+    morph_normals_offset := found_pos ? len(primitive.targets) * single_texture_size : 0
+    // Breaks if there're no positions but there is normals
+    morph_tangents_offset := found_pos ? len(primitive.targets) * single_texture_size + morph_normals_offset : 0
 
     morph_targets := make([]f32, single_texture_size * len(primitive.targets) * morph_attribute_count)
     defer delete(morph_targets)
 
-    // Looping over all targets 3 times is obviously slow but this is fine since
-    // it allows us to have the POS, NORM, TAN layout that we want and is only done once when loading a model
+    // The layout for morph_targets is POS, NORM, TAN
     for target, i in primitive.targets {
-        offset := i * single_texture_size
 
         for attr in target.attributes {
             accessor := attr.data
 
-            if attr.type == .position {
-                process_accessor_vec3(accessor, morph_targets[offset:cast(uint)offset + accessor.count * 3])
-            }
-        }
-
-        overall_offset = (i + 1) * single_texture_size
-    }
-
-    morph_normals_offset = overall_offset
-    for target, i in primitive.targets {
-        offset := i * single_texture_size + morph_normals_offset
-
-        for attr in target.attributes {
-            accessor := attr.data
-
-            if attr.type == .normal {
-                process_accessor_vec3(accessor, morph_targets[offset:cast(uint)offset + accessor.count * 3])
-            }
-        }
-
-        overall_offset = (i + 1) * single_texture_size + morph_normals_offset
-    }
-
-    morph_tangents_offset = overall_offset
-    for target, i in primitive.targets {
-        offset := i * single_texture_size + morph_tangents_offset
-
-        for attr in target.attributes {
-            accessor := attr.data
-
-            // This is explicitly defined as a vec3 in the spec
-            if attr.type == .tangent {
-                process_accessor_vec3(accessor, morph_targets[offset:cast(uint)offset + accessor.count * 3])
+            #partial switch attr.type {
+                case .position:
+                    offset := i * single_texture_size
+                    process_accessor_vec3(accessor, morph_targets[offset:cast(uint)offset + accessor.count * 3])
+                case .normal:
+                    offset := i * single_texture_size + morph_normals_offset
+                    process_accessor_vec3(accessor, morph_targets[offset:cast(uint)offset + accessor.count * 3])
+                case .tangent:
+                    offset := i * single_texture_size + morph_tangents_offset
+                    // Morph tangents are explicitly defined as a vec3 in the spec
+                    process_accessor_vec3(accessor, morph_targets[offset:cast(uint)offset + accessor.count * 3])
             }
         }
     }
 
-    indices := make([]u32, primitive.indices.count)
+    indices := make([]u32, primitive.indices.count, allocator^)
     offset_into_buffer := primitive.indices.buffer_view.offset
     offset_into_buf_view := primitive.indices.offset
 
@@ -438,10 +541,12 @@ process_mesh :: proc(
             indices,
             material_id,
             weights_len,
+            joints_len,
             morph_targets,
             morph_attribute_count,
             morph_normals_offset,
             morph_tangents_offset,
+            allocator,
         ),
         true
 }
@@ -449,17 +554,33 @@ process_mesh :: proc(
 @(private = "file")
 process_node :: proc(
     node: ^cgltf.node,
+    parent: ^Node,
     materials: ^map[uintptr]Material,
     model_path: string,
     textures: ^map[cstring]TextureId,
-    node_name_idx: ^int,
-) -> Node {
+    bones: ^map[uintptr]bool,
+    nodes_map: ^map[uintptr]^Node,
+    allocator: ^mem.Allocator,
+) -> ^Node {
     context.logger = logger
 
     id := transmute(uintptr)node
-    name := strings.clone_from_cstring(node.name)
+    if id in nodes_map {
+        return nodes_map[id]
+    }
+
+    new_node := new(Node, allocator^)
+
+    name := strings.clone_from_cstring(node.name, allocator^)
+    is_bone := id in bones
     if node.name == nil {
-        name = fmt.aprintf("Node %d", node_name_idx^)
+        if is_bone {
+            name = fmt.aprintf("Bone %d", bone_name_idx^, allocator = allocator^)
+            bone_name_idx^ += 1
+        } else {
+            name = fmt.aprintf("Node %d", node_name_idx^, allocator = allocator^)
+            node_name_idx^ += 1
+        }
     }
     transform := m.identity(m.mat4)
     translation := m.vec3{0, 0, 0}
@@ -497,8 +618,43 @@ process_node :: proc(
         }
     }
 
-    meshes := make([dynamic]Mesh, 0, 16)
+    inverse_bind_matrices: []m.mat4
+    joints: []^Node
+    skeleton: ^Node = nil
+    if node.skin != nil {
+        if node.skin.inverse_bind_matrices != nil {
+            inverse_bind_matrices = make([]m.mat4, len(node.skin.joints), allocator^)
+            process_accessor_mat4(node.skin.inverse_bind_matrices, inverse_bind_matrices)
+        } else {
+            log.warn(
+                "Found a skin with no inverse bind matrices. We don't support generating the matrices ourselves yet.",
+            )
+            // TODO: calculate the inverse bind matrices ourselves
+        }
+
+        joints = make([]^Node, len(node.skin.joints), allocator^)
+
+        for joint, i in node.skin.joints {
+            joints[i] = process_node(joint, nil, materials, model_path, textures, bones, nodes_map, allocator)
+        }
+
+        if node.skin.skeleton != nil {
+            skeleton = process_node(
+                node.skin.skeleton,
+                nil,
+                materials,
+                model_path,
+                textures,
+                bones,
+                nodes_map,
+                allocator,
+            )
+        }
+    }
+
+    meshes: []Mesh
     if node.mesh != nil {
+        meshes = make([]Mesh, len(node.mesh.primitives), allocator^)
         // we consider primitives to be different meshes
         for idx in 0 ..< len(node.mesh.primitives) {
             mesh, ok := process_mesh(
@@ -507,27 +663,42 @@ process_node :: proc(
                 model_path,
                 textures,
                 len(node.mesh.weights),
+                len(joints),
+                allocator,
             )
             if ok {
                 copy(mesh.weights, node.mesh.weights)
-                append(&meshes, mesh)
+                meshes[idx] = mesh
             }
         }
     }
 
-    children := make([dynamic]Node, 0, 8)
 
-    node_name_idx^ += 1
+    children := make([]^Node, len(node.children), allocator^)
+
     for idx in 0 ..< len(node.children) {
         child := node.children[idx]
-        if child == nil {
-            continue
-        }
-        our_node := process_node(child, materials, model_path, textures, node_name_idx)
-        append(&children, our_node)
+        children[idx] = process_node(child, new_node, materials, model_path, textures, bones, nodes_map, allocator)
     }
 
-    return Node{id, name, meshes, transform, cast(bool)node.has_matrix, scale, translation, rotation, children}
+    new_node.name = name
+    new_node.parent = parent
+    new_node.is_bone = is_bone
+    new_node.joints = joints
+    new_node.skeleton = skeleton
+    new_node.meshes = meshes
+    new_node.transform = transform
+    new_node.has_transform = cast(bool)node.has_matrix
+    new_node.world_transform = m.identity(m.mat4)
+    new_node.scale = scale
+    new_node.translation = translation
+    new_node.rotation = rotation
+    new_node.children = children
+    new_node.inverse_bind_matrices = inverse_bind_matrices
+
+    nodes_map[id] = new_node
+
+    return new_node
 }
 
 @(private = "file")
@@ -537,17 +708,21 @@ new_mesh :: proc(
     indices: []u32,
     material_id: uintptr,
     weights_len: int,
+    joints_len: int,
     morph_targets: []f32,
     morph_attribute_count: int,
     morph_normals_offset: int,
     morph_tangents_offset: int,
+    allocator: ^mem.Allocator,
 ) -> Mesh {
     context.logger = logger
 
     vertices := vertices
     indices := indices
 
-    vao, vbo, ebo, morph_texture: u32
+    vao, vbo, ebo: u32
+    morph_texture, morph_weights_texture, morph_weights_buf: u32
+    joint_matrices_buf, joint_matrices_texture: u32
     usage: u32 = gl.STATIC_DRAW
 
     if len(morph_targets) != 0 {
@@ -584,7 +759,39 @@ new_mesh :: proc(
         gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
         gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 
+        // Morph weights buffer texture's backing buffer
+        gl.GenBuffers(1, &morph_weights_buf)
+        gl.BindBuffer(gl.ARRAY_BUFFER, morph_weights_buf)
+        gl.BufferData(gl.ARRAY_BUFFER, size_of(f32) * weights_len, nil, gl.DYNAMIC_DRAW)
+
+        // Morph weights buffer texture
+        gl.GenTextures(1, &morph_weights_texture)
+        gl.ActiveTexture(gl.TEXTURE1)
+        gl.BindTexture(gl.TEXTURE_BUFFER, morph_weights_texture)
+        gl.TexBuffer(gl.TEXTURE_BUFFER, gl.R32F, morph_weights_buf)
+
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+
         usage = gl.DYNAMIC_DRAW
+    }
+
+    if joints_len != 0 {
+        gl.GenBuffers(1, &joint_matrices_buf)
+        gl.BindBuffer(gl.ARRAY_BUFFER, joint_matrices_buf)
+        gl.BufferData(gl.ARRAY_BUFFER, size_of(m.mat4) * joints_len, nil, gl.DYNAMIC_DRAW)
+
+        gl.GenTextures(1, &joint_matrices_texture)
+        gl.ActiveTexture(gl.TEXTURE2)
+        gl.BindTexture(gl.TEXTURE_BUFFER, joint_matrices_texture)
+        gl.TexBuffer(gl.TEXTURE_BUFFER, gl.RGBA32F, joint_matrices_buf)
+
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+        gl.TexParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
     }
 
     gl.GenVertexArrays(1, &vao)
@@ -611,6 +818,14 @@ new_mesh :: proc(
     gl.EnableVertexAttribArray(3)
     gl.VertexAttribPointer(3, 4, gl.FLOAT, gl.FALSE, size_of(Vertex), 8 * size_of(f32))
 
+    // joints
+    gl.EnableVertexAttribArray(4)
+    gl.VertexAttribIPointer(4, 4, gl.UNSIGNED_INT, size_of(Vertex), 12 * size_of(f32))
+
+    // weights
+    gl.EnableVertexAttribArray(5)
+    gl.VertexAttribPointer(5, 4, gl.FLOAT, gl.FALSE, size_of(Vertex), 16 * size_of(u32))
+
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(u32) * len(indices), raw_data(indices), gl.STATIC_DRAW)
 
@@ -620,13 +835,17 @@ new_mesh :: proc(
             vertices,
             indices,
             material_id,
-            make([]f32, weights_len),
+            make([]f32, weights_len, allocator^),
             morph_texture,
             morph_normals_offset,
             morph_tangents_offset,
+            joint_matrices_buf,
+            joint_matrices_texture,
             vao,
             vbo,
             ebo,
+            morph_weights_buf,
+            morph_weights_texture,
         } \
     )
 }
@@ -636,13 +855,14 @@ process_material :: proc(
     material: ^cgltf.material,
     model_path: string,
     textures_map: ^map[cstring]TextureId,
+    allocator: ^mem.Allocator,
 ) -> Material {
-    textures := make([dynamic]Texture, 0, 8)
+    textures := make([dynamic]Texture, 0, 8, allocator^)
 
-    name := strings.clone_from_cstring(material.name)
+    name := strings.clone_from_cstring(material.name, allocator^)
     if material.name == nil {
         delete(name)
-        name = fmt.aprintf("Material")
+        name = fmt.aprintf("Material", allocator = allocator^)
     }
     diffuse := m.vec4(material.pbr_metallic_roughness.base_color_factor)
     specular := m.vec3(material.specular.specular_color_factor)
@@ -714,7 +934,10 @@ load_gltf_model :: proc(file_path: string) -> (Model, bool) {
 
     file_path_cstr := strings.clone_to_cstring(file_path)
     defer delete(file_path_cstr)
-    node_name_idx := 0
+    node_name_idx = new(int)
+    defer free(node_name_idx)
+    bone_name_idx = new(int)
+    defer free(bone_name_idx)
 
     start := time.now()
     data, res := cgltf.parse_file(cgltf.options{}, file_path_cstr)
@@ -731,23 +954,52 @@ load_gltf_model :: proc(file_path: string) -> (Model, bool) {
         return Model{}, false
     }
 
-    nodes := make([dynamic]Node, 0, 8)
-    materials := make(map[uintptr]Material)
+    model, err := virtual.arena_growing_bootstrap_new_by_name(Model, "arena")
+    assert(err == nil)
+    arena_allocator := virtual.arena_allocator(&model.arena)
+
+    nodes := make([]^Node, len(data.scene.nodes), arena_allocator)
+    nodes_map := make(map[uintptr]^Node)
+    defer delete(nodes_map)
+    materials := make(map[uintptr]Material, allocator = arena_allocator)
     textures_map := make(map[cstring]TextureId)
     defer delete(textures_map)
 
     materials[0] = DEFAULT_MATERIAL
 
-    animations := make([]Animation, len(data.animations))
+    bones := make(map[uintptr]bool)
+    defer delete(bones)
+
+    for skin in data.skins {
+        for joint in skin.joints {
+            node_id := transmute(uintptr)joint
+            bones[node_id] = true
+        }
+    }
+
+    for idx in 0 ..< len(data.scene.nodes) {
+        nodes[idx] = process_node(
+            data.scene.nodes[idx],
+            nil,
+            &materials,
+            file_path,
+            &textures_map,
+            &bones,
+            &nodes_map,
+            &arena_allocator,
+        )
+    }
+
+    animations := make([]Animation, len(data.animations), arena_allocator)
     for anim, a in data.animations {
-        name := strings.clone_from_cstring(anim.name)
+        name := strings.clone_from_cstring(anim.name, arena_allocator)
         if anim.name == nil {
-            name = fmt.aprintf("Animation %d", a)
+            name = fmt.aprintf("Animation %d", a, allocator = arena_allocator)
         }
 
         animation := Animation {
             name   = name,
-            tracks = make([]AnimationTrack, len(anim.channels)),
+            tracks = make([]AnimationTrack, len(anim.channels), arena_allocator),
             timer  = time.Stopwatch{},
         }
 
@@ -761,43 +1013,46 @@ load_gltf_model :: proc(file_path: string) -> (Model, bool) {
             input := channel.sampler.input
             output := channel.sampler.output
 
-            time := make([]f32, input.count)
+            anim_time := make([]f32, input.count, arena_allocator)
             anim_data: []f32
 
             // input is always scalar
-            process_accessor_scalar_float(input, time)
+            process_accessor_scalar_float(input, anim_time)
 
-            animation.max_time = max(time[input.count - 1], animation.max_time)
+            animation.max_time = max(anim_time[input.count - 1], animation.max_time)
 
             #partial switch output.type {
                 case .vec4:
-                    anim_data = make([]f32, output.count * 4)
+                    anim_data = make([]f32, output.count * 4, arena_allocator)
                     process_accessor_vec4(output, anim_data)
                 case .vec3:
-                    anim_data = make([]f32, output.count * 3)
+                    anim_data = make([]f32, output.count * 3, arena_allocator)
                     process_accessor_vec3(output, anim_data)
                 case .scalar:
-                    anim_data = make([]f32, output.count)
+                    anim_data = make([]f32, output.count, arena_allocator)
                     process_accessor_scalar_float(output, anim_data)
                 case:
                     log.warnf("Unsupported animation sampler output type: %s", output.type)
             }
 
-            animation.tracks[t].time = time
+            animation.tracks[t].time = anim_time
             animation.tracks[t].data = anim_data
-            animation.tracks[t].node_id = transmute(uintptr)channel.target_node
+            animation.tracks[t].node = nodes_map[transmute(uintptr)channel.target_node]
             animation.tracks[t].property = channel.target_path
         }
 
         animations[a] = animation
     }
 
-    for idx in 0 ..< len(data.scene.nodes) {
-        node := process_node(data.scene.nodes[idx], &materials, file_path, &textures_map, &node_name_idx)
-        append(&nodes, node)
-    }
-
     log.debugf("Loading model took: %s", time.diff(start, time.now()))
 
-    return Model{nodes, materials, {0, 0, 0}, {1, 1, 1}, {0, 1, 0}, 0, animations}, true
+    model.nodes = nodes
+    model.materials = materials
+    model.position = {0, 0, 0}
+    model.scale = {1, 1, 1}
+    model.rotation = {0, 1, 0}
+    model.rotation_angle_d = 0
+    model.animations = animations
+
+    return model^, true
 }

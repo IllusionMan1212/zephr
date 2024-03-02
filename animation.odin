@@ -9,11 +9,13 @@ import "vendor:cgltf"
 
 @(private)
 AnimationTrack :: struct {
-    node_id:       uintptr,
+    node:          ^Node,
     property:      cgltf.animation_path_type,
     time:          []f32,
     data:          []f32,
     interpolation: cgltf.interpolation_type,
+    prev_t:        f32,
+    prev_keyframe: int,
 }
 
 Animation :: struct {
@@ -25,43 +27,18 @@ Animation :: struct {
 
 
 @(private = "file")
-interpolate_rotation :: proc(track: AnimationTrack, tc, max_time: f32) -> m.quat {
-    n := len(track.time)
-
-    if n == 1 {
-        return cast(m.quat)quaternion(x = track.data[0], y = track.data[1], z = track.data[2], w = track.data[3])
-    }
-
-    tk_prev: f32 = track.time[0]
-    tk_next: f32 = track.time[n - 1]
-
-    tk_prev_idx := 0
-
-    for i in 0 ..< n {
-        if track.time[i] < tc {
-            tk_prev = track.time[i]
-            tk_prev_idx = i
-        }
-        if track.time[i] > tc {
-            tk_next = track.time[i]
-            break
-        }
-    }
-
-    td := tk_next - tk_prev
-    t := (tc - tk_prev) / td
-
+interpolate_rotation :: proc(track: ^AnimationTrack, t, td: f32) -> m.quat #no_bounds_check {
     prev_val := cast(m.quat)quaternion(
-        x = track.data[tk_prev_idx * 4],
-        y = track.data[tk_prev_idx * 4 + 1],
-        z = track.data[tk_prev_idx * 4 + 2],
-        w = track.data[tk_prev_idx * 4 + 3],
+        x = track.data[track.prev_keyframe * 4],
+        y = track.data[track.prev_keyframe * 4 + 1],
+        z = track.data[track.prev_keyframe * 4 + 2],
+        w = track.data[track.prev_keyframe * 4 + 3],
     )
     next_val := cast(m.quat)quaternion(
-        x = track.data[tk_prev_idx * 4 + 4],
-        y = track.data[tk_prev_idx * 4 + 5],
-        z = track.data[tk_prev_idx * 4 + 6],
-        w = track.data[tk_prev_idx * 4 + 7],
+        x = track.data[track.prev_keyframe * 4 + 4],
+        y = track.data[track.prev_keyframe * 4 + 5],
+        z = track.data[track.prev_keyframe * 4 + 6],
+        w = track.data[track.prev_keyframe * 4 + 7],
     )
 
     rot := cast(m.quat)quaternion(x = 0, y = 0, z = 0, w = 1)
@@ -74,29 +51,29 @@ interpolate_rotation :: proc(track: AnimationTrack, tc, max_time: f32) -> m.quat
         case .cubic_spline:
             stride := 12
             prev_val = quaternion(
-                x = track.data[tk_prev_idx * stride + 4],
-                y = track.data[tk_prev_idx * stride + 5],
-                z = track.data[tk_prev_idx * stride + 6],
-                w = track.data[tk_prev_idx * stride + 7],
+                x = track.data[track.prev_keyframe * stride + 4],
+                y = track.data[track.prev_keyframe * stride + 5],
+                z = track.data[track.prev_keyframe * stride + 6],
+                w = track.data[track.prev_keyframe * stride + 7],
             )
             bk := quaternion(
-                x = track.data[tk_prev_idx * stride + 8],
-                y = track.data[tk_prev_idx * stride + 9],
-                z = track.data[tk_prev_idx * stride + 10],
-                w = track.data[tk_prev_idx * stride + 11],
+                x = track.data[track.prev_keyframe * stride + 8],
+                y = track.data[track.prev_keyframe * stride + 9],
+                z = track.data[track.prev_keyframe * stride + 10],
+                w = track.data[track.prev_keyframe * stride + 11],
             )
 
             ak1 := quaternion(
-                x = track.data[tk_prev_idx * stride + 12],
-                y = track.data[tk_prev_idx * stride + 13],
-                z = track.data[tk_prev_idx * stride + 14],
-                w = track.data[tk_prev_idx * stride + 15],
+                x = track.data[track.prev_keyframe * stride + 12],
+                y = track.data[track.prev_keyframe * stride + 13],
+                z = track.data[track.prev_keyframe * stride + 14],
+                w = track.data[track.prev_keyframe * stride + 15],
             )
             next_val = quaternion(
-                x = track.data[tk_prev_idx * stride + 16],
-                y = track.data[tk_prev_idx * stride + 17],
-                z = track.data[tk_prev_idx * stride + 18],
-                w = track.data[tk_prev_idx * stride + 19],
+                x = track.data[track.prev_keyframe * stride + 16],
+                y = track.data[track.prev_keyframe * stride + 17],
+                z = track.data[track.prev_keyframe * stride + 18],
+                w = track.data[track.prev_keyframe * stride + 19],
             )
 
             t1 := (2 * m.pow(t, 3) - 3 * m.pow(t, 2) + 1)
@@ -118,37 +95,16 @@ interpolate_rotation :: proc(track: AnimationTrack, tc, max_time: f32) -> m.quat
 }
 
 @(private = "file")
-interpolate_vec3 :: proc(track: AnimationTrack, tc, max_time: f32) -> m.vec3 {
-    n := len(track.time)
-
-    if n == 1 {
-        return m.vec3{track.data[0], track.data[1], track.data[2]}
+interpolate_vec3 :: proc(track: ^AnimationTrack, t, td: f32) -> m.vec3 #no_bounds_check {
+    prev_val := m.vec3 {
+        track.data[track.prev_keyframe * 3],
+        track.data[track.prev_keyframe * 3 + 1],
+        track.data[track.prev_keyframe * 3 + 2],
     }
-
-    tk_prev: f32 = track.time[0]
-    tk_next: f32 = track.time[n - 1]
-
-    tk_prev_idx := 0
-
-    for i in 0 ..< n {
-        if track.time[i] < tc {
-            tk_prev = track.time[i]
-            tk_prev_idx = i
-        }
-        if track.time[i] > tc {
-            tk_next = track.time[i]
-            break
-        }
-    }
-
-    td := tk_next - tk_prev
-    t := (tc - tk_prev) / td
-
-    prev_val := m.vec3{track.data[tk_prev_idx * 3], track.data[tk_prev_idx * 3 + 1], track.data[tk_prev_idx * 3 + 2]}
     next_val := m.vec3 {
-        track.data[tk_prev_idx * 3 + 3],
-        track.data[tk_prev_idx * 3 + 4],
-        track.data[tk_prev_idx * 3 + 5],
+        track.data[track.prev_keyframe * 3 + 3],
+        track.data[track.prev_keyframe * 3 + 4],
+        track.data[track.prev_keyframe * 3 + 5],
     }
     val := m.vec3{0, 0, 0}
 
@@ -160,25 +116,25 @@ interpolate_vec3 :: proc(track: AnimationTrack, tc, max_time: f32) -> m.vec3 {
         case .cubic_spline:
             stride := 9
             prev_val = m.vec3 {
-                track.data[tk_prev_idx * stride + 3],
-                track.data[tk_prev_idx * stride + 4],
-                track.data[tk_prev_idx * stride + 5],
+                track.data[track.prev_keyframe * stride + 3],
+                track.data[track.prev_keyframe * stride + 4],
+                track.data[track.prev_keyframe * stride + 5],
             }
             bk := m.vec3 {
-                track.data[tk_prev_idx * stride + 6],
-                track.data[tk_prev_idx * stride + 7],
-                track.data[tk_prev_idx * stride + 8],
+                track.data[track.prev_keyframe * stride + 6],
+                track.data[track.prev_keyframe * stride + 7],
+                track.data[track.prev_keyframe * stride + 8],
             }
 
             ak1 := m.vec3 {
-                track.data[tk_prev_idx * stride + 9],
-                track.data[tk_prev_idx * stride + 10],
-                track.data[tk_prev_idx * stride + 11],
+                track.data[track.prev_keyframe * stride + 9],
+                track.data[track.prev_keyframe * stride + 10],
+                track.data[track.prev_keyframe * stride + 11],
             }
             next_val = m.vec3 {
-                track.data[tk_prev_idx * stride + 12],
-                track.data[tk_prev_idx * stride + 13],
-                track.data[tk_prev_idx * stride + 14],
+                track.data[track.prev_keyframe * stride + 12],
+                track.data[track.prev_keyframe * stride + 13],
+                track.data[track.prev_keyframe * stride + 14],
             }
 
             p1 := (2 * m.pow(t, 3) - 3 * m.pow(t, 2) + 1) * prev_val
@@ -191,35 +147,12 @@ interpolate_vec3 :: proc(track: AnimationTrack, tc, max_time: f32) -> m.vec3 {
     return val
 }
 
-interpolate_weights :: proc(track: AnimationTrack, tc, max_time: f32, weights_len: int) -> []f32 {
-    n := len(track.time)
+interpolate_weights :: proc(track: ^AnimationTrack, t, td: f32, weights_len: int) -> []f32 {
+    prev_val := track.data[(track.prev_keyframe * weights_len):(track.prev_keyframe * weights_len) + weights_len]
+    next_val := track.data[(track.prev_keyframe * weights_len) +
+    weights_len:(track.prev_keyframe * weights_len) +
+    (weights_len * 2)]
 
-    if n == 1 {
-        return track.data[:weights_len]
-    }
-
-    tk_prev: f32 = track.time[0]
-    tk_next: f32 = track.time[n - 1]
-
-    tk_prev_idx := 0
-
-    for i in 0 ..< n {
-        if track.time[i] < tc {
-            tk_prev = track.time[i]
-            tk_prev_idx = i
-        }
-        if track.time[i] > tc {
-            tk_next = track.time[i]
-            break
-        }
-    }
-
-    td := tk_next - tk_prev
-    t := (tc - tk_prev) / td
-
-    prev_val := track.data[(tk_prev_idx * weights_len):(tk_prev_idx * weights_len) + weights_len]
-    next_val := track.data[(tk_prev_idx * weights_len) + weights_len:(tk_prev_idx * weights_len) + (weights_len * 2)]
-    // FIXME: this is never cleaned up
     val := make([]f32, weights_len)
 
     switch track.interpolation {
@@ -232,11 +165,11 @@ interpolate_weights :: proc(track: AnimationTrack, tc, max_time: f32, weights_le
         case .cubic_spline:
                     //odinfmt: disable
         // TODO: Does any of this make any sense. This needs to be tested with a model
-        prev_val := track.data[(tk_prev_idx * weights_len) + weights_len:(tk_prev_idx * weights_len) + (weights_len * 2)]
-        bk := track.data[(tk_prev_idx * weights_len) + (weights_len * 2):(tk_prev_idx * weights_len) + (weights_len * 3)]
+        prev_val := track.data[(track.prev_keyframe * weights_len) + weights_len:(track.prev_keyframe * weights_len) + (weights_len * 2)]
+        bk := track.data[(track.prev_keyframe * weights_len) + (weights_len * 2):(track.prev_keyframe * weights_len) + (weights_len * 3)]
 
-        ak1 := track.data[(tk_prev_idx * weights_len) + (weights_len * 3):(tk_prev_idx * weights_len) + (weights_len * 4)]
-        next_val := track.data[(tk_prev_idx * weights_len) + (weights_len * 4):(tk_prev_idx * weights_len) + (weights_len * 5)]
+        ak1 := track.data[(track.prev_keyframe * weights_len) + (weights_len * 3):(track.prev_keyframe * weights_len) + (weights_len * 4)]
+        next_val := track.data[(track.prev_keyframe * weights_len) + (weights_len * 4):(track.prev_keyframe * weights_len) + (weights_len * 5)]
 
         t1 := (2 * m.pow(t, 3) - 3 * m.pow(t, 2) + 1)
         t2 := td * (m.pow(t, 3) - 2 * m.pow(t, 2) + t)
@@ -261,42 +194,78 @@ interpolate_weights :: proc(track: AnimationTrack, tc, max_time: f32, weights_le
     return val
 }
 
-advance_animation :: proc(anim: Animation, node: ^Node, elapsed_t: ^time.Stopwatch, max_time: f32) -> m.mat4 {
+advance_animation :: proc(anim: ^Animation) #no_bounds_check {
     context.logger = logger
 
-    result := m.identity(m.mat4)
+    for track in &anim.tracks {
+        n := len(track.time)
 
-    for track in anim.tracks {
-        if track.node_id != node.id {
+        if n == 1 {
+            #partial switch track.property {
+                case .translation:
+                    track.node.translation = {track.data[0], track.data[1], track.data[2]}
+                case .scale:
+                    track.node.scale = {track.data[0], track.data[1], track.data[2]}
+                case .rotation:
+                    track.node.rotation =
+                    cast(m.quat)quaternion(x = track.data[0], y = track.data[1], z = track.data[2], w = track.data[3])
+                case .weights:
+                    for mesh in &track.node.meshes {
+                        copy(mesh.weights, track.data[:len(track.node.meshes[0].weights)])
+                    }
+            }
             continue
         }
 
-        tc := cast(f32)time.duration_seconds(time.stopwatch_duration(elapsed_t^))
+        tc := cast(f32)time.duration_seconds(time.stopwatch_duration(anim.timer))
         // TODO: if loop_animation {
-        tc = math.mod(tc, max_time)
+        //if tc > anim.max_time {
+        //    time.stopwatch_reset(&anim.timer)
+        //    time.stopwatch_start(&anim.timer)
+        //    tc = 0
         //}
-        tc = clamp(tc, track.time[0], track.time[len(track.time) - 1])
+        tc = math.mod(tc, anim.max_time)
+        //}
+        tc = clamp(tc, track.time[0], track.time[n - 1])
+
+        if track.prev_t > tc {
+            track.prev_keyframe = 0
+        }
+
+        track.prev_t = tc
+
+        next_key := 0
+        for i in track.prev_keyframe + 1 ..< n {
+            if tc <= track.time[i] {
+                next_key = clamp(i, 1, n - 1)
+                break
+            }
+        }
+        track.prev_keyframe = clamp(next_key - 1, 0, next_key)
+        tk_prev := track.time[track.prev_keyframe]
+        tk_next := track.time[next_key]
+
+        td := tk_next - tk_prev
+        t := (tc - tk_prev) / td
 
         #partial switch track.property {
             case .translation:
-                position := interpolate_vec3(track, tc, max_time)
-                node.translation = position
+                position := interpolate_vec3(&track, t, td)
+                track.node.translation = position
             case .rotation:
-                rotation := interpolate_rotation(track, tc, max_time)
-                node.rotation = rotation
+                rotation := interpolate_rotation(&track, t, td)
+                track.node.rotation = rotation
             case .scale:
-                scale := interpolate_vec3(track, tc, max_time)
-                node.scale = scale
+                scale := interpolate_vec3(&track, t, td)
+                track.node.scale = scale
             case .weights:
-                weights := interpolate_weights(track, tc, max_time, len(node.meshes[0].weights))
+                weights := interpolate_weights(&track, t, td, len(track.node.meshes[0].weights))
                 defer delete(weights)
-                for mesh in &node.meshes {
+                for mesh in &track.node.meshes {
                     copy(mesh.weights, weights)
                 }
         }
     }
-
-    return result
 }
 
 pause_animation :: proc(anim: ^Animation) {
@@ -307,38 +276,34 @@ resume_animation :: proc(anim: ^Animation) {
     time.stopwatch_start(&anim.timer)
 }
 
-reset_animation :: proc(anim: ^Animation, model: ^Model) {
+reset_animation :: proc(anim: ^Animation) {
+    // TODO: resetting animation doesn't reset skinned vertices. fix that
     time.stopwatch_reset(&anim.timer)
 
-    reset_node_animation :: proc(anim: ^Animation, node: ^Node) {
-        for track in anim.tracks {
-            if track.node_id == node.id {
-                #partial switch track.property {
-                    case .translation:
-                        node.translation = m.vec3{track.data[0], track.data[1], track.data[2]}
-                    case .rotation:
-                        node.rotation = quaternion(
-                            x = track.data[0],
-                            y = track.data[1],
-                            z = track.data[2],
-                            w = track.data[3],
-                        )
-                    case .scale:
-                        node.scale = m.vec3{track.data[0], track.data[1], track.data[2]}
-                    case .weights:
-                        for mesh in &node.meshes {
-                            copy(mesh.weights, track.data[:len(mesh.weights)])
-                        }
-                }
+    reset_node_animation :: proc(anim: ^Animation) {
+        for track in &anim.tracks {
+            track.prev_keyframe = 0
+            track.prev_t = 0
+
+            #partial switch track.property {
+                case .translation:
+                    track.node.translation = m.vec3{track.data[0], track.data[1], track.data[2]}
+                case .rotation:
+                    track.node.rotation = quaternion(
+                        x = track.data[0],
+                        y = track.data[1],
+                        z = track.data[2],
+                        w = track.data[3],
+                    )
+                case .scale:
+                    track.node.scale = m.vec3{track.data[0], track.data[1], track.data[2]}
+                case .weights:
+                    for mesh in &track.node.meshes {
+                        copy(mesh.weights, track.data[:len(mesh.weights)])
+                    }
             }
         }
-
-        for child in &node.children {
-            reset_node_animation(anim, &child)
-        }
     }
 
-    for node in &model.nodes {
-        reset_node_animation(anim, &node)
-    }
+    reset_node_animation(anim)
 }
