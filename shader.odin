@@ -29,7 +29,7 @@ create_shader :: proc(vertex_path: string, fragment_path: string) -> (^Shader, b
     return shader, success
 }
 
-@(private)
+@(private, disabled = !ODIN_DEBUG)
 update_shaders_if_changed :: proc() {
     context.logger = logger
 
@@ -71,6 +71,12 @@ set_mat4f :: proc(shader: ^Shader, name: cstring, mat4: m.mat4, transpose: bool 
     mat4 := mat4
     loc := gl.GetUniformLocation(shader.program, name)
     gl.UniformMatrix4fv(loc, 1, transpose, raw_data(&mat4))
+}
+
+set_mat4fv :: proc(shader: ^Shader, name: cstring, mat4: []m.mat4, transpose: bool = false) {
+    mat4 := mat4
+    loc := gl.GetUniformLocation(shader.program, name)
+    gl.UniformMatrix4fv(loc, cast(i32)len(mat4), transpose, raw_data(&mat4[0]))
 }
 
 set_float :: proc(shader: ^Shader, name: cstring, val: f32) {

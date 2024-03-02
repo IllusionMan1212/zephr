@@ -1065,11 +1065,13 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
 
     x11_create_window(window_title, window_size, icon_path, window_non_resizable)
 
-    l_os.inotify_fd = inotify.init1(os.O_NONBLOCK)
-    watch_shaders()
+    when ODIN_DEBUG {
+        l_os.inotify_fd = inotify.init1(os.O_NONBLOCK)
+        watch_shaders()
+    }
 }
 
-@(private = "file")
+@(private = "file", disabled = !ODIN_DEBUG)
 watch_shaders :: proc() {
     context.logger = logger
 
@@ -1810,32 +1812,34 @@ backend_get_os_events :: proc() {
         }
     }
 
-    for {
-        bytes := make([]byte, 8 * size_of(inotify.Event) + 256, context.temp_allocator)
-        bytes_read, err := os.read(l_os.inotify_fd, bytes)
+    when ODIN_DEBUG {
+        for {
+            bytes := make([]byte, 8 * size_of(inotify.Event) + 256, context.temp_allocator)
+            bytes_read, err := os.read(l_os.inotify_fd, bytes)
 
-        if bytes_read == -1 && err == os.EAGAIN {
-            break
-        }
-
-        if err != os.ERROR_NONE {
-            log.errorf("Failed to read inotify events. Errno: %d", err)
-            break
-        }
-
-        i := 0
-        for i < bytes_read {
-            event := (^inotify.Event)(&bytes[i])
-            if event.mask & inotify.IN_MODIFY != 0 {
-                n := 0
-                #no_bounds_check for n < int(event.length) && event.name[n] != 0 {
-                    n += 1
-                }
-                #no_bounds_check name := cast(string)mem.slice_ptr(&event.name[0], n)
-                queue.push(&zephr_ctx.changed_shaders_queue, name)
+            if bytes_read == -1 && err == os.EAGAIN {
+                break
             }
 
-            i += size_of(inotify.Event) + cast(int)event.length
+            if err != os.ERROR_NONE {
+                log.errorf("Failed to read inotify events. Errno: %d", err)
+                break
+            }
+
+            i := 0
+            for i < bytes_read {
+                event := (^inotify.Event)(&bytes[i])
+                if event.mask & inotify.IN_MODIFY != 0 {
+                    n := 0
+                    #no_bounds_check for n < int(event.length) && event.name[n] != 0 {
+                        n += 1
+                    }
+                    #no_bounds_check name := cast(string)mem.slice_ptr(&event.name[0], n)
+                    queue.push(&zephr_ctx.changed_shaders_queue, name)
+                }
+
+                i += size_of(inotify.Event) + cast(int)event.length
+            }
         }
     }
 

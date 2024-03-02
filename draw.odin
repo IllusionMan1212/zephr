@@ -83,10 +83,6 @@ draw :: proc(models: []Model, lights: []Light) {
         200,
     )
 
-    use_shader(gizmo_shader)
-    set_mat4f(gizmo_shader, "view", view_mat)
-    set_mat4f(gizmo_shader, "projection", projection)
-
     use_shader(mesh_shader)
     set_vec3fv(mesh_shader, "viewPos", editor_camera.position)
     set_mat4f(mesh_shader, "view", view_mat)
@@ -102,7 +98,7 @@ draw :: proc(models: []Model, lights: []Light) {
         //slice.sort_by(game.models[0].nodes[:], sort_by_distance)
     }
 
-    draw_lights(lights)
+    draw_lights(lights, projection * view_mat)
 
     models := models
 
@@ -248,7 +244,7 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Materia
 }
 
 @(private = "file")
-draw_lights :: proc(lights: []Light) {
+draw_lights :: proc(lights: []Light, projection_view: m.mat4) {
     context.logger = logger
 
     point_light_idx := 0
@@ -266,7 +262,7 @@ draw_lights :: proc(lights: []Light) {
                 set_vec3fv(gizmo_shader, "color", m.vec3{0.0, 0.0, 0.0})
                 model := m.identity(m.mat4)
                 model = m.mat4Translate(light.position) * model
-                set_mat4f(gizmo_shader, "model", model)
+                set_mat4f(gizmo_shader, "MVP", projection_view * model)
 
                 gl.BindVertexArray(light.vao)
                 gl.DrawElements(gl.LINES, 2, gl.UNSIGNED_INT, nil)
@@ -317,7 +313,7 @@ draw_lights :: proc(lights: []Light) {
                 model := m.identity(m.mat4)
                 model = m.mat4Translate(light.position) * model
                 model = m.mat4Scale(m.vec3{0.3, 0.3, 0.3}) * model
-                set_mat4f(gizmo_shader, "model", model)
+                set_mat4f(gizmo_shader, "MVP", projection_view * model)
 
                 gl.BindVertexArray(light.vao)
                 gl.DrawElements(gl.TRIANGLES, 6, gl.UNSIGNED_INT, nil)

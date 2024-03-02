@@ -252,6 +252,7 @@ void main() {
 
   vec3 viewDir = normalize(viewPos - fragPos);
 
+  // TODO: deferred shading because these lights are crazy expensive
   vec3 result = CalculateDirLight(albedo, metallic, roughness, dirLight, norm, viewDir);
   result += CalculatePointLights(albedo, metallic, roughness, norm, viewDir);
 
