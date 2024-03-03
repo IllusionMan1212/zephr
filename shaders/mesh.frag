@@ -235,8 +235,7 @@ void main() {
   float roughness = material.roughness;
 
   if (hasDiffuseTexture) {
-    // Convert from sRGB to linear because PBR requires us to work in linear space
-    albedo *= pow(texture(material.texture_diffuse, fragTexCoords).rgb, vec3(GAMMA));
+    albedo *= texture(material.texture_diffuse, fragTexCoords).rgb;
   }
 
   if (hasMetallicRoughnessTexture) {
