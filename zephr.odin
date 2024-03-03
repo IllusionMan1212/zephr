@@ -14,6 +14,8 @@ import gl "vendor:OpenGL"
 // TODO: In the future stop drawing and processing things in the engine when the window is not focused
 //       This assumes the window is just completely hidden and not just out of focus (the user can still see it)
 
+RELEASE_BUILD :: #config(RELEASE_BUILD, false)
+
 Cursor :: enum {
     INVISIBLE,
     ARROW,

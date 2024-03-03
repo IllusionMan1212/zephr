@@ -29,7 +29,7 @@ create_shader :: proc(vertex_path: string, fragment_path: string) -> (^Shader, b
     return shader, success
 }
 
-@(private, disabled = !ODIN_DEBUG)
+@(private, disabled = RELEASE_BUILD)
 update_shaders_if_changed :: proc() {
     context.logger = logger
 

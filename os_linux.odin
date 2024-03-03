@@ -1065,13 +1065,13 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
 
     x11_create_window(window_title, window_size, icon_path, window_non_resizable)
 
-    when ODIN_DEBUG {
+    when !RELEASE_BUILD {
         l_os.inotify_fd = inotify.init1(os.O_NONBLOCK)
         watch_shaders()
     }
 }
 
-@(private = "file", disabled = !ODIN_DEBUG)
+@(private = "file", disabled = RELEASE_BUILD)
 watch_shaders :: proc() {
     context.logger = logger
 
@@ -1812,7 +1812,7 @@ backend_get_os_events :: proc() {
         }
     }
 
-    when ODIN_DEBUG {
+    when !RELEASE_BUILD {
         for {
             bytes := make([]byte, 8 * size_of(inotify.Event) + 256, context.temp_allocator)
             bytes_read, err := os.read(l_os.inotify_fd, bytes)
