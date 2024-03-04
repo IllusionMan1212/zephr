@@ -25,6 +25,7 @@ import "3rdparty/udev"
 import "3rdparty/xcursor"
 import "3rdparty/xfixes"
 import "3rdparty/xinput2"
+import "3rdparty/xrandr"
 
 @(private = "file")
 LinuxEvdevBinding :: struct {
@@ -641,9 +642,9 @@ x11_assign_window_icon :: proc(icon_path: cstring, window_title: cstring) {
 }
 
 backend_get_screen_size :: proc() -> m.vec2 {
-    screen := x11.XDefaultScreenOfDisplay(l_os.x11_display)
+    size := get_active_monitor_dims(x11.XDefaultRootWindow(l_os.x11_display))
 
-    return m.vec2{cast(f32)screen.width, cast(f32)screen.height}
+    return m.vec2{size.z, size.w}
 }
 
 @(private = "file")
@@ -654,13 +655,58 @@ x11_resize_window :: proc() {
 }
 
 @(private = "file")
+get_active_monitor_dims :: proc(root: x11.Window) -> m.vec4 {
+    context.logger = logger
+
+    c_pos := get_cursor_pos(root)
+
+    scr_resources := xrandr.XRRGetScreenResources(l_os.x11_display, root)
+    assert(scr_resources != nil, "Failed to get X11 screen resources")
+    defer xrandr.XRRFreeScreenResources(scr_resources)
+
+    dims: m.vec4
+
+    for i in 0 ..< scr_resources.noutput {
+        output_info := xrandr.XRRGetOutputInfo(l_os.x11_display, scr_resources, scr_resources.outputs[i])
+        if output_info.connection == .RR_Connected {
+            crtc_info := xrandr.XRRGetCrtcInfo(l_os.x11_display, scr_resources, output_info.crtc)
+            if crtc_info != nil {
+                if cast(i32)c_pos.x >= crtc_info.x &&
+                   cast(i32)c_pos.x <= cast(i32)crtc_info.width + crtc_info.x &&
+                   cast(i32)c_pos.y >= crtc_info.y &&
+                   cast(i32)c_pos.y <= cast(i32)crtc_info.height + crtc_info.y {
+                    log.debugf("Active Monitor is %d with Resolution %dx%d", i, crtc_info.width, crtc_info.height)
+                    dims =  {
+                        cast(f32)crtc_info.x,
+                        cast(f32)crtc_info.y,
+                        cast(f32)crtc_info.width,
+                        cast(f32)crtc_info.height,
+                    }
+                } else {
+                    log.debugf("Found Monitor %d with Resolution %dx%d", i, crtc_info.width, crtc_info.height)
+                }
+                xrandr.XRRFreeCrtcInfo(crtc_info)
+            }
+        }
+        xrandr.XRRFreeOutputInfo(output_info)
+    }
+
+    if dims == {0, 0, 0, 0} {
+        log.error("Failed to find the active monitor")
+    }
+
+    return dims
+}
+
+@(private = "file")
 x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
-    // TODO: window isn't centered on the active monitor when there are multiple monitors
     context.logger = logger
 
     screen_num := x11.XDefaultScreen(l_os.x11_display)
     root := x11.XRootWindow(l_os.x11_display, screen_num)
     visual := x11.XDefaultVisual(l_os.x11_display, screen_num)
+
+    active_monitor_dims := get_active_monitor_dims(root)
 
     l_os.x11_colormap = x11.XCreateColormap(l_os.x11_display, root, visual, x11.ColormapAlloc.AllocNone)
 
@@ -678,10 +724,10 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
     }
     attributes.colormap = l_os.x11_colormap
 
-    screen := x11.XDefaultScreenOfDisplay(l_os.x11_display)
-
-    window_start_x := screen.width / 2 - cast(i32)window_size.x / 2
-    window_start_y := screen.height / 2 - cast(i32)window_size.y / 2
+    window_start_x :=
+        (cast(i32)active_monitor_dims.z / 2 - cast(i32)window_size.x / 2) + cast(i32)active_monitor_dims.x
+    window_start_y :=
+        (cast(i32)active_monitor_dims.w / 2 - cast(i32)window_size.y / 2) + cast(i32)active_monitor_dims.y
 
     l_os.x11_window = x11.XCreateWindow(
         l_os.x11_display,
@@ -1586,7 +1632,16 @@ backend_get_os_events :: proc() {
         input_device_backend := linux_input_device(&input_device)
 
         if .MOUSE in input_device.features {
-            for cast(bool)evdev.has_event_pending(input_device_backend.mouse_evdev) {
+            has_event := evdev.has_event_pending(input_device_backend.mouse_evdev)
+            if has_event < 0 {
+                log.errorf(
+                    "Failed to check for pending evdev event for mouse device: %s. Errno: %s",
+                    input_device.name,
+                    linux.Errno(-has_event),
+                )
+            }
+
+            for has_event >= 1 {
                 ev: evdev.input_event
                 ret := evdev.next_event(input_device_backend.mouse_evdev, .NORMAL, &ev)
 
@@ -1641,10 +1696,21 @@ backend_get_os_events :: proc() {
                 if scroll_rel.x != 0 || scroll_rel.y != 0 {
                     os_event_queue_raw_mouse_scroll(id, scroll_rel)
                 }
+
+                has_event = evdev.has_event_pending(input_device_backend.mouse_evdev)
             }
         }
         if .TOUCHPAD in input_device.features {
-            for cast(bool)evdev.has_event_pending(input_device_backend.touchpad_evdev) {
+            has_event := evdev.has_event_pending(input_device_backend.touchpad_evdev)
+            if has_event < 0 {
+                log.errorf(
+                    "Failed to check for pending evdev event for touchpad device: %s. Errno: %s",
+                    input_device.name,
+                    linux.Errno(-has_event),
+                )
+            }
+
+            for has_event >= 1 {
                 ev: evdev.input_event
                 ret := evdev.next_event(input_device_backend.touchpad_evdev, .NORMAL, &ev)
 
@@ -1683,12 +1749,21 @@ backend_get_os_events :: proc() {
                 if (pos != input_device.touchpad.pos) {
                     os_event_queue_raw_touchpad_moved(id, pos)
                 }
+
+                has_event = evdev.has_event_pending(input_device_backend.touchpad_evdev)
             }
         }
         if .KEYBOARD in input_device.features {
-            // TODO: has_event_pending will return a negative number on error and that gets
-            // cast to a true boolean value.
-            for cast(bool)evdev.has_event_pending(input_device_backend.keyboard_evdev) {
+            has_event := evdev.has_event_pending(input_device_backend.keyboard_evdev)
+            if has_event < 0 {
+                log.errorf(
+                    "Failed to check for pending evdev event for keyboard device: %s. Errno: %s",
+                    input_device.name,
+                    linux.Errno(-has_event),
+                )
+            }
+
+            for has_event >= 1 {
                 ev: evdev.input_event
                 ret := evdev.next_event(input_device_backend.keyboard_evdev, .NORMAL, &ev)
 
@@ -1739,10 +1814,21 @@ backend_get_os_events :: proc() {
                         }
                         os_event_queue_raw_key_changed(id, is_pressed, scancode)
                 }
+
+                has_event = evdev.has_event_pending(input_device_backend.keyboard_evdev)
             }
         }
         if .GAMEPAD in input_device.features {
-            for cast(bool)evdev.has_event_pending(input_device_backend.gamepad_evdev) {
+            has_event := evdev.has_event_pending(input_device_backend.gamepad_evdev)
+            if has_event < 0 {
+                log.errorf(
+                    "Failed to check for pending evdev event for gamepad device: %s. Errno: %s",
+                    input_device.name,
+                    linux.Errno(-has_event),
+                )
+            }
+
+            for has_event >= 1 {
                 ev: evdev.input_event
                 ret := evdev.next_event(input_device_backend.gamepad_evdev, .NORMAL, &ev)
 
@@ -1778,10 +1864,21 @@ backend_get_os_events :: proc() {
                         os_event_queue_raw_gamepad_action(id, action, value_unorm, deadzone_unorm)
                     }
                 }
+
+                has_event = evdev.has_event_pending(input_device_backend.gamepad_evdev)
             }
         }
         if .ACCELEROMETER in input_device.features {
-            for cast(bool)evdev.has_event_pending(input_device_backend.accelerometer_evdev) {
+            has_event := evdev.has_event_pending(input_device_backend.accelerometer_evdev)
+            if has_event < 0 {
+                log.errorf(
+                    "Failed to check for pending evdev event for accelerometer device: %s. Errno: %s",
+                    input_device.name,
+                    linux.Errno(-has_event),
+                )
+            }
+
+            for has_event >= 1 {
                 ev: evdev.input_event
                 ret := evdev.next_event(input_device_backend.accelerometer_evdev, .NORMAL, &ev)
 
@@ -1805,6 +1902,8 @@ backend_get_os_events :: proc() {
                 }
 
                 os_event_queue_raw_accelerometer_changed(id, input_device.accelerometer)
+
+                has_event = evdev.has_event_pending(input_device_backend.accelerometer_evdev)
             }
         }
         if .GYROSCOPE in input_device.features {
@@ -2090,15 +2189,25 @@ disable_raw_mouse_input :: proc() {
     xinput2.SelectEvents(l_os.x11_display, x11.XDefaultRootWindow(l_os.x11_display), &em, 1)
 }
 
-backend_grab_cursor :: proc() {
-    enable_raw_mouse_input()
-    root, child: x11.Window
-    int, root_x, root_y, child_x, child_y: i32
-    mask: x11.KeyMask
+@(private = "file")
+get_cursor_pos :: proc(window: x11.Window) -> m.vec2 {
+    assert(l_os.x11_display != nil, "Attempted to use display before initialization")
 
-    x11.XQueryPointer(l_os.x11_display, l_os.x11_window, &root, &child, &root_x, &root_y, &child_x, &child_y, &mask)
-    zephr_ctx.virt_mouse.pos_before_capture = {cast(f32)child_x, cast(f32)child_y}
-    zephr_ctx.virt_mouse.virtual_pos = {cast(f32)child_x, cast(f32)child_y}
+    root, child: x11.Window
+    root_x, root_y, child_x, child_y: i32
+    mask: x11.KeyMask
+    x11.XQueryPointer(l_os.x11_display, window, &root, &child, &root_x, &root_y, &child_x, &child_y, &mask)
+    return {cast(f32)child_x, cast(f32)child_y}
+}
+
+backend_grab_cursor :: proc() {
+    assert(l_os.x11_window != 0, "Attempted to use window before initialization")
+
+    enable_raw_mouse_input()
+    cursor_pos := get_cursor_pos(l_os.x11_window)
+
+    zephr_ctx.virt_mouse.pos_before_capture = {cast(f32)cursor_pos.x, cast(f32)cursor_pos.y}
+    zephr_ctx.virt_mouse.virtual_pos = {cast(f32)cursor_pos.x, cast(f32)cursor_pos.y}
     x11.XGrabPointer(
         l_os.x11_display,
         l_os.x11_window,
