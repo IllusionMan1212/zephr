@@ -545,10 +545,8 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     //       In the future, this font should only be used for the engine's editor.
     engine_font_path := filepath.join([]string{engine_rel_path, "res/fonts/Rubik/Rubik-VariableFont_wght.ttf"})
 
-    // TODO: should I initalize the audio here or let the game handle that??
-    // Engine should initialize audio and the game only takes care of playing sounds (+ other stuff)
-    //int res = audio_init();
-    //CORE_ASSERT(res == 0, "Failed to initialize audio");
+    //ok := audio_init();
+    //assert(ok, "Failed to initialize audio");
 
     queue.init(&zephr_ctx.event_queue, EVENT_QUEUE_INIT_CAP)
     queue.init(&zephr_ctx.changed_shaders_queue, CHANGED_SHADERS_QUEUE_CAP)

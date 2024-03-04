@@ -6,8 +6,7 @@ RROutput :: x11.XID
 RRCrtc :: x11.XID
 RRMode :: x11.XID
 
-SubpixelOrder :: u16 // Possibly an enum too like Connection
-Rotation :: u16 // Possibly an enum too like Connection
+Rotation :: u16 // Possibly an enum too like Connection and SubpixelOrder
 
 XRRModeFlags :: bit_set[XRRModeBits;u64]
 
@@ -33,6 +32,15 @@ Connection :: enum u16 {
     RR_Connected         = 0,
     RR_Disconnected      = 1,
     RR_UnknownConnection = 2,
+}
+
+SubpixelOrder :: enum u16 {
+    Unknown = 0,
+    HorizontalRGB = 1,
+    HorizontalBGR = 2,
+    VerticalRGB = 3,
+    VerticalBGR = 4,
+    None = 5,
 }
 
 #assert(size_of(XRRModeInfo) == 80)
