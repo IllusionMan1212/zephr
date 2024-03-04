@@ -1168,7 +1168,7 @@ os_event_queue_virt_key_changed :: proc(is_pressed: bool, scancode: Scancode) {
     queue.push(&zephr_ctx.event_queue, e)
 }
 
-@(private)
+@(private, disabled=RELEASE_BUILD)
 os_event_queue_drag_and_drop_file :: proc(paths: []string) {
     e: Event
     e.type = .FILE_DROP

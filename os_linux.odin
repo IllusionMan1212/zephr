@@ -112,6 +112,7 @@ XA_CARDINAL :: x11.Atom(6)
 @(private = "file")
 XDND_PROTOCOL_VERSION :: 5
 
+@(private="file")
 l_os: Os
 
 @(private = "file")

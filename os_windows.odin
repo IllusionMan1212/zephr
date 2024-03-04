@@ -16,13 +16,12 @@ import "core:time"
 import gl "vendor:OpenGL"
 
 // TODO: watch the shaders directory for hot-reloading
-// TODO: drag and drop event
 // BUG: setting the cursor every frame messes with the cursor for resizing when on the edge of the window
 // TODO: handle start window in fullscreen
 //       currently the way to "start" a window in fullscreen is to just create a regular window
 //       and immediately fullscreen it. This works fine but there's a moment where you can see the regular-sized window.
 //       Not a priority right now.
-// TODO: only log debug when ODIN_DEBUG is true
+// TODO: only log debug when RELEASE_BUILD is false
 
 @(private = "file")
 GamepadActionPair :: struct {
@@ -94,19 +93,17 @@ WindowsEvent :: struct {
     wparam: win32.WPARAM,
 }
 
-// TODO: group these globals into a single struct
+@(private = "file")
+Os :: struct {
+    hwnd:             win32.HWND,
+    device_ctx:       win32.HDC,
+    wgl_context:      win32.HGLRC,
+    invisible_cursor: win32.HCURSOR,
+    events:           queue.Queue(WindowsEvent),
+}
 
 @(private = "file")
-invisible_cursor: win32.HCURSOR
-@(private = "file")
-events: queue.Queue(WindowsEvent)
-
-@(private = "file")
-hwnd: win32.HWND
-@(private = "file")
-device_ctx: win32.HDC
-@(private = "file")
-wgl_context: win32.HGLRC
+w_os: Os
 
 @(private = "file")
 temp_hwnd: win32.HWND
@@ -115,6 +112,7 @@ temp_device_ctx: win32.HDC
 @(private = "file")
 temp_wgl_context: win32.HGLRC
 
+@(private = "file")
 win32_scancode_to_zephr_scancode_map := []Scancode {
     .NULL, // NULL
     .ESCAPE,
@@ -242,6 +240,7 @@ win32_scancode_to_zephr_scancode_map := []Scancode {
     .NULL, // NONCONVERT
 }
 
+@(private = "file")
 win32_scancode_0xe000_to_zephr_scancode_map := []Scancode {
     0x10 = .NULL, // MEDIA_PREVIOUS
     0x19 = .NULL, // MEDIA_NEXT
@@ -812,6 +811,7 @@ win32_scancode_to_zephr_scancode :: proc(win32_scancode: u32) -> Scancode {
     }
 }
 
+@(private = "file")
 windows_input_device :: proc(input_device: ^InputDevice) -> ^WindowsInputDevice {
     return cast(^WindowsInputDevice)&input_device.backend_data
 }
@@ -918,7 +918,7 @@ init_gl :: proc(
     win_style := win32.WS_OVERLAPPEDWINDOW if !window_non_resizable else (win32.WS_OVERLAPPEDWINDOW & ~win32.WS_THICKFRAME & ~win32.WS_MAXIMIZEBOX)
     //odinfmt: enable
 
-    hwnd = win32.CreateWindowExW(
+    w_os.hwnd = win32.CreateWindowExW(
         0,
         class_name,
         window_title,
@@ -933,14 +933,14 @@ init_gl :: proc(
         nil,
     )
 
-    if hwnd == nil {
+    if w_os.hwnd == nil {
         log.fatal("Failed to create window")
         return
     }
 
-    device_ctx = win32.GetDC(hwnd)
+    w_os.device_ctx = win32.GetDC(w_os.hwnd)
 
-    if device_ctx == nil {
+    if w_os.device_ctx == nil {
         log.fatal("Failed to create device context")
         return
     }
@@ -980,7 +980,7 @@ init_gl :: proc(
 
     pixel_format: i32
     num_formats: u32
-    success := wglChoosePixelFormatARB(device_ctx, raw_data(pixel_attribs), nil, 1, &pixel_format, &num_formats)
+    success := wglChoosePixelFormatARB(w_os.device_ctx, raw_data(pixel_attribs), nil, 1, &pixel_format, &num_formats)
 
     if !success {
         log.error("Failed to choose pixel format")
@@ -988,17 +988,17 @@ init_gl :: proc(
     }
 
     pfd: win32.PIXELFORMATDESCRIPTOR
-    win32.DescribePixelFormat(device_ctx, pixel_format, size_of(win32.PIXELFORMATDESCRIPTOR), &pfd)
-    success = win32.SetPixelFormat(device_ctx, pixel_format, &pfd)
+    win32.DescribePixelFormat(w_os.device_ctx, pixel_format, size_of(win32.PIXELFORMATDESCRIPTOR), &pfd)
+    success = win32.SetPixelFormat(w_os.device_ctx, pixel_format, &pfd)
 
     if !success {
         log.error("Failed to set pixel format")
         return
     }
 
-    wgl_context = wglCreateContextAttribsARB(device_ctx, nil, raw_data(ctx_attribs))
+    w_os.wgl_context = wglCreateContextAttribsARB(w_os.device_ctx, nil, raw_data(ctx_attribs))
 
-    if wgl_context == nil {
+    if w_os.wgl_context == nil {
         log.fatal("Failed to create WGL context")
         return
     }
@@ -1008,7 +1008,7 @@ init_gl :: proc(
     win32.ReleaseDC(temp_hwnd, temp_device_ctx)
     win32.DestroyWindow(temp_hwnd)
 
-    win32.wglMakeCurrent(device_ctx, wgl_context)
+    win32.wglMakeCurrent(w_os.device_ctx, w_os.wgl_context)
 
     gl_version := gl.GetString(gl.VERSION)
     log.infof("GL Version: %s", gl_version)
@@ -1020,7 +1020,7 @@ init_gl :: proc(
 
     gl.load_up_to(3, 3, win32.gl_set_proc_address)
 
-    win32.ShowWindow(hwnd, win32.SW_NORMAL)
+    win32.ShowWindow(w_os.hwnd, win32.SW_NORMAL)
 
     gl.Enable(gl.BLEND)
     gl.Enable(gl.MULTISAMPLE)
@@ -1044,6 +1044,38 @@ window_proc :: proc "stdcall" (
             e: Event
             e.type = .WINDOW_CLOSED
             queue.push(&zephr_ctx.event_queue, e)
+        case win32.WM_DROPFILES:
+            hdrop := cast(win32.HDROP)wparam
+
+            paths := make([dynamic]string, 0, 8)
+            defer delete(paths)
+
+            num_files := win32.DragQueryFileW(hdrop, 0xFFFFFFFF, nil, 0)
+
+            for i in 0 ..< num_files {
+                path_len := win32.DragQueryFileW(hdrop, i, nil, 0)
+
+                if path_len == 0 {
+                    log.error("Failed to get required length for the name(s) of the dropped file(s)")
+                    break
+                }
+
+                path := make([^]win32.wchar_t, path_len + 1, context.temp_allocator)
+
+                res := win32.DragQueryFileW(hdrop, i, path, path_len + 1)
+
+                if res == 0 {
+                    log.error("Failed to query the dropped file's name")
+                    break
+                }
+
+                utf8_path, _ := win32.wstring_to_utf8(path, cast(int)res)
+                append(&paths, utf8_path)
+            }
+
+            os_event_queue_drag_and_drop_file(paths[:])
+
+            win32.DragFinish(hdrop)
         case win32.WM_INPUTLANGCHANGE:
             keyboard_map_update()
         case win32.WM_SIZE:
@@ -1361,6 +1393,7 @@ window_proc :: proc "stdcall" (
                     }
 
                     device_name := make([^]win32.wchar_t, device_name_len)
+                    defer free(device_name)
 
                     res = win32.GetRawInputDeviceInfoW(
                         raw_input_device_handle,
@@ -1597,7 +1630,7 @@ window_proc :: proc "stdcall" (
 backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
     context.logger = logger
 
-    queue.init(&events)
+    queue.init(&w_os.events)
 
     class_name := win32.L("zephr.main_window")
     window_title := win32.utf8_to_wstring(string(window_title))
@@ -1638,20 +1671,24 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
             usUsagePage = HID_USAGE_PAGE_GENERIC,
             dwFlags = win32.RIDEV_DEVNOTIFY,
             usUsage = HID_USAGE_GENERIC_MOUSE,
-            hwndTarget = hwnd,
+            hwndTarget = w_os.hwnd,
         },
          {
             usUsagePage = HID_USAGE_PAGE_GENERIC,
             dwFlags = win32.RIDEV_DEVNOTIFY,
             usUsage = HID_USAGE_GENERIC_KEYBOARD,
-            hwndTarget = hwnd,
+            hwndTarget = w_os.hwnd,
         },
          {
             usUsagePage = HID_USAGE_PAGE_GENERIC,
             dwFlags = win32.RIDEV_DEVNOTIFY,
             usUsage = HID_USAGE_GENERIC_GAMEPAD,
-            hwndTarget = hwnd,
+            hwndTarget = w_os.hwnd,
         },
+    }
+
+    when !RELEASE_BUILD {
+        win32.DragAcceptFiles(w_os.hwnd, win32.TRUE)
     }
 
     if win32.RegisterRawInputDevices(
@@ -1709,21 +1746,21 @@ keyboard_map_apply_scancode :: proc(win32_scancode: u32) {
 backend_get_os_events :: proc() {
     msg: win32.MSG
 
-    for win32.PeekMessageW(&msg, hwnd, 0, 0, win32.PM_REMOVE) != win32.FALSE {
+    for win32.PeekMessageW(&msg, w_os.hwnd, 0, 0, win32.PM_REMOVE) != win32.FALSE {
         win32.TranslateMessage(&msg)
         win32.DispatchMessageW(&msg)
     }
 }
 
 backend_shutdown :: proc() {
-    win32.wglMakeCurrent(device_ctx, nil)
-    win32.wglDeleteContext(wgl_context)
-    win32.ReleaseDC(hwnd, device_ctx)
-    win32.DestroyWindow(hwnd)
+    win32.wglMakeCurrent(w_os.device_ctx, nil)
+    win32.wglDeleteContext(w_os.wgl_context)
+    win32.ReleaseDC(w_os.hwnd, w_os.device_ctx)
+    win32.DestroyWindow(w_os.hwnd)
 }
 
 backend_swapbuffers :: proc() {
-    win32.SwapBuffers(device_ctx)
+    win32.SwapBuffers(w_os.device_ctx)
 }
 
 backend_set_cursor :: proc() {
@@ -1817,14 +1854,15 @@ backend_gamepad_rumble :: proc(
     // TODO:
 }
 
+// BUG: When moving the mouse over a ui element it will show the cursor and active it's hover state
 backend_grab_cursor :: proc() {
     pos: win32.POINT
     win32.GetCursorPos(&pos)
     zephr_ctx.virt_mouse.pos_before_capture = {cast(f32)pos.x, cast(f32)pos.y}
     zephr_ctx.virt_mouse.virtual_pos = {cast(f32)pos.x, cast(f32)pos.y}
     zephr_ctx.cursor = .INVISIBLE
-    win32.SetCursor(invisible_cursor)
-    win32.SetCapture(hwnd)
+    win32.SetCursor(w_os.invisible_cursor)
+    win32.SetCapture(w_os.hwnd)
 }
 
 backend_release_cursor :: proc() {
@@ -1865,17 +1903,17 @@ backend_toggle_fullscreen :: proc(fullscreen: bool) {
         x := cast(i32)(zephr_ctx.screen_size.x / 2 - cast(f32)w / 2)
         y := cast(i32)(zephr_ctx.screen_size.y / 2 - cast(f32)h / 2)
 
-        win32.SetWindowLongPtrW(hwnd, win32.GWL_STYLE, cast(win32.LONG_PTR)(win_style))
-        win32.SetWindowPos(hwnd, nil, x, y, w, h, win32.SWP_FRAMECHANGED)
+        win32.SetWindowLongPtrW(w_os.hwnd, win32.GWL_STYLE, cast(win32.LONG_PTR)(win_style))
+        win32.SetWindowPos(w_os.hwnd, nil, x, y, w, h, win32.SWP_FRAMECHANGED)
     } else {
         zephr_ctx.window.pre_fullscreen_size = zephr_ctx.window.size
         w := cast(i32)zephr_ctx.screen_size.x
         h := cast(i32)zephr_ctx.screen_size.y
         result := win32.SetWindowLongPtrW(
-            hwnd,
+            w_os.hwnd,
             win32.GWL_STYLE,
             cast(win32.LONG_PTR)(win32.WS_VISIBLE | win32.WS_POPUPWINDOW),
         )
-        win32.SetWindowPos(hwnd, win32.HWND_TOP, 0, 0, w, h, win32.SWP_FRAMECHANGED)
+        win32.SetWindowPos(w_os.hwnd, win32.HWND_TOP, 0, 0, w, h, win32.SWP_FRAMECHANGED)
     }
 }
