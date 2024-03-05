@@ -1247,7 +1247,6 @@ window_proc :: proc "stdcall" (
                                     e.mouse_moved.device_id = 0
                                     e.mouse_moved.pos = zephr_ctx.virt_mouse.pos + rel_pos
                                     e.mouse_moved.rel_pos = rel_pos
-                                    zephr_ctx.virt_mouse.pos = zephr_ctx.virt_mouse.pos + rel_pos
                                     zephr_ctx.virt_mouse.rel_pos = rel_pos
                                     zephr_ctx.virt_mouse.virtual_pos = zephr_ctx.virt_mouse.pos + rel_pos
 
@@ -1854,7 +1853,6 @@ backend_gamepad_rumble :: proc(
     // TODO:
 }
 
-// BUG: When moving the mouse over a ui element it will show the cursor and active it's hover state
 backend_grab_cursor :: proc() {
     pos: win32.POINT
     win32.GetCursorPos(&pos)

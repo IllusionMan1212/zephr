@@ -2111,7 +2111,6 @@ backend_get_os_events :: proc() {
                     e.mouse_moved.device_id = 0
                     e.mouse_moved.pos = zephr_ctx.virt_mouse.virtual_pos
                     e.mouse_moved.rel_pos = rel_pos
-                    zephr_ctx.virt_mouse.pos = zephr_ctx.virt_mouse.virtual_pos
                     zephr_ctx.virt_mouse.rel_pos = rel_pos
 
                     queue.push(&zephr_ctx.event_queue, e)
