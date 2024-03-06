@@ -43,6 +43,10 @@ WindowsInputDevice :: struct {
     hid_device_handle:                        win32.HANDLE,
     preparsed_data:                           win32.PHIDP_PREPARSED_DATA,
     preparsed_data_size:                      u64,
+    button_caps:                              [^]win32.HIDP_BUTTON_CAPS,
+    button_caps_count:                        u16,
+    value_caps:                               [^]win32.HIDP_VALUE_CAPS,
+    value_caps_count:                         u16,
     gamepad_data_index_to_action_infos:       [dynamic]WindowsGamepadActionInfo,
     gamepad_data_index_to_action_infos_count: win32.c_uint,
     hatswitch_data_index:                     win32.c_uint,
@@ -56,6 +60,8 @@ OsCursor :: win32.HCURSOR
 HID_USAGE_PAGE_GENERIC :: 0x01
 @(private = "file")
 HID_USAGE_PAGE_BUTTON :: 0x09
+@(private = "file")
+HID_USAGE_PAGE_DIGITIZER :: 0x0D
 
 @(private = "file")
 HID_USAGE_GENERIC_MOUSE :: 0x02
@@ -63,6 +69,25 @@ HID_USAGE_GENERIC_MOUSE :: 0x02
 HID_USAGE_GENERIC_GAMEPAD :: 0x05
 @(private = "file")
 HID_USAGE_GENERIC_KEYBOARD :: 0x06
+@(private = "file")
+HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER :: 0x08
+@(private = "file")
+HID_USAGE_GENERIC_X :: 0x30
+@(private = "file")
+HID_USAGE_GENERIC_Y :: 0x31
+@(private = "file")
+HID_USAGE_GENERIC_Z :: 0x32
+@(private = "file")
+HID_USAGE_GENERIC_RX :: 0x33
+@(private = "file")
+HID_USAGE_GENERIC_RY :: 0x34
+@(private = "file")
+HID_USAGE_GENERIC_RZ :: 0x35
+
+@(private = "file")
+HID_USAGE_DIGITIZER_TOUCH_PAD :: 0x05
+@(private = "file")
+HID_USAGE_DIGITIZER_TIP_SWITCH :: 0x42
 
 @(private = "file")
 RIDI_PREPARSEDDATA :: 0x20000005
@@ -1185,8 +1210,6 @@ window_proc :: proc "stdcall" (
         // 	// CoreString string = os_windows_utf16_to_utf8(utf16_string, frame_alctor);
         // 	os_event_queue_virt_key_input_utf8(string.data, string.size - 1);
         // }
-        case win32.WM_DEVICECHANGE:
-        // TODO: detect other types of devices (Touchpad) and add them
         case win32.WM_INPUT:
             switch wparam {
                 case 0:
@@ -1230,8 +1253,14 @@ window_proc :: proc "stdcall" (
                         break
                     }
 
+                    input_device := &zephr_ctx.input_devices_map[key]
+                    input_device_backend := windows_input_device(input_device)
+
                     switch raw_input.header.dwType {
                         case win32.RIM_TYPEMOUSE:
+                            if !(.MOUSE in input_device.features) {
+                                break
+                            }
                             if (raw_input.data.mouse.usFlags & win32.MOUSE_MOVE_ABSOLUTE) == 0 &&
                                (raw_input.data.mouse.lLastX != 0 || raw_input.data.mouse.lLastY != 0) {
                                 rel_pos := m.vec2 {
@@ -1306,6 +1335,9 @@ window_proc :: proc "stdcall" (
                                 os_event_queue_raw_mouse_button(key, .BUTTON_FORWARD, false)
                             }
                         case win32.RIM_TYPEKEYBOARD:
+                            if !(.KEYBOARD in input_device.features) {
+                                break
+                            }
                             win32_scancode := raw_input.data.keyboard.MakeCode
                             if raw_input.data.keyboard.Flags & RI_KEY_E0 == RI_KEY_E0 {
                                 win32_scancode |= 0xE000
@@ -1313,9 +1345,6 @@ window_proc :: proc "stdcall" (
                                 win32_scancode |= 0xE100
                             }
                             is_pressed := !(raw_input.data.keyboard.Flags & RI_KEY_BREAK == RI_KEY_BREAK)
-
-                            input_device := &zephr_ctx.input_devices_map[key]
-                            input_device_backend := windows_input_device(input_device)
 
                             switch (win32_scancode) {
                                 //0xE11D: first part of the Pause
@@ -1359,7 +1388,121 @@ window_proc :: proc "stdcall" (
                         //	os_event_queue_raw_key_input_utf8(input_device_id, string.data, string.size - 1)
                         //}
                         case win32.RIM_TYPEHID:
-                        // TODO:
+                            if .TOUCHPAD in input_device.features {
+                                has_touch := false
+                                has_click := false
+
+                                for b in 0 ..< input_device_backend.button_caps_count {
+                                    usage_count: win32.ULONG = 0
+                                    cap := input_device_backend.button_caps[b]
+
+                                    res := win32.HidP_GetUsages(
+                                        .Input,
+                                        cap.UsagePage,
+                                        0,
+                                        nil,
+                                        &usage_count,
+                                        input_device_backend.preparsed_data,
+                                        cast(win32.PCHAR)&raw_input.data.hid.bRawData[0],
+                                        raw_input.data.hid.dwCount * raw_input.data.hid.dwSizeHid,
+                                    )
+                                    usages := make([^]win32.USAGE, usage_count)
+
+                                    res = win32.HidP_GetUsages(
+                                        .Input,
+                                        cap.UsagePage,
+                                        0,
+                                        usages,
+                                        &usage_count,
+                                        input_device_backend.preparsed_data,
+                                        cast(win32.PCHAR)&raw_input.data.hid.bRawData[0],
+                                        raw_input.data.hid.dwCount * raw_input.data.hid.dwSizeHid,
+                                    )
+
+                                    if res != win32.HIDP_STATUS_SUCCESS {
+                                        log.errorf(
+                                            "Failed to get Touchpad device's button event data: 0x%X",
+                                            cast(u32)res,
+                                        )
+                                        break
+                                    }
+
+                                    for u in 0 ..< usage_count {
+                                        usage := usages[u]
+                                        if cap.UsagePage == HID_USAGE_PAGE_DIGITIZER {
+                                            // When tapping/touching the touchpad
+                                            // Tip switch is usually for Stylus pens but is also used as a button click(in this case touch)
+                                            // for other digitizer devices.
+                                            if usage == HID_USAGE_DIGITIZER_TIP_SWITCH {
+                                                has_touch = true
+                                                if !(.TOUCH in input_device.touchpad.action_is_pressed_bitset) {
+                                                    os_event_queue_raw_touchpad_action(key, .TOUCH, true)
+                                                }
+                                            }
+                                        }
+                                        if cap.UsagePage == HID_USAGE_PAGE_BUTTON {
+                                            // When clicking the touchpad's physical button
+                                            if usage == 1 {     // Button 1
+                                                has_click = true
+                                                if !(.CLICK in input_device.touchpad.action_is_pressed_bitset) {
+                                                    os_event_queue_raw_touchpad_action(key, .CLICK, true)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if !has_touch && .TOUCH in input_device.touchpad.action_is_pressed_bitset {
+                                    os_event_queue_raw_touchpad_action(key, .TOUCH, false)
+                                }
+                                if !has_click && .CLICK in input_device.touchpad.action_is_pressed_bitset {
+                                    os_event_queue_raw_touchpad_action(key, .CLICK, false)
+                                }
+
+                                pos := input_device.touchpad.pos
+
+                                for v in 0 ..< input_device_backend.value_caps_count {
+                                    value: u32
+                                    cap := input_device_backend.value_caps[v]
+
+                                    res := win32.HidP_GetUsageValue(
+                                        .Input,
+                                        cap.UsagePage,
+                                        0,
+                                        cap.NotRange.Usage,
+                                        &value,
+                                        input_device_backend.preparsed_data,
+                                        cast(win32.PCHAR)&raw_input.data.hid.bRawData[0],
+                                        raw_input.data.hid.dwCount * raw_input.data.hid.dwSizeHid,
+                                    )
+
+                                    if res != win32.HIDP_STATUS_SUCCESS {
+                                        log.errorf(
+                                            "Failed to get Touchpad device's movement event data: 0x%X",
+                                            cast(u32)res,
+                                        )
+                                        break
+                                    }
+
+                                    if cap.UsagePage == HID_USAGE_PAGE_GENERIC {
+                                        // For X and Y position
+                                        if cap.NotRange.Usage == HID_USAGE_GENERIC_X {
+                                            pos.x = cast(f32)value
+                                        } else if cap.NotRange.Usage == HID_USAGE_GENERIC_Y {
+                                            pos.y = cast(f32)value
+                                        }
+                                    }
+                                    if cap.UsagePage == HID_USAGE_PAGE_DIGITIZER {
+                                        // ??? Some special touchpad stuff
+                                    }
+                                }
+
+                                if pos != input_device.touchpad.pos {
+                                    os_event_queue_raw_touchpad_moved(key, pos)
+                                }
+                            } else if .GAMEPAD in input_device.features {
+                                // TODO:
+                            }
                     }
             }
         case win32.WM_INPUT_DEVICE_CHANGE:
@@ -1482,67 +1625,123 @@ window_proc :: proc "stdcall" (
                             input_device_backend.raw_input_device_handle = raw_input_device_handle
                             input_device_backend.hid_device_handle = hid_device_handle
                         case win32.RIM_TYPEHID:
+                            preparsed_data_size: win32.UINT
+                            res := win32.GetRawInputDeviceInfoW(
+                                raw_input_device_handle,
+                                RIDI_PREPARSEDDATA,
+                                nil,
+                                &preparsed_data_size,
+                            )
+                            if (res != 0) {
+                                log.errorf("Failed to get HID device's preparsed data size. Error: %d", res)
+                                break
+                            }
+                            if (preparsed_data_size == 0) {
+                                log.error("HID device's preparsed data size is 0")
+                                break
+                            }
+
+                            preparsed_data := make([^]win32.HIDP_PREPARSED_DATA, preparsed_data_size)
+                            res = win32.GetRawInputDeviceInfoW(
+                                raw_input_device_handle,
+                                RIDI_PREPARSEDDATA,
+                                preparsed_data,
+                                &preparsed_data_size,
+                            )
+                            if (cast(int)res == -1 || res == 0) {
+                                log.error("Failed to get HID device's preparsed data: Error %d", win32.GetLastError())
+                                log.debug(res)
+                                break
+                            }
+                            if res != preparsed_data_size {
+                                log.debugf(
+                                    "Failed to get HID device's preparsed data. Expected: %d bytes but only copied: %d bytes",
+                                    preparsed_data_size,
+                                    res,
+                                )
+                            }
+
+                            caps: win32.HIDP_CAPS
+                            nts := win32.HidP_GetCaps(preparsed_data, &caps)
+                            if (nts != win32.HIDP_STATUS_SUCCESS) {
+                                log.error("Failed to get HID device's capabilities")
+                                break
+                            }
+
+                            if (caps.NumberInputButtonCaps == 0) {
+                                log.warn("HID device reports it has 0 button capabilities, skipping device")
+                                break
+                            }
+
+                            if (caps.NumberInputValueCaps == 0) {
+                                log.warn("HID device reports it has 0 buttons, skipping device")
+                                break
+                            }
+
+                            button_caps_count := caps.NumberInputButtonCaps
+                            button_caps := make([^]win32.HIDP_BUTTON_CAPS, caps.NumberInputButtonCaps)
+                            nts = win32.HidP_GetButtonCaps(.Input, button_caps, &button_caps_count, preparsed_data)
+                            if (nts != win32.HIDP_STATUS_SUCCESS) {
+                                log.error("Failed to get HID device's button capabilities")
+                                break
+                            }
+
+                            value_caps_count := caps.NumberInputValueCaps
+                            value_caps := make([^]win32.HIDP_VALUE_CAPS, caps.NumberInputValueCaps)
+                            nts = win32.HidP_GetValueCaps(.Input, value_caps, &value_caps_count, preparsed_data)
+                            if (nts != win32.HIDP_STATUS_SUCCESS) {
+                                log.error("Failed to get HID device's value capabilities")
+                                break
+                            }
+
+                            switch device_info.hid.usUsagePage {
+                                case HID_USAGE_PAGE_GENERIC:
+                                    if device_info.hid.usUsage == HID_USAGE_GENERIC_GAMEPAD {
+                                        log.debug(caps)
+                                        for b in 0..<caps.NumberInputButtonCaps {
+                                            log.debug(button_caps[b])
+                                        }
+                                        for v in 0..<caps.NumberInputValueCaps {
+                                            log.debug(value_caps[v])
+                                        }
+                                    }
+                                case HID_USAGE_PAGE_DIGITIZER:
+                                    if device_info.hid.usUsage == HID_USAGE_DIGITIZER_TOUCH_PAD {
+                                        dims: m.vec2
+
+                                        for v in 0 ..< caps.NumberInputValueCaps {
+                                            if value_caps[v].UsagePage == HID_USAGE_PAGE_GENERIC {
+                                                if value_caps[v].NotRange.Usage == HID_USAGE_GENERIC_X {
+                                                    dims.x = cast(f32)value_caps[v].LogicalMax
+                                                } else if value_caps[v].NotRange.Usage == HID_USAGE_GENERIC_Y {
+                                                    dims.y = cast(f32)value_caps[v].LogicalMax
+                                                }
+                                            }
+                                        }
+
+                                        key := transmute(u64)raw_input_device_handle
+                                        input_device := os_event_queue_input_device_connected(
+                                            key,
+                                            name,
+                                            {.TOUCHPAD},
+                                            cast(u16)device_info.hid.dwVendorId,
+                                            cast(u16)device_info.hid.dwProductId,
+                                        )
+                                        input_device.touchpad.dims = dims
+                                        input_device_backend := windows_input_device(input_device)
+                                        input_device_backend.raw_input_device_handle = raw_input_device_handle
+                                        input_device_backend.hid_device_handle = hid_device_handle
+                                        input_device_backend.preparsed_data = preparsed_data
+                                        input_device_backend.preparsed_data_size = cast(u64)preparsed_data_size
+                                        input_device_backend.button_caps = button_caps
+                                        input_device_backend.button_caps_count = button_caps_count
+                                        input_device_backend.value_caps = value_caps
+                                        input_device_backend.value_caps_count = value_caps_count
+                                    }
+                            }
                         // TODO: figure this out
                         // switch device_info.hid.usUsage {
                         //     case HID_USAGE_GENERIC_GAMEPAD:
-                        //         log.debug("A gamepad was connected")
-                        //         preparsed_data_size: u32 = 0
-                        //         res := win32.GetRawInputDeviceInfoW(raw_input_device_handle, RIDI_PREPARSEDDATA, nil, &preparsed_data_size)
-                        //         if (res != 0) {
-                        //             log.error("Failed to get gamepad's preparsed data size")
-                        //             break
-                        //         }
-                        //         if (preparsed_data_size == 0) {
-                        //             log.error("Failed to get gamepad's preparsed data size")
-                        //             break
-                        //         }
-
-                        //         preparsed_data_capacity := preparsed_data_size
-                        //         preparsed_data: win32.PHIDP_PREPARSED_DATA
-                        //         res = win32.GetRawInputDeviceInfoW(raw_input_device_handle, RIDI_PREPARSEDDATA, &preparsed_data, &preparsed_data_size)
-                        //         if (cast(int)res == -1 || res == 0) {
-                        //             log.error("Failed to get gamepad's preparsed data")
-                        //             log.debug(res)
-                        //             break
-                        //         }
-
-                        //         caps: win32.HIDP_CAPS
-                        //         nts := win32.HidP_GetCaps(&preparsed_data, &caps)
-                        //         if (nts != win32.HIDP_STATUS_SUCCESS) {
-                        //             log.error("Failed to get gamepad device's capabilities")
-                        //             break
-                        //         }
-
-                        //         if (caps.NumberInputButtonCaps == 0) {
-                        //             log.warn("Gamepad device reports it has 0 button capabilities, skipping device")
-                        //             break
-                        //         }
-
-                        //         if (caps.NumberInputValueCaps == 0) {
-                        //             log.warn("Gamepad device reports it has 0 buttons, skipping device")
-                        //             break
-                        //         }
-
-                        //         button_caps_count := caps.NumberInputButtonCaps;
-                        //         button_caps := make([^]win32.HIDP_BUTTON_CAPS, caps.NumberInputButtonCaps)
-                        //         nts = win32.HidP_GetButtonCaps(.Input, button_caps, &button_caps_count, &preparsed_data)
-                        //         if (nts != win32.HIDP_STATUS_SUCCESS) {
-                        //             log.error("Failed to get gamepad device's button capabilities")
-                        //             break
-                        //         }
-
-                        //         value_caps_count := caps.NumberInputValueCaps;
-                        //         value_caps := make([^]win32.HIDP_VALUE_CAPS, caps.NumberInputValueCaps)
-                        //         nts = win32.HidP_GetValueCaps(.Input, value_caps, &value_caps_count, &preparsed_data)
-                        //         if (nts != win32.HIDP_STATUS_SUCCESS) {
-                        //             log.error("Failed to get gamepad device's value capabilities")
-                        //             break
-                        //         }
-
-                        //         log.debug("caps", caps)
-                        //         log.debug("buttons caps", button_caps)
-                        //         log.debug("value caps", value_caps)
-
                         //         // TODO: assign butons bindings to the device based on something ???
                         //         gamepad_button_usage_bindings_count: u32
 
@@ -1682,6 +1881,12 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
             usUsagePage = HID_USAGE_PAGE_GENERIC,
             dwFlags = win32.RIDEV_DEVNOTIFY,
             usUsage = HID_USAGE_GENERIC_GAMEPAD,
+            hwndTarget = w_os.hwnd,
+        },
+         {
+            usUsagePage = HID_USAGE_PAGE_DIGITIZER,
+            dwFlags = win32.RIDEV_DEVNOTIFY,
+            usUsage = HID_USAGE_DIGITIZER_TOUCH_PAD,
             hwndTarget = w_os.hwnd,
         },
     }

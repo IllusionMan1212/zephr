@@ -299,14 +299,14 @@ Scancode :: enum {
     COUNT              = 512,
 }
 
-InputDeviceFeatures :: bit_set[InputDeviceFeaturesBits]
+InputDeviceFeatures :: bit_set[InputDeviceFeaturesBits; u8]
 InputDeviceFeaturesBits :: enum {
-    MOUSE         = 0x01,
-    KEYBOARD      = 0x02,
-    GAMEPAD       = 0x04,
-    TOUCHPAD      = 0x08,
-    ACCELEROMETER = 0x10,
-    GYROSCOPE     = 0x20,
+    MOUSE         = 0, // 1
+    KEYBOARD      = 1, // 2
+    GAMEPAD       = 2, // 4
+    TOUCHPAD      = 3, // 8
+    ACCELEROMETER = 4, // 16 
+    GYROSCOPE     = 5, // 32
 }
 
 GamepadAction :: enum {
@@ -506,7 +506,7 @@ when ODIN_OS == .Linux {
     @(private)
     OS_INPUT_DEVICE_BACKEND_SIZE :: 504
 } else when ODIN_OS == .Windows {
-    OS_INPUT_DEVICE_BACKEND_SIZE :: 88
+    OS_INPUT_DEVICE_BACKEND_SIZE :: 120
 }
 
 when ODIN_DEBUG {
