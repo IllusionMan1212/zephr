@@ -2,11 +2,13 @@
 // +private
 package zephr
 
+import "core:container/bit_array"
 import "core:container/queue"
 import "core:fmt"
 import "core:log"
 import m "core:math/linalg/glsl"
 import "core:mem"
+import "core:mem/virtual"
 import "core:net"
 import "core:os"
 import "core:runtime"
@@ -112,7 +114,7 @@ XA_CARDINAL :: x11.Atom(6)
 @(private = "file")
 XDND_PROTOCOL_VERSION :: 5
 
-@(private="file")
+@(private = "file")
 l_os: Os
 
 @(private = "file")
@@ -1497,6 +1499,14 @@ udev_device_try_remove :: proc(dev: ^udev.udev_device) {
         device_backend := linux_input_device(&device)
         os_event_queue_input_device_disconnected(key)
 
+        // TODO: allocate all the input device data using an arena allocator and destory that arena here
+        virtual.arena_destroy(&device.arena)
+        bit_array.destroy(&device.keyboard.keycode_is_pressed_bitset)
+        bit_array.destroy(&device.keyboard.keycode_has_been_pressed_bitset)
+        bit_array.destroy(&device.keyboard.keycode_has_been_released_bitset)
+        bit_array.destroy(&device.keyboard.scancode_is_pressed_bitset)
+        bit_array.destroy(&device.keyboard.scancode_has_been_pressed_bitset)
+        bit_array.destroy(&device.keyboard.scancode_has_been_released_bitset)
         evdev.free(device_backend.mouse_evdev)
         evdev.free(device_backend.gamepad_evdev)
         evdev.free(device_backend.touchpad_evdev)
@@ -1534,6 +1544,7 @@ udev_has_event :: proc() -> bool {
 evdev_device_info :: proc(
     fd: os.Handle,
     evdevice: ^^evdev.libevdev,
+    allocator: mem.Allocator,
 ) -> (
     name: string,
     vendor_id: u16,
@@ -1547,12 +1558,12 @@ evdev_device_info :: proc(
         log.errorf("Failed to create evdev device for device with fd: %d. Errno: %s", fd, linux.Errno(-ret))
     }
 
-    name = string(evdev.get_name(evdevice^))
+    name = strings.clone_from_cstring(evdev.get_name(evdevice^), allocator)
     vendor_id = evdev.get_id_vendor(evdevice^)
     product_id = evdev.get_id_product(evdevice^)
 
     if name == "" {
-        name = fmt.tprintf("unknown input device 0x%x 0x%x", vendor_id, product_id)
+        name = fmt.aprintf("unknown input device 0x%x 0x%x", vendor_id, product_id, allocator = allocator)
     }
 
     return name, vendor_id, product_id
@@ -1587,6 +1598,13 @@ backend_shutdown :: proc() {
         evdev.free(input_device_backend.keyboard_evdev)
         evdev.free(input_device_backend.accelerometer_evdev)
         evdev.free(input_device_backend.gyroscope_evdev)
+        virtual.arena_destroy(&device.arena)
+        bit_array.destroy(&device.keyboard.keycode_is_pressed_bitset)
+        bit_array.destroy(&device.keyboard.keycode_has_been_pressed_bitset)
+        bit_array.destroy(&device.keyboard.keycode_has_been_released_bitset)
+        bit_array.destroy(&device.keyboard.scancode_is_pressed_bitset)
+        bit_array.destroy(&device.keyboard.scancode_has_been_pressed_bitset)
+        bit_array.destroy(&device.keyboard.scancode_has_been_released_bitset)
         delete(input_device_backend.mouse_devnode)
         delete(input_device_backend.gamepad_devnode)
         delete(input_device_backend.touchpad_devnode)

@@ -5,6 +5,7 @@ import "core:container/queue"
 import "core:fmt"
 import "core:log"
 import m "core:math/linalg/glsl"
+import "core:mem/virtual"
 import "core:os"
 import "core:path/filepath"
 import "core:time"
@@ -299,7 +300,7 @@ Scancode :: enum {
     COUNT              = 512,
 }
 
-InputDeviceFeatures :: bit_set[InputDeviceFeaturesBits; u8]
+InputDeviceFeatures :: bit_set[InputDeviceFeaturesBits;u8]
 InputDeviceFeaturesBits :: enum {
     MOUSE         = 0, // 1
     KEYBOARD      = 1, // 2
@@ -335,10 +336,9 @@ GamepadAction :: enum {
     STICK_RIGHT_Y_SOUTH,
     TRIGGER_LEFT,
     TRIGGER_RIGHT,
-    COUNT = TRIGGER_RIGHT,
-
-    // TODO: I think windows stops at LEFT_X_WEST. Not sure
-    BUTTON_END = STICK_LEFT_X_WEST,
+    SYSTEM, // Maps to PSButton on Playstation Controllers, and XBox Button on XBox Controllers.
+    TOUCHPAD, // Maps to the Touchpad on the Playstation Controllers.
+    COUNT = TOUCHPAD,
 }
 
 TouchpadAction :: enum {
@@ -376,6 +376,7 @@ InputDevice :: struct {
     accelerometer: m.vec3,
     gyroscope:     m.quat,
     backend_data:  [OS_INPUT_DEVICE_BACKEND_SIZE]u8,
+    arena:         virtual.Arena,
 }
 
 Event :: struct {
@@ -1168,7 +1169,7 @@ os_event_queue_virt_key_changed :: proc(is_pressed: bool, scancode: Scancode) {
     queue.push(&zephr_ctx.event_queue, e)
 }
 
-@(private, disabled=RELEASE_BUILD)
+@(private, disabled = RELEASE_BUILD)
 os_event_queue_drag_and_drop_file :: proc(paths: []string) {
     e: Event
     e.type = .FILE_DROP

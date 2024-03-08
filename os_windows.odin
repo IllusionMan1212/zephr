@@ -2,10 +2,14 @@
 // +private
 package zephr
 
+import "core:container/bit_array"
 import "core:container/queue"
 import "core:fmt"
 import "core:log"
+import "core:math/bits"
 import m "core:math/linalg/glsl"
+import "core:mem"
+import "core:mem/virtual"
 import "core:os"
 import "core:runtime"
 import "core:strconv"
@@ -15,6 +19,8 @@ import "core:time"
 
 import gl "vendor:OpenGL"
 
+// TODO: Moving a window that was created on a 1080 monitor to a 768 monitor cuts off the viewport from the top
+// and possibly other sides. Fix that
 // TODO: watch the shaders directory for hot-reloading
 // BUG: setting the cursor every frame messes with the cursor for resizing when on the edge of the window
 // TODO: handle start window in fullscreen
@@ -39,19 +45,23 @@ WindowsGamepadActionInfo :: struct {
 
 @(private = "file")
 WindowsInputDevice :: struct {
-    raw_input_device_handle:                  win32.HANDLE,
-    hid_device_handle:                        win32.HANDLE,
-    preparsed_data:                           win32.PHIDP_PREPARSED_DATA,
-    preparsed_data_size:                      u64,
-    button_caps:                              [^]win32.HIDP_BUTTON_CAPS,
-    button_caps_count:                        u16,
-    value_caps:                               [^]win32.HIDP_VALUE_CAPS,
-    value_caps_count:                         u16,
-    gamepad_data_index_to_action_infos:       [dynamic]WindowsGamepadActionInfo,
-    gamepad_data_index_to_action_infos_count: win32.c_uint,
-    hatswitch_data_index:                     win32.c_uint,
-    hatswitch_min:                            win32.c_uint,
-    found_e11d:                               bool, // used for pause key as it can only be recognised with 2 events
+    raw_input_device_handle: win32.HANDLE,
+    hid_device_handle:       win32.HANDLE,
+    preparsed_data:          win32.PHIDP_PREPARSED_DATA,
+    preparsed_data_size:     u64,
+    button_caps:             [^]win32.HIDP_BUTTON_CAPS,
+    button_caps_count:       u16,
+    value_caps:              [^]win32.HIDP_VALUE_CAPS,
+    value_caps_count:        u16,
+    gamepad_button_bindings: Bindings,
+    found_e11d:              bool, // used for pause key as it can only be recognised with 2 events
+}
+
+@(private = "file")
+Bindings :: struct {
+    buttons:   []GamepadAction,
+    hatswitch: []bit_set[GamepadAction],
+    axes:      []GamepadActionPair,
 }
 
 OsCursor :: win32.HCURSOR
@@ -62,9 +72,13 @@ HID_USAGE_PAGE_GENERIC :: 0x01
 HID_USAGE_PAGE_BUTTON :: 0x09
 @(private = "file")
 HID_USAGE_PAGE_DIGITIZER :: 0x0D
+@(private = "file")
+HID_USAGE_PAGE_HAPTICS :: 0x0E
 
 @(private = "file")
 HID_USAGE_GENERIC_MOUSE :: 0x02
+@(private = "file")
+HID_USAGE_GENERIC_JOYSTICK :: 0x04
 @(private = "file")
 HID_USAGE_GENERIC_GAMEPAD :: 0x05
 @(private = "file")
@@ -83,11 +97,18 @@ HID_USAGE_GENERIC_RX :: 0x33
 HID_USAGE_GENERIC_RY :: 0x34
 @(private = "file")
 HID_USAGE_GENERIC_RZ :: 0x35
+@(private = "file")
+HID_USAGE_GENERIC_HATSWITCH :: 0x39
 
 @(private = "file")
 HID_USAGE_DIGITIZER_TOUCH_PAD :: 0x05
 @(private = "file")
 HID_USAGE_DIGITIZER_TIP_SWITCH :: 0x42
+
+@(private = "file")
+HID_USAGE_HAPTICS_SIMPLE_CONTROLLER :: 0x01
+@(private = "file")
+HID_USAGE_HAPTICS_WAVEFORM_RUMBLE :: 0x1005
 
 @(private = "file")
 RIDI_PREPARSEDDATA :: 0x20000005
@@ -110,6 +131,118 @@ HID_STRING_CAP :: 2048
 // 4093 comes from: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/hidsdi/nf-hidsdi-hidd_getproductstring
 @(private = "file")
 HID_STRING_BYTE_CAP :: 4093
+
+// I think these are just the XInput driver mapping
+@(private = "file")
+Xbox_Series_S_Button_Mapping := []GamepadAction {
+    0  = .NONE,
+    1  = .FACE_DOWN,
+    2  = .FACE_RIGHT,
+    3  = .FACE_LEFT,
+    4  = .FACE_UP,
+    5  = .SHOULDER_LEFT,
+    6  = .SHOULDER_RIGHT,
+    7  = .SELECT,
+    8  = .START,
+    9  = .STICK_LEFT,
+    10 = .STICK_RIGHT,
+}
+
+@(private = "file")
+Xbox_Series_S_Axis_Mapping := []GamepadActionPair {
+    HID_USAGE_GENERIC_X  = {.STICK_LEFT_X_EAST, .STICK_LEFT_X_WEST},
+    HID_USAGE_GENERIC_Y  = {.STICK_LEFT_Y_SOUTH, .STICK_LEFT_Y_NORTH},
+    HID_USAGE_GENERIC_RX = {.STICK_RIGHT_X_EAST, .STICK_RIGHT_X_WEST},
+    HID_USAGE_GENERIC_RY = {.STICK_RIGHT_Y_SOUTH, .STICK_RIGHT_Y_NORTH},
+    HID_USAGE_GENERIC_Z  = {.TRIGGER_LEFT, .TRIGGER_RIGHT},
+}
+
+@(private = "file")
+Xbox_Series_S_Hatswitch_Mapping := []bit_set[GamepadAction] {
+    1 = {.DPAD_UP},
+    2 = {.DPAD_UP, .DPAD_RIGHT},
+    3 = {.DPAD_RIGHT},
+    4 = {.DPAD_RIGHT, .DPAD_DOWN},
+    5 = {.DPAD_DOWN},
+    6 = {.DPAD_DOWN, .DPAD_LEFT},
+    7 = {.DPAD_LEFT},
+    8 = {.DPAD_LEFT, .DPAD_UP},
+}
+
+@(private = "file")
+DS4_Button_Mapping := []GamepadAction {
+    0  = .NONE,
+    1  = .FACE_LEFT,
+    2  = .FACE_DOWN,
+    3  = .FACE_RIGHT,
+    4  = .FACE_UP,
+    5  = .SHOULDER_LEFT,
+    6  = .SHOULDER_RIGHT,
+    // Ignore the triggers because they're axes not buttons.
+    7  = .NONE, // TRIGGER_LEFT
+    8  = .NONE, // TRIGGER_RIGHT
+    9  = .SELECT,
+    10 = .START,
+    11 = .STICK_LEFT,
+    12 = .STICK_RIGHT,
+    13 = .SYSTEM,
+    14 = .TOUCHPAD,
+}
+
+@(private = "file")
+DS4_Axis_Mapping := []GamepadActionPair {
+    HID_USAGE_GENERIC_X  = {.STICK_LEFT_X_EAST, .STICK_LEFT_X_WEST},
+    HID_USAGE_GENERIC_Y  = {.STICK_LEFT_Y_SOUTH, .STICK_LEFT_Y_NORTH},
+    HID_USAGE_GENERIC_RX = {.TRIGGER_LEFT, .NONE},
+    HID_USAGE_GENERIC_RY = {.TRIGGER_RIGHT, .NONE},
+    HID_USAGE_GENERIC_Z  = {.STICK_RIGHT_X_EAST, .STICK_RIGHT_X_WEST},
+    HID_USAGE_GENERIC_RZ = {.STICK_RIGHT_Y_SOUTH, .STICK_RIGHT_Y_NORTH},
+}
+
+@(private = "file")
+DS4_Hatswitch_Mapping := []bit_set[GamepadAction] {
+    0 = {.DPAD_UP},
+    1 = {.DPAD_UP, .DPAD_RIGHT},
+    2 = {.DPAD_RIGHT},
+    3 = {.DPAD_RIGHT, .DPAD_DOWN},
+    4 = {.DPAD_DOWN},
+    5 = {.DPAD_DOWN, .DPAD_LEFT},
+    6 = {.DPAD_LEFT},
+    7 = {.DPAD_LEFT, .DPAD_UP},
+    8 = {.NONE},
+}
+
+@(private = "file")
+Switch_Button_Mapping := []GamepadAction{} // TODO: requires handshake and other stuff
+@(private = "file")
+Switch_Hatswitch_Mapping := []bit_set[GamepadAction]{} // TODO:
+@(private = "file")
+Switch_Axis_Mapping := []GamepadActionPair{} // TODO:
+
+@(private = "file")
+SupportedControllers := map[u32]Bindings {
+    //0x045E_0202 = Xbox_One_Button_Mapping, // XBox Controller
+    //0x045E_0285 = Xbox_One_Button_Mapping, // XBox Controller S
+    //0x045E_0289 = Xbox_One_Button_Mapping, // XBox Controller S
+    //0x045E_028E = Xbox_One_Button_Mapping, // XBox 360 Controller
+    //0x045E_028F = Xbox_One_Button_Mapping, // XBox 360 Wireless Controller
+    //0x045E_02D1 = Xbox_One_Button_Mapping, // XBox One Controller
+    //0x045E_02DD = Xbox_One_Button_Mapping, // XBox One Controller (Firmware 2015)
+    //0x045E_02E0 = Xbox_One_Button_Mapping, // XBox One Wireless Controller
+    //0x045E_02E3 = Xbox_One_Button_Mapping, // XBox One Elite Controller
+    //0x045E_02EA = Xbox_One_Button_Mapping, // XBox One Controller
+    //0x045E_02FD = Xbox_One_Button_Mapping, // XBox One S Controller [Bluetooth]
+    0x045E_02FF = {Xbox_Series_S_Button_Mapping, Xbox_Series_S_Hatswitch_Mapping, Xbox_Series_S_Axis_Mapping}, // XBox S Controller [Bluetooth]
+    //0x045E_0B00 = Xbox_One_Button_Mapping, // XBox Elite Series 2 Controller (model 1797)
+    //0x045E_0B12 = Xbox_One_Button_Mapping, // XBox Controller
+    0x045E_0B13 = {Xbox_Series_S_Button_Mapping, Xbox_Series_S_Hatswitch_Mapping, Xbox_Series_S_Axis_Mapping}, // XBox Series X|S Controller Wireless
+    0x054C_05C4 = {DS4_Button_Mapping, DS4_Hatswitch_Mapping, DS4_Axis_Mapping}, // DS4 Gen 1
+    0x054C_09CC = {DS4_Button_Mapping, DS4_Hatswitch_Mapping, DS4_Axis_Mapping}, // DS4 Gen 2
+    //0x054C_0CE6 = DS5_Button_Mapping, // PS5 DualSense
+    //0x054C_0DF2 = DS5_Button_Mapping, // PS5 DualSense Edge (TODO: Could have extra buttons/axes)
+    //0x057E_2009 = {Switch_Button_Mapping, Switch_Hatswitch_Mapping, Switch_Axis_Mapping}, // Switch Pro Controller
+    0x7331_0002 = {Xbox_Series_S_Button_Mapping, Xbox_Series_S_Hatswitch_Mapping, Xbox_Series_S_Axis_Mapping}, // DS3 over DsHidMini as XInput
+}
 
 @(private = "file")
 WindowsEvent :: struct {
@@ -1501,7 +1634,128 @@ window_proc :: proc "stdcall" (
                                     os_event_queue_raw_touchpad_moved(key, pos)
                                 }
                             } else if .GAMEPAD in input_device.features {
-                                // TODO:
+                                actions_found: bit_set[GamepadAction]
+                                usage_count: win32.ULONG = 0
+                                // Sane controllers only have a single button cap with
+                                // a Range of button usages
+                                cap := input_device_backend.button_caps[0]
+
+                                res := win32.HidP_GetUsages(
+                                    .Input,
+                                    cap.UsagePage,
+                                    0,
+                                    nil,
+                                    &usage_count,
+                                    input_device_backend.preparsed_data,
+                                    cast(win32.PCHAR)&raw_input.data.hid.bRawData[0],
+                                    raw_input.data.hid.dwCount * raw_input.data.hid.dwSizeHid,
+                                )
+                                usages := make([^]win32.USAGE, usage_count)
+
+                                res = win32.HidP_GetUsages(
+                                    .Input,
+                                    cap.UsagePage,
+                                    0,
+                                    usages,
+                                    &usage_count,
+                                    input_device_backend.preparsed_data,
+                                    cast(win32.PCHAR)&raw_input.data.hid.bRawData[0],
+                                    raw_input.data.hid.dwCount * raw_input.data.hid.dwSizeHid,
+                                )
+
+                                if res != win32.HIDP_STATUS_SUCCESS {
+                                    log.errorf("Failed to get Gamepad device's button event data: 0x%X", cast(u32)res)
+                                    break
+                                }
+
+                                for u in 0 ..< usage_count {
+                                    usage := usages[u]
+                                    action := input_device_backend.gamepad_button_bindings.buttons[usage]
+                                    actions_found |= {action}
+                                    if !(action in input_device.gamepad.action_is_pressed_bitset) {
+                                        os_event_queue_raw_gamepad_action(key, action, 1, 0)
+                                    }
+                                }
+
+                                for v in 0 ..< input_device_backend.value_caps_count {
+                                    value: u32
+                                    cap := input_device_backend.value_caps[v]
+
+                                    res := win32.HidP_GetUsageValue(
+                                        .Input,
+                                        cap.UsagePage,
+                                        0,
+                                        cap.NotRange.Usage,
+                                        &value,
+                                        input_device_backend.preparsed_data,
+                                        cast(win32.PCHAR)&raw_input.data.hid.bRawData[0],
+                                        raw_input.data.hid.dwCount * raw_input.data.hid.dwSizeHid,
+                                    )
+
+                                    if res != win32.HIDP_STATUS_SUCCESS {
+                                        log.errorf(
+                                            "Failed to get Gamepad device's value event data: 0x%X",
+                                            cast(u32)res,
+                                        )
+                                        break
+                                    }
+
+                                    if cap.NotRange.Usage == HID_USAGE_GENERIC_HATSWITCH {
+                                        dpad_actions := input_device_backend.gamepad_button_bindings.hatswitch[value]
+
+                                        if .NONE in dpad_actions {
+                                            continue
+                                        }
+
+                                        for card(dpad_actions) != 0 {
+                                            action := cast(GamepadAction)transmute(u32)bits.count_trailing_zeros(
+                                                dpad_actions,
+                                            )
+                                            actions_found |= {action}
+                                            if !(action in input_device.gamepad.action_is_pressed_bitset) {
+                                                os_event_queue_raw_gamepad_action(key, action, 1, 0)
+                                            }
+                                            dpad_actions &= ~{action}
+                                        }
+                                    } else {
+                                        info := input_device_backend.gamepad_button_bindings.axes[cap.NotRange.Usage]
+                                        max := (1 << cap.BitSize) - 1
+                                        norm_value := cast(f32)value / cast(f32)max
+
+                                        if info.neg != .NONE {
+                                            norm_value = (norm_value * 2.0) - 1.0
+
+                                            // TODO: configurable deadzones
+                                            if norm_value < 0 {
+                                                norm_value = -norm_value
+                                                action := info.neg
+                                                actions_found |= {action}
+                                                os_event_queue_raw_gamepad_action(key, action, norm_value, 0.10)
+                                            } else {
+                                                action := info.pos
+                                                actions_found |= {action}
+                                                os_event_queue_raw_gamepad_action(key, action, norm_value, 0.10)
+                                            }
+                                        } else {
+                                            action := info.pos
+                                            actions_found |= {action}
+                                            os_event_queue_raw_gamepad_action(key, info.pos, norm_value, 0.05)
+                                        }
+                                    }
+                                }
+
+                                actions_not_found := ~actions_found
+                                actions_not_found &= ~{.NONE}
+                                for card(actions_not_found) != 0 {
+                                    action := cast(GamepadAction)transmute(u32)bits.count_trailing_zeros(
+                                        actions_not_found,
+                                    )
+                                    if action in input_device.gamepad.action_is_pressed_bitset &&
+                                       !(action in actions_found) {
+                                        os_event_queue_raw_gamepad_action(key, action, 0, 0)
+                                    }
+                                    actions_not_found &= ~{action}
+                                }
                             }
                     }
             }
@@ -1559,7 +1813,10 @@ window_proc :: proc "stdcall" (
                         nil,
                     )
                     if hid_device_handle == win32.INVALID_HANDLE_VALUE {
-                        log.error("Got an invalid HID handle for input device")
+                        log.errorf(
+                            "Got an invalid HID handle for input device: %s",
+                            win32.wstring_to_utf8(device_name, cast(int)device_name_len),
+                        )
                         break
                     }
 
@@ -1581,21 +1838,33 @@ window_proc :: proc "stdcall" (
                         HID_STRING_BYTE_CAP,
                     )
 
-                    name := fmt.tprintf("unknown input device 0x%x 0x%x", attr.VendorID, attr.ProductID)
-                    switch cast(int)have_manufacturer_name * 2 + cast(int)have_product_name {
+                    arena: virtual.Arena
+                    err := virtual.arena_init_static(&arena, mem.Megabyte * 4)
+                    log.assert(err == nil, "Failed to init memory arena for input device")
+                    arena_allocator := virtual.arena_allocator(&arena)
+
+                    name := fmt.aprintf(
+                        "unknown input device 0x%x 0x%x",
+                        device_info.hid.dwVendorId,
+                        device_info.hid.dwProductId,
+                        allocator = arena_allocator,
+                    )
+                    switch cast(int)(have_manufacturer_name && manufacturer_name[0] != 0) *
+                        2 + cast(int)(have_product_name && product_name[0] != 0) {
                         case 1:
                             name_utf8, _ := win32.utf16_to_utf8(product_name[:])
-                            name = strings.trim_space(name_utf8)
+                            name = strings.clone(strings.trim_space(name_utf8), arena_allocator)
                         case 2:
                             name_utf8, _ := win32.utf16_to_utf8(manufacturer_name[:])
-                            name = strings.trim_space(name_utf8)
+                            name = strings.clone(strings.trim_space(name_utf8), arena_allocator)
                         case 3:
                             manufacturer_utf8, _ := win32.utf16_to_utf8(manufacturer_name[:])
-                            product_utf8, _ := win32.utf16_to_utf8(product_name[:])
-                            name = fmt.tprintf(
+                            product_utf8, _ := win32.utf16_to_utf8(product_name[:], arena_allocator)
+                            name = fmt.aprintf(
                                 "%s %s",
                                 strings.trim_space(manufacturer_utf8),
                                 strings.trim_space(product_utf8),
+                                allocator = arena_allocator,
                             )
                     }
 
@@ -1609,6 +1878,8 @@ window_proc :: proc "stdcall" (
                                 attr.VendorID,
                                 attr.ProductID,
                             )
+                            input_device.name = name
+                            input_device.arena = arena
                             input_device_backend := windows_input_device(input_device)
                             input_device_backend.raw_input_device_handle = raw_input_device_handle
                             input_device_backend.hid_device_handle = hid_device_handle
@@ -1621,6 +1892,8 @@ window_proc :: proc "stdcall" (
                                 attr.VendorID,
                                 attr.ProductID,
                             )
+                            input_device.name = name
+                            input_device.arena = arena
                             input_device_backend := windows_input_device(input_device)
                             input_device_backend.raw_input_device_handle = raw_input_device_handle
                             input_device_backend.hid_device_handle = hid_device_handle
@@ -1641,7 +1914,7 @@ window_proc :: proc "stdcall" (
                                 break
                             }
 
-                            preparsed_data := make([^]win32.HIDP_PREPARSED_DATA, preparsed_data_size)
+                            preparsed_data := make([^]win32.HIDP_PREPARSED_DATA, preparsed_data_size, arena_allocator)
                             res = win32.GetRawInputDeviceInfoW(
                                 raw_input_device_handle,
                                 RIDI_PREPARSEDDATA,
@@ -1650,7 +1923,6 @@ window_proc :: proc "stdcall" (
                             )
                             if (cast(int)res == -1 || res == 0) {
                                 log.error("Failed to get HID device's preparsed data: Error %d", win32.GetLastError())
-                                log.debug(res)
                                 break
                             }
                             if res != preparsed_data_size {
@@ -1679,7 +1951,7 @@ window_proc :: proc "stdcall" (
                             }
 
                             button_caps_count := caps.NumberInputButtonCaps
-                            button_caps := make([^]win32.HIDP_BUTTON_CAPS, caps.NumberInputButtonCaps)
+                            button_caps := make([^]win32.HIDP_BUTTON_CAPS, caps.NumberInputButtonCaps, arena_allocator)
                             nts = win32.HidP_GetButtonCaps(.Input, button_caps, &button_caps_count, preparsed_data)
                             if (nts != win32.HIDP_STATUS_SUCCESS) {
                                 log.error("Failed to get HID device's button capabilities")
@@ -1687,7 +1959,7 @@ window_proc :: proc "stdcall" (
                             }
 
                             value_caps_count := caps.NumberInputValueCaps
-                            value_caps := make([^]win32.HIDP_VALUE_CAPS, caps.NumberInputValueCaps)
+                            value_caps := make([^]win32.HIDP_VALUE_CAPS, caps.NumberInputValueCaps, arena_allocator)
                             nts = win32.HidP_GetValueCaps(.Input, value_caps, &value_caps_count, preparsed_data)
                             if (nts != win32.HIDP_STATUS_SUCCESS) {
                                 log.error("Failed to get HID device's value capabilities")
@@ -1696,14 +1968,70 @@ window_proc :: proc "stdcall" (
 
                             switch device_info.hid.usUsagePage {
                                 case HID_USAGE_PAGE_GENERIC:
+                                    if device_info.hid.usUsage == HID_USAGE_GENERIC_JOYSTICK {
+                                        log.warn("Got a joystick device. Not supported yet")
+                                    }
                                     if device_info.hid.usUsage == HID_USAGE_GENERIC_GAMEPAD {
+                                        // TODO: Gyroscope, Accelerator, Touchpad (PlayStation only) and Rumble support.
+                                        gamepad_id := device_info.hid.dwVendorId << 16 | device_info.hid.dwProductId
+                                        if !(gamepad_id in SupportedControllers) {
+                                            // TODO: Add support for more controllers in the future.
+                                            // We can either have the user write a config file or send them
+                                            // a utility program that can extract this data from their controller
+                                            // and add support in the engine.
+                                            log.warnf(
+                                                "Controller not supported. Vendor: 0x%X, Product: 0x%X",
+                                                device_info.hid.dwVendorId,
+                                                device_info.hid.dwProductId,
+                                            )
+                                            virtual.arena_destroy(&arena)
+                                            return 0
+                                        }
+
+                                        if caps.NumberInputButtonCaps > 1 {
+                                            log.warn(
+                                                "Controller has more than a single button capability. Not supported yet.",
+                                            )
+                                        }
+
                                         log.debug(caps)
-                                        for b in 0..<caps.NumberInputButtonCaps {
-                                            log.debug(button_caps[b])
+                                        for b in 0 ..< caps.NumberInputButtonCaps {
+                                            if !button_caps[b].IsRange {
+                                                log.warn("Non-Range button capability found. Not supported yet.")
+                                            }
+                                            cap := button_caps[b]
+                                            // log.debug(button_caps[b])
+                                            // log.debug(button_caps[b].Range)
                                         }
-                                        for v in 0..<caps.NumberInputValueCaps {
-                                            log.debug(value_caps[v])
+                                        for v in 0 ..< caps.NumberInputValueCaps {
+                                            if value_caps[v].IsRange {
+                                                log.warn("Axis with Range found. Not supported yet.")
+                                            }
+                                            // log.debug(value_caps[v])
+                                            // log.debug(value_caps[v].NotRange)
                                         }
+
+                                        key := transmute(u64)raw_input_device_handle
+                                        input_device := os_event_queue_input_device_connected(
+                                            key,
+                                            name,
+                                            {.GAMEPAD},
+                                            cast(u16)device_info.hid.dwVendorId,
+                                            cast(u16)device_info.hid.dwProductId,
+                                        )
+
+                                        input_device.name = name
+                                        input_device.arena = arena
+                                        input_device_backend := windows_input_device(input_device)
+                                        input_device_backend.raw_input_device_handle = raw_input_device_handle
+                                        input_device_backend.hid_device_handle = hid_device_handle
+                                        input_device_backend.preparsed_data = preparsed_data
+                                        input_device_backend.preparsed_data_size = cast(u64)preparsed_data_size
+                                        input_device_backend.button_caps = button_caps
+                                        input_device_backend.button_caps_count = button_caps_count
+                                        input_device_backend.value_caps = value_caps
+                                        input_device_backend.value_caps_count = value_caps_count
+                                        input_device_backend.gamepad_button_bindings = SupportedControllers[gamepad_id]
                                     }
                                 case HID_USAGE_PAGE_DIGITIZER:
                                     if device_info.hid.usUsage == HID_USAGE_DIGITIZER_TOUCH_PAD {
@@ -1727,6 +2055,8 @@ window_proc :: proc "stdcall" (
                                             cast(u16)device_info.hid.dwVendorId,
                                             cast(u16)device_info.hid.dwProductId,
                                         )
+                                        input_device.name = name
+                                        input_device.arena = arena
                                         input_device.touchpad.dims = dims
                                         input_device_backend := windows_input_device(input_device)
                                         input_device_backend.raw_input_device_handle = raw_input_device_handle
@@ -1739,83 +2069,20 @@ window_proc :: proc "stdcall" (
                                         input_device_backend.value_caps_count = value_caps_count
                                     }
                             }
-                        // TODO: figure this out
-                        // switch device_info.hid.usUsage {
-                        //     case HID_USAGE_GENERIC_GAMEPAD:
-                        //         // TODO: assign butons bindings to the device based on something ???
-                        //         gamepad_button_usage_bindings_count: u32
-
-                        //         key := transmute(u64)raw_input_device_handle
-                        // 		input_device := os_event_queue_input_device_connected(key, name, {.GAMEPAD}, cast(u16)device_info.hid.dwVendorId, cast(u16)device_info.hid.dwProductId)
-                        // 		input_device_backend := windows_input_device(input_device)
-                        // 		input_device_backend.raw_input_device_handle = raw_input_device_handle
-                        // 		input_device_backend.hid_device_handle = hid_device_handle
-                        // 		input_device_backend.preparsed_data = preparsed_data
-                        // 		input_device_backend.preparsed_data_size = cast(u64)preparsed_data_size
-                        // 		input_device_backend.gamepad_data_index_to_action_infos = make([dynamic]WindowsGamepadActionInfo, caps.NumberInputDataIndices)
-                        // 		input_device_backend.gamepad_data_index_to_action_infos_count = cast(u32)caps.NumberInputDataIndices;
-                        // 		input_device_backend.hatswitch_data_index = max(u32)
-
-                        //         for button_idx in 0..<button_caps_count {
-                        // 			bc := &button_caps[button_idx]
-                        // 			if bc.UsagePage != HID_USAGE_PAGE_BUTTON {
-                        // 				continue
-                        // 			}
-
-                        // 			if bc.IsRange {
-                        // 				usage_min := bc.Range.UsageMin
-                        // 				usage_max := bc.Range.UsageMax
-                        // 				usage := usage_min - 1
-
-                        //                 // for {
-                        //                 //     usage += 1
-                        //                 //     data_index := (cast(win32.USHORT)(usage - usage_min)) + bc.Range.DataIndexMin
-                        //                 //     if cast(u32)usage >= gamepad_button_usage_bindings_count {
-                        //                 //         continue
-                        //                 //     }
-                        //                 //     action := gamepad_button_usage_bindings[usage]
-                        //                 //     info := &input_device_backend.gamepad_data_index_to_action_infos[data_index]
-                        //                 //     info.action_pair.pos = action
-                        //                 //     info.action_pair.neg = .NONE
-                        //                 //     info.bit_count = 1
-
-                        //                 //     // TODO: conditon
-                        //                 // }
-                        // 				// do {
-                        // 				// 	usage += 1
-                        // 				// 	data_index = ((USHORT)(usage - usage_min)) + bc->Range.DataIndexMin
-                        // 				// 	if usage >= gamepad_button_usage_bindings_count {
-                        // 				// 		continue
-                        // 				// 	}
-                        // 				// 	action = gamepad_button_usage_bindings[usage]
-                        // 				// 	OsWindowsGamepadActionInfo* info = &input_device_backend->gamepad_data_index_to_action_infos[data_index]
-                        // 				// 	info.action_pair.pos = action
-                        // 				// 	info.action_pair.neg = OS_GAMEPAD_ACTION_NONE
-                        // 				// 	info.bit_count = 1
-                        // 				// } while (usage_max != usage)
-                        // 			} else {
-                        // 				usage := bc.NotRange.Usage
-                        // 				data_index := bc.NotRange.DataIndex
-                        // 				if cast(u32)usage >= gamepad_button_usage_bindings_count {
-                        // 					continue
-                        // 				}
-                        // 				// action := gamepad_button_usage_bindings[usage]
-                        // 				// info := &input_device_backend.gamepad_data_index_to_action_infos[data_index]
-                        // 				// info.action_pair.pos = action
-                        // 				// info.action_pair.neg = .NONE
-                        // 				// info.bit_count = 1
-                        // 			}
-                        // 		}
-                        // }
                     }
                 case 2:
                     // GIDC_REMOVAL
                     key := transmute(u64)raw_input_device_handle
                     device := &zephr_ctx.input_devices_map[key]
                     if (device != nil) {
-                        input_device_backend := windows_input_device(device)
-                        delete(input_device_backend.gamepad_data_index_to_action_infos)
                         os_event_queue_input_device_disconnected(key)
+                        virtual.arena_destroy(&device.arena)
+                        bit_array.destroy(&device.keyboard.keycode_is_pressed_bitset)
+                        bit_array.destroy(&device.keyboard.keycode_has_been_pressed_bitset)
+                        bit_array.destroy(&device.keyboard.keycode_has_been_released_bitset)
+                        bit_array.destroy(&device.keyboard.scancode_is_pressed_bitset)
+                        bit_array.destroy(&device.keyboard.scancode_has_been_pressed_bitset)
+                        bit_array.destroy(&device.keyboard.scancode_has_been_released_bitset)
                     }
             }
         case:
@@ -1881,6 +2148,12 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
             usUsagePage = HID_USAGE_PAGE_GENERIC,
             dwFlags = win32.RIDEV_DEVNOTIFY,
             usUsage = HID_USAGE_GENERIC_GAMEPAD,
+            hwndTarget = w_os.hwnd,
+        },
+         {
+            usUsagePage = HID_USAGE_PAGE_GENERIC,
+            dwFlags = win32.RIDEV_DEVNOTIFY,
+            usUsage = HID_USAGE_GENERIC_JOYSTICK,
             hwndTarget = w_os.hwnd,
         },
          {
@@ -1957,6 +2230,18 @@ backend_get_os_events :: proc() {
 }
 
 backend_shutdown :: proc() {
+    for id, device in &zephr_ctx.input_devices_map {
+        virtual.arena_destroy(&device.arena)
+        // The bit arrays can't be allocated using the arena because the 
+        // Bit_Array struct allocates it itself using a dynamic array.
+        bit_array.destroy(&device.keyboard.keycode_is_pressed_bitset)
+        bit_array.destroy(&device.keyboard.keycode_has_been_pressed_bitset)
+        bit_array.destroy(&device.keyboard.keycode_has_been_released_bitset)
+        bit_array.destroy(&device.keyboard.scancode_is_pressed_bitset)
+        bit_array.destroy(&device.keyboard.scancode_has_been_pressed_bitset)
+        bit_array.destroy(&device.keyboard.scancode_has_been_released_bitset)
+    }
+
     win32.wglMakeCurrent(w_os.device_ctx, nil)
     win32.wglDeleteContext(w_os.wgl_context)
     win32.ReleaseDC(w_os.hwnd, w_os.device_ctx)
