@@ -62,7 +62,7 @@ LinuxInputDevice :: struct {
     gamepad_evdev:         ^evdev.libevdev,
     accelerometer_evdev:   ^evdev.libevdev,
     gyroscope_evdev:       ^evdev.libevdev,
-    gamepad_bindings:      [GamepadAction]LinuxEvdevBinding,
+    gamepad_bindings:      Bindings,
     gamepad_action_ranges: [cast(int)GamepadAction.COUNT + 1]LinuxEvdevRange,
     gamepad_rumble_id:     i16,
 }
@@ -101,6 +101,8 @@ Os :: struct {
     inotify_fd:         os.Handle,
 }
 
+Bindings :: [GamepadAction]LinuxEvdevBinding
+
 OsCursor :: x11.Cursor
 
 @(private = "file")
@@ -117,8 +119,68 @@ XDND_PROTOCOL_VERSION :: 5
 @(private = "file")
 l_os: Os
 
+// TODO: No rumble support over wireless. We get a ENOSYS
+// Seems to be a driver issue that we can't do anything about.
 @(private = "file")
-os_linux_gamepad_evdev_default_bindings := #partial [GamepadAction]LinuxEvdevBinding {
+Xbox_Series_S_Bindings_Wireless :: #partial Bindings {
+    .DPAD_LEFT = {type = EV_ABS, code = ABS_HAT0X, is_positive = false},
+    .DPAD_DOWN = {type = EV_ABS, code = ABS_HAT0Y, is_positive = true},
+    .DPAD_RIGHT = {type = EV_ABS, code = ABS_HAT0X, is_positive = true},
+    .DPAD_UP = {type = EV_ABS, code = ABS_HAT0Y, is_positive = false},
+    .FACE_LEFT = {type = EV_KEY, code = BTN_NORTH, is_positive = true},
+    .FACE_DOWN = {type = EV_KEY, code = BTN_SOUTH, is_positive = true},
+    .FACE_RIGHT = {type = EV_KEY, code = BTN_EAST, is_positive = true},
+    .FACE_UP = {type = EV_KEY, code = BTN_WEST, is_positive = true},
+    .START = {type = EV_KEY, code = BTN_START, is_positive = true},
+    .SELECT = {type = EV_KEY, code = BTN_SELECT, is_positive = true},
+    .STICK_LEFT = {type = EV_KEY, code = BTN_THUMBL, is_positive = true},
+    .STICK_RIGHT = {type = EV_KEY, code = BTN_THUMBR, is_positive = true},
+    .SHOULDER_LEFT = {type = EV_KEY, code = BTN_TL, is_positive = true},
+    .SHOULDER_RIGHT = {type = EV_KEY, code = BTN_TR, is_positive = true},
+    .STICK_LEFT_X_WEST = {type = EV_ABS, code = ABS_X, is_positive = false},
+    .STICK_LEFT_X_EAST = {type = EV_ABS, code = ABS_X, is_positive = true},
+    .STICK_LEFT_Y_NORTH = {type = EV_ABS, code = ABS_Y, is_positive = false},
+    .STICK_LEFT_Y_SOUTH = {type = EV_ABS, code = ABS_Y, is_positive = true},
+    .STICK_RIGHT_X_WEST = {type = EV_ABS, code = ABS_Z, is_positive = false},
+    .STICK_RIGHT_X_EAST = {type = EV_ABS, code = ABS_Z, is_positive = true},
+    .STICK_RIGHT_Y_NORTH = {type = EV_ABS, code = ABS_RZ, is_positive = false},
+    .STICK_RIGHT_Y_SOUTH = {type = EV_ABS, code = ABS_RZ, is_positive = true},
+    .TRIGGER_LEFT = {type = EV_ABS, code = ABS_BRAKE, is_positive = true},
+    .TRIGGER_RIGHT = {type = EV_ABS, code = ABS_GAS, is_positive = true},
+    .SYSTEM = {type = EV_KEY, code = BTN_MODE, is_positive = true},
+}
+
+@(private = "file")
+Xbox_Series_S_Bindings_Wired :: #partial Bindings {
+    .DPAD_LEFT = {type = EV_ABS, code = ABS_HAT0X, is_positive = false},
+    .DPAD_DOWN = {type = EV_ABS, code = ABS_HAT0Y, is_positive = true},
+    .DPAD_RIGHT = {type = EV_ABS, code = ABS_HAT0X, is_positive = true},
+    .DPAD_UP = {type = EV_ABS, code = ABS_HAT0Y, is_positive = false},
+    .FACE_LEFT = {type = EV_KEY, code = BTN_NORTH, is_positive = true},
+    .FACE_DOWN = {type = EV_KEY, code = BTN_SOUTH, is_positive = true},
+    .FACE_RIGHT = {type = EV_KEY, code = BTN_EAST, is_positive = true},
+    .FACE_UP = {type = EV_KEY, code = BTN_WEST, is_positive = true},
+    .START = {type = EV_KEY, code = BTN_START, is_positive = true},
+    .SELECT = {type = EV_KEY, code = BTN_SELECT, is_positive = true},
+    .STICK_LEFT = {type = EV_KEY, code = BTN_THUMBL, is_positive = true},
+    .STICK_RIGHT = {type = EV_KEY, code = BTN_THUMBR, is_positive = true},
+    .SHOULDER_LEFT = {type = EV_KEY, code = BTN_TL, is_positive = true},
+    .SHOULDER_RIGHT = {type = EV_KEY, code = BTN_TR, is_positive = true},
+    .STICK_LEFT_X_WEST = {type = EV_ABS, code = ABS_X, is_positive = false},
+    .STICK_LEFT_X_EAST = {type = EV_ABS, code = ABS_X, is_positive = true},
+    .STICK_LEFT_Y_NORTH = {type = EV_ABS, code = ABS_Y, is_positive = false},
+    .STICK_LEFT_Y_SOUTH = {type = EV_ABS, code = ABS_Y, is_positive = true},
+    .STICK_RIGHT_X_WEST = {type = EV_ABS, code = ABS_RX, is_positive = false},
+    .STICK_RIGHT_X_EAST = {type = EV_ABS, code = ABS_RX, is_positive = true},
+    .STICK_RIGHT_Y_NORTH = {type = EV_ABS, code = ABS_RY, is_positive = false},
+    .STICK_RIGHT_Y_SOUTH = {type = EV_ABS, code = ABS_RY, is_positive = true},
+    .TRIGGER_LEFT = {type = EV_ABS, code = ABS_Z, is_positive = true},
+    .TRIGGER_RIGHT = {type = EV_ABS, code = ABS_RZ, is_positive = true},
+    .SYSTEM = {type = EV_KEY, code = BTN_MODE, is_positive = true},
+}
+
+@(private = "file")
+DualShock_3_Bindings :: #partial Bindings {
     .DPAD_LEFT = {type = EV_KEY, code = BTN_DPAD_LEFT, is_positive = true},
     .DPAD_DOWN = {type = EV_KEY, code = BTN_DPAD_DOWN, is_positive = true},
     .DPAD_RIGHT = {type = EV_KEY, code = BTN_DPAD_RIGHT, is_positive = true},
@@ -143,6 +205,45 @@ os_linux_gamepad_evdev_default_bindings := #partial [GamepadAction]LinuxEvdevBin
     .STICK_RIGHT_Y_SOUTH = {type = EV_ABS, code = ABS_RY, is_positive = true},
     .TRIGGER_LEFT = {type = EV_ABS, code = ABS_Z, is_positive = true},
     .TRIGGER_RIGHT = {type = EV_ABS, code = ABS_RZ, is_positive = true},
+    .SYSTEM = {type = EV_KEY, code = BTN_MODE, is_positive = true},
+}
+
+@(private = "file")
+DualShock_4_Bindings :: #partial Bindings {
+    .DPAD_LEFT = {type = EV_ABS, code = ABS_HAT0X, is_positive = false},
+    .DPAD_DOWN = {type = EV_ABS, code = ABS_HAT0Y, is_positive = true},
+    .DPAD_RIGHT = {type = EV_ABS, code = ABS_HAT0X, is_positive = true},
+    .DPAD_UP = {type = EV_ABS, code = ABS_HAT0Y, is_positive = false},
+    .FACE_LEFT = {type = EV_KEY, code = BTN_WEST, is_positive = true},
+    .FACE_DOWN = {type = EV_KEY, code = BTN_SOUTH, is_positive = true},
+    .FACE_RIGHT = {type = EV_KEY, code = BTN_EAST, is_positive = true},
+    .FACE_UP = {type = EV_KEY, code = BTN_NORTH, is_positive = true},
+    .START = {type = EV_KEY, code = BTN_START, is_positive = true},
+    .SELECT = {type = EV_KEY, code = BTN_SELECT, is_positive = true},
+    .STICK_LEFT = {type = EV_KEY, code = BTN_THUMBL, is_positive = true},
+    .STICK_RIGHT = {type = EV_KEY, code = BTN_THUMBR, is_positive = true},
+    .SHOULDER_LEFT = {type = EV_KEY, code = BTN_TL, is_positive = true},
+    .SHOULDER_RIGHT = {type = EV_KEY, code = BTN_TR, is_positive = true},
+    .STICK_LEFT_X_WEST = {type = EV_ABS, code = ABS_X, is_positive = false},
+    .STICK_LEFT_X_EAST = {type = EV_ABS, code = ABS_X, is_positive = true},
+    .STICK_LEFT_Y_NORTH = {type = EV_ABS, code = ABS_Y, is_positive = false},
+    .STICK_LEFT_Y_SOUTH = {type = EV_ABS, code = ABS_Y, is_positive = true},
+    .STICK_RIGHT_X_WEST = {type = EV_ABS, code = ABS_RX, is_positive = false},
+    .STICK_RIGHT_X_EAST = {type = EV_ABS, code = ABS_RX, is_positive = true},
+    .STICK_RIGHT_Y_NORTH = {type = EV_ABS, code = ABS_RY, is_positive = false},
+    .STICK_RIGHT_Y_SOUTH = {type = EV_ABS, code = ABS_RY, is_positive = true},
+    .TRIGGER_LEFT = {type = EV_ABS, code = ABS_Z, is_positive = true},
+    .TRIGGER_RIGHT = {type = EV_ABS, code = ABS_RZ, is_positive = true},
+    .SYSTEM = {type = EV_KEY, code = BTN_MODE, is_positive = true},
+}
+
+@(private = "file")
+SupportedControllers := map[u32]Bindings {
+    0x045E_0B12 = Xbox_Series_S_Bindings_Wired, // XBox Series S|X Controller Wired
+    0x045E_0B13 = Xbox_Series_S_Bindings_Wireless, // XBox Series S|X Controller Wireless
+    0x054C_0268 = DualShock_3_Bindings, // Genuine Sony DualShock 3 (Wired & Wireless)
+    0x054C_05C4 = DualShock_4_Bindings, // Genuine Sony DualShock 4 Gen1 (Wired & Wireless)
+    0x054C_09CC = DualShock_4_Bindings, // Genuine Sony DualShock 4 Gen2 (Wired & Wireless)
 }
 
 @(private = "file")
@@ -1243,14 +1344,16 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
 
             if (errno == os.ERROR_NONE) {
                 dev_name, vendor_id, product_id = evdev_device_info(gamepad_devnode_fd, &gamepad_evdev)
+                gamepad_id := cast(u32)vendor_id << 16 | cast(u32)product_id
+                if !(gamepad_id in SupportedControllers) {
+                    log.warnf("Controller not supported. Vendor ID: 0x%X, Product ID: 0x%X", vendor_id, product_id)
+                    os.close(gamepad_devnode_fd)
+                    break add_feature
+                }
                 log.debugf("joystick device: %s", dev_name)
                 device_features |= {.GAMEPAD}
             } else {
-                log.errorf(
-                    "failed to open gamepad device node '%s': errno %d",
-                    gamepad_devnode,
-                    errno,
-                )
+                log.errorf("Failed to open gamepad device node '%s': errno %d", gamepad_devnode, errno)
             }
         }
         if prop_val := udev.device_get_property_value(dev, "ID_INPUT_ACCELEROMETER"); prop_val == "1" {
@@ -1262,11 +1365,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 log.debugf("accelerometer device: %s", dev_name)
                 device_features |= {.ACCELEROMETER}
             } else {
-                log.errorf(
-                    "failed to open accelerometer device node '%s': errno %d",
-                    accelerometer_devnode,
-                    errno,
-                )
+                log.errorf("failed to open accelerometer device node '%s': errno %d", accelerometer_devnode, errno)
             }
         }
         if prop_val := udev.device_get_property_value(dev, "ID_INPUT_MOUSE"); prop_val == "1" {
@@ -1279,11 +1378,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                     log.debugf("mouse device: %s", dev_name)
                     device_features |= {.MOUSE}
                 } else {
-                    log.errorf(
-                        "failed to open mouse device node '%s': errno %d",
-                        mouse_devnode,
-                        errno,
-                    )
+                    log.errorf("failed to open mouse device node '%s': errno %d", mouse_devnode, errno)
                 }
             }
         }
@@ -1296,11 +1391,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 log.debugf("touchpad device: %s", dev_name)
                 device_features |= {.TOUCHPAD}
             } else {
-                log.errorf(
-                    "failed to open touchpad device node '%s': errno %d",
-                    touchpad_devnode,
-                    errno,
-                )
+                log.errorf("failed to open touchpad device node '%s': errno %d", touchpad_devnode, errno)
             }
         }
         // TODO: ignoring DEVLINKS also ignores my bluetooth keyboard
@@ -1314,11 +1405,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                     log.debugf("keyboard device: %s", dev_name)
                     device_features |= {.KEYBOARD}
                 } else {
-                    log.errorf(
-                        "failed to open keyboard device node '%s': errno %d",
-                        keyboard_devnode,
-                        errno,
-                    )
+                    log.errorf("failed to open keyboard device node '%s': errno %d", keyboard_devnode, errno)
                 }
             }
         }
@@ -1396,50 +1483,11 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 input_device_backend.gamepad_evdev = gamepad_evdev
                 input_device.features |= {.GAMEPAD}
 
-
+                gamepad_id: u32 = cast(u32)input_device.vendor_id << 16 | cast(u32)input_device.product_id
                 //
                 // TODO: have a user configurable GAMEPAD_ACTION -> EVDEV BINDING, just in case the game drivers are different.
                 //
-                input_device_backend.gamepad_bindings = os_linux_gamepad_evdev_default_bindings
-
-                if evdev.has_event_code(gamepad_evdev, EV_ABS, ABS_HAT0X) &&
-                   evdev.has_event_code(gamepad_evdev, EV_ABS, ABS_HAT0Y) {
-                    input_device_backend.gamepad_bindings[.DPAD_LEFT] = {
-                        type        = EV_ABS,
-                        code        = ABS_HAT0X,
-                        is_positive = false,
-                    }
-                    input_device_backend.gamepad_bindings[.DPAD_DOWN] = {
-                        type        = EV_ABS,
-                        code        = ABS_HAT0Y,
-                        is_positive = true,
-                    }
-                    input_device_backend.gamepad_bindings[.DPAD_RIGHT] = {
-                        type        = EV_ABS,
-                        code        = ABS_HAT0X,
-                        is_positive = true,
-                    }
-                    input_device_backend.gamepad_bindings[.DPAD_UP] = {
-                        type        = EV_ABS,
-                        code        = ABS_HAT0Y,
-                        is_positive = false,
-                    }
-                }
-
-                // HACK: Xbox controllers have FACE_UP and FACE_LEFT swapped
-                // These are the ids for the Xbox Series S|X controller
-                if input_device.vendor_id == 0x045E && input_device.product_id == 0x0B12 {
-                    input_device_backend.gamepad_bindings[.FACE_UP] = {
-                        type        = EV_KEY,
-                        code        = BTN_WEST,
-                        is_positive = true,
-                    }
-                    input_device_backend.gamepad_bindings[.FACE_LEFT] = {
-                        type        = EV_KEY,
-                        code        = BTN_NORTH,
-                        is_positive = true,
-                    }
-                }
+                input_device_backend.gamepad_bindings = SupportedControllers[gamepad_id]
 
                 // Check rumble capabilities and set data
                 effect: evdev.ff_effect
@@ -1846,9 +1894,6 @@ backend_get_os_events :: proc() {
                     if (b.type == ev.type && b.code == ev.code) {
                         range := &input_device_backend.gamepad_action_ranges[action]
                         midpoint := range.min + ((range.max - range.min) / 2)
-                        if b.code == ABS_Z || b.code == ABS_RZ {
-                            midpoint = 0
-                        }
                         value := clamp(ev.value, range.min, range.max)
                         value -= midpoint
                         if (!b.is_positive) {
