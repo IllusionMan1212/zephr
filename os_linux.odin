@@ -1172,7 +1172,13 @@ linux_input_device :: proc(input_device: ^InputDevice) -> ^LinuxInputDevice {
 
 @(private = "file")
 udev_device_try_add :: proc(dev: ^udev.udev_device) {
+    arena: virtual.Arena
+    err := virtual.arena_init_static(&arena, mem.Megabyte * 4)
+    log.assert(err == nil, "Failed to init memory arena for input device")
+    arena_allocator := virtual.arena_allocator(&arena)
+
     context.logger = logger
+    context.allocator = arena_allocator
 
     device_features: InputDeviceFeatures
     mouse_devnode: string
@@ -1235,15 +1241,14 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 gamepad_devnode_fd, errno = os.open(gamepad_devnode, os.O_RDONLY | os.O_NONBLOCK)
             }
 
-            dev_name, vendor_id, product_id = evdev_device_info(gamepad_devnode_fd, &gamepad_evdev)
             if (errno == os.ERROR_NONE) {
+                dev_name, vendor_id, product_id = evdev_device_info(gamepad_devnode_fd, &gamepad_evdev)
                 log.debugf("joystick device: %s", dev_name)
                 device_features |= {.GAMEPAD}
             } else {
                 log.errorf(
-                    "failed to open gamepad device node '%s' for device '%s': errno %s",
+                    "failed to open gamepad device node '%s': errno %d",
                     gamepad_devnode,
-                    dev_name,
                     errno,
                 )
             }
@@ -1252,15 +1257,14 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
             accelerometer_devnode = strings.clone_from_cstring(udev.device_get_devnode(dev))
             accelerometer_devnode_fd, errno := os.open(accelerometer_devnode, os.O_RDONLY | os.O_NONBLOCK)
 
-            dev_name, vendor_id, product_id = evdev_device_info(accelerometer_devnode_fd, &accelerometer_evdev)
             if (errno == os.ERROR_NONE) {
+                dev_name, vendor_id, product_id = evdev_device_info(accelerometer_devnode_fd, &accelerometer_evdev)
                 log.debugf("accelerometer device: %s", dev_name)
                 device_features |= {.ACCELEROMETER}
             } else {
                 log.errorf(
-                    "failed to open accelerometer device node '%s' for device '%s': errno %s",
+                    "failed to open accelerometer device node '%s': errno %d",
                     accelerometer_devnode,
-                    dev_name,
                     errno,
                 )
             }
@@ -1268,17 +1272,16 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
         if prop_val := udev.device_get_property_value(dev, "ID_INPUT_MOUSE"); prop_val == "1" {
             if devlinks := udev.device_get_property_value(dev, "DEVLINKS"); devlinks != "" {
                 mouse_devnode = strings.clone_from_cstring(udev.device_get_devnode(dev))
-                mouse_devnode_fd, errno := os.open(mouse_devnode, os.O_RDWR, os.O_NONBLOCK)
+                mouse_devnode_fd, errno := os.open(mouse_devnode, os.O_RDONLY, os.O_NONBLOCK)
 
-                dev_name, vendor_id, product_id = evdev_device_info(mouse_devnode_fd, &mouse_evdev)
                 if (errno == os.ERROR_NONE) {
+                    dev_name, vendor_id, product_id = evdev_device_info(mouse_devnode_fd, &mouse_evdev)
                     log.debugf("mouse device: %s", dev_name)
                     device_features |= {.MOUSE}
                 } else {
                     log.errorf(
-                        "failed to open mouse device node '%s' for device '%s': errno %s",
+                        "failed to open mouse device node '%s': errno %d",
                         mouse_devnode,
-                        dev_name,
                         errno,
                     )
                 }
@@ -1288,15 +1291,14 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
             touchpad_devnode = strings.clone_from_cstring(udev.device_get_devnode(dev))
             touchpad_devnode_fd, errno := os.open(touchpad_devnode, os.O_RDONLY, os.O_NONBLOCK)
 
-            dev_name, vendor_id, product_id = evdev_device_info(touchpad_devnode_fd, &touchpad_evdev)
             if (errno == os.ERROR_NONE) {
+                dev_name, vendor_id, product_id = evdev_device_info(touchpad_devnode_fd, &touchpad_evdev)
                 log.debugf("touchpad device: %s", dev_name)
                 device_features |= {.TOUCHPAD}
             } else {
                 log.errorf(
-                    "failed to open touchpad device node '%s' for device '%s': errno %s",
+                    "failed to open touchpad device node '%s': errno %d",
                     touchpad_devnode,
-                    dev_name,
                     errno,
                 )
             }
@@ -1307,26 +1309,16 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 keyboard_devnode = strings.clone_from_cstring(udev.device_get_devnode(dev))
                 keyboard_devnode_fd, errno := os.open(keyboard_devnode, os.O_RDONLY, os.O_NONBLOCK)
 
-                if keyboard_devnode_fd < 0 {
+                if (errno == os.ERROR_NONE) {
+                    dev_name, vendor_id, product_id = evdev_device_info(keyboard_devnode_fd, &keyboard_evdev)
+                    log.debugf("keyboard device: %s", dev_name)
+                    device_features |= {.KEYBOARD}
+                } else {
                     log.errorf(
-                        "Failed to open keyboard device node '%s' as read-only. Errno %s",
+                        "failed to open keyboard device node '%s': errno %d",
                         keyboard_devnode,
                         errno,
                     )
-                    keyboard_devnode_fd, errno = os.open(keyboard_devnode, os.O_RDWR, os.O_NONBLOCK)
-                } else {
-                    dev_name, vendor_id, product_id = evdev_device_info(keyboard_devnode_fd, &keyboard_evdev)
-                    if (errno == os.ERROR_NONE) {
-                        log.debugf("keyboard device: %s", dev_name)
-                        device_features |= {.KEYBOARD}
-                    } else {
-                        log.errorf(
-                            "failed to open keyboard device node '%s' for device '%s': errno %s",
-                            keyboard_devnode,
-                            dev_name,
-                            errno,
-                        )
-                    }
                 }
             }
         }
@@ -1352,6 +1344,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
     }
 
     if card(device_features) == 0 {
+        virtual.arena_destroy(&arena)
         return
     }
 
@@ -1367,6 +1360,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
         input_device := os_event_queue_input_device_connected(id, dev_name, device_features, vendor_id, product_id)
 
         if input_device != nil {
+            input_device.arena = arena
             input_device_backend := linux_input_device(input_device)
             if .MOUSE in device_features {
                 input_device_backend.mouse_devnode = mouse_devnode
@@ -1499,7 +1493,6 @@ udev_device_try_remove :: proc(dev: ^udev.udev_device) {
         device_backend := linux_input_device(&device)
         os_event_queue_input_device_disconnected(key)
 
-        // TODO: allocate all the input device data using an arena allocator and destory that arena here
         virtual.arena_destroy(&device.arena)
         bit_array.destroy(&device.keyboard.keycode_is_pressed_bitset)
         bit_array.destroy(&device.keyboard.keycode_has_been_pressed_bitset)
@@ -1513,12 +1506,6 @@ udev_device_try_remove :: proc(dev: ^udev.udev_device) {
         evdev.free(device_backend.keyboard_evdev)
         evdev.free(device_backend.accelerometer_evdev)
         evdev.free(device_backend.gyroscope_evdev)
-        delete(device_backend.mouse_devnode)
-        delete(device_backend.gamepad_devnode)
-        delete(device_backend.touchpad_devnode)
-        delete(device_backend.keyboard_devnode)
-        delete(device_backend.accelerometer_devnode)
-        delete(device_backend.gyroscope_devnode)
     }
 }
 
@@ -1544,7 +1531,7 @@ udev_has_event :: proc() -> bool {
 evdev_device_info :: proc(
     fd: os.Handle,
     evdevice: ^^evdev.libevdev,
-    allocator: mem.Allocator,
+    allocator: mem.Allocator = context.allocator,
 ) -> (
     name: string,
     vendor_id: u16,
@@ -1605,12 +1592,6 @@ backend_shutdown :: proc() {
         bit_array.destroy(&device.keyboard.scancode_is_pressed_bitset)
         bit_array.destroy(&device.keyboard.scancode_has_been_pressed_bitset)
         bit_array.destroy(&device.keyboard.scancode_has_been_released_bitset)
-        delete(input_device_backend.mouse_devnode)
-        delete(input_device_backend.gamepad_devnode)
-        delete(input_device_backend.touchpad_devnode)
-        delete(input_device_backend.keyboard_devnode)
-        delete(input_device_backend.accelerometer_devnode)
-        delete(input_device_backend.gyroscope_devnode)
     }
 
     glx.MakeCurrent(l_os.x11_display, 0, nil)
