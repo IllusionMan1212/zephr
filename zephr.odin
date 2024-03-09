@@ -693,24 +693,7 @@ iter_events :: proc() -> ^Event {
 }
 
 get_input_device_by_id :: proc(device_id: u64) -> ^InputDevice {
-    for id, device in &zephr_ctx.input_devices_map {
-        if id == device_id {
-            return &device
-        }
-    }
-
-    return nil
-}
-
-// TODO: remove this
-get_first_device_with :: proc(features: InputDeviceFeatures) -> ^InputDevice {
-    for id, device in &zephr_ctx.input_devices_map {
-        if device.features & features == features {
-            return &device
-        }
-    }
-
-    return nil
+    return &zephr_ctx.input_devices_map[device_id]
 }
 
 get_all_input_devices :: proc() -> ^map[u64]InputDevice {
@@ -1201,9 +1184,7 @@ fnv_hash32 :: proc(data: []byte, size: u32, hash: u32) -> u32 {
 
 @(private)
 logger_init :: proc() {
-    log_file_name := fmt.tprintf("%s.log", ODIN_BUILD_PROJECT_NAME)
-
-    log_file, err := os.open(log_file_name, os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
+    log_file, err := os.open("zephr.log", os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
     if err != os.ERROR_NONE {
         fmt.eprintln("[ERROR] Failed to open log file. Logs will not be written")
         return

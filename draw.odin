@@ -11,8 +11,6 @@ import gl "vendor:OpenGL"
 @(private = "file")
 mesh_shader: ^Shader
 @(private = "file")
-gizmo_shader: ^Shader
-@(private = "file")
 missing_texture: TextureId
 @(private = "file")
 editor_camera: Camera
@@ -41,17 +39,12 @@ init_renderer :: proc() {
 
     editor_camera = DEFAULT_CAMERA
 
-    l_mesh_shader, success1 := create_shader(relative_path("shaders/mesh.vert"), relative_path("shaders/mesh.frag"))
-    l_gizmo_shader, success2 := create_shader(relative_path("shaders/gizmo.vert"), relative_path("shaders/gizmo.frag"))
+    l_mesh_shader, success := create_shader(relative_path("shaders/mesh.vert"), relative_path("shaders/mesh.frag"))
 
     mesh_shader = l_mesh_shader
-    gizmo_shader = l_gizmo_shader
 
-    if (!success1) {
+    if (!success) {
         log.error("Failed to load mesh shader")
-    }
-    if (!success2) {
-        log.error("Failed to load gizmo shader")
     }
 
     missing_texture = load_texture(
@@ -97,7 +90,7 @@ draw :: proc(models: []Model, lights: []Light) {
         //slice.sort_by(game.models[0].nodes[:], sort_by_distance)
     }
 
-    draw_lights(lights, projection * view_mat)
+    draw_lights(lights)
 
     models := models
 
@@ -287,7 +280,7 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Materia
 }
 
 @(private = "file")
-draw_lights :: proc(lights: []Light, projection_view: m.mat4) {
+draw_lights :: proc(lights: []Light) {
     context.logger = logger
 
     point_light_idx := 0
@@ -299,17 +292,6 @@ draw_lights :: proc(lights: []Light, projection_view: m.mat4) {
             set_vec3fv(mesh_shader, "dirLight.ambient", light.ambient)
             set_vec3fv(mesh_shader, "dirLight.diffuse", light.diffuse)
             set_vec3fv(mesh_shader, "dirLight.specular", light.specular)
-
-            if true {
-                use_shader(gizmo_shader)
-                set_vec3fv(gizmo_shader, "color", m.vec3{0.0, 0.0, 0.0})
-                model := m.identity(m.mat4)
-                model = m.mat4Translate(light.position) * model
-                set_mat4f(gizmo_shader, "MVP", projection_view * model)
-
-                gl.BindVertexArray(light.vao)
-                gl.DrawElements(gl.LINES, 2, gl.UNSIGNED_INT, nil)
-            }
         } else if light.type == .POINT {
             use_shader(mesh_shader)
             pos_c_str := strings.clone_to_cstring(
@@ -349,18 +331,6 @@ draw_lights :: proc(lights: []Light, projection_view: m.mat4) {
                 context.temp_allocator,
             )
             set_vec3fv(mesh_shader, specular_c_str, light.specular)
-
-            if true {
-                use_shader(gizmo_shader)
-                set_vec3fv(gizmo_shader, "color", light.diffuse)
-                model := m.identity(m.mat4)
-                model = m.mat4Translate(light.position) * model
-                model = m.mat4Scale(m.vec3{0.3, 0.3, 0.3}) * model
-                set_mat4f(gizmo_shader, "MVP", projection_view * model)
-
-                gl.BindVertexArray(light.vao)
-                gl.DrawElements(gl.TRIANGLES, 6, gl.UNSIGNED_INT, nil)
-            }
 
             point_light_idx += 1
         }
