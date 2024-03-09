@@ -238,12 +238,42 @@ DualShock_4_Bindings :: #partial Bindings {
 }
 
 @(private = "file")
+Switch_Pro_Bindings :: #partial Bindings {
+    .DPAD_LEFT = {type = EV_ABS, code = ABS_HAT0X, is_positive = false},
+    .DPAD_DOWN = {type = EV_ABS, code = ABS_HAT0Y, is_positive = true},
+    .DPAD_RIGHT = {type = EV_ABS, code = ABS_HAT0X, is_positive = true},
+    .DPAD_UP = {type = EV_ABS, code = ABS_HAT0Y, is_positive = false},
+    .FACE_LEFT = {type = EV_KEY, code = BTN_WEST, is_positive = true},
+    .FACE_DOWN = {type = EV_KEY, code = BTN_SOUTH, is_positive = true},
+    .FACE_RIGHT = {type = EV_KEY, code = BTN_EAST, is_positive = true},
+    .FACE_UP = {type = EV_KEY, code = BTN_NORTH, is_positive = true},
+    .START = {type = EV_KEY, code = BTN_START, is_positive = true},
+    .SELECT = {type = EV_KEY, code = BTN_SELECT, is_positive = true},
+    .STICK_LEFT = {type = EV_KEY, code = BTN_THUMBL, is_positive = true},
+    .STICK_RIGHT = {type = EV_KEY, code = BTN_THUMBR, is_positive = true},
+    .SHOULDER_LEFT = {type = EV_KEY, code = BTN_TL, is_positive = true},
+    .SHOULDER_RIGHT = {type = EV_KEY, code = BTN_TR, is_positive = true},
+    .STICK_LEFT_X_WEST = {type = EV_ABS, code = ABS_X, is_positive = false},
+    .STICK_LEFT_X_EAST = {type = EV_ABS, code = ABS_X, is_positive = true},
+    .STICK_LEFT_Y_NORTH = {type = EV_ABS, code = ABS_Y, is_positive = false},
+    .STICK_LEFT_Y_SOUTH = {type = EV_ABS, code = ABS_Y, is_positive = true},
+    .STICK_RIGHT_X_WEST = {type = EV_ABS, code = ABS_RX, is_positive = false},
+    .STICK_RIGHT_X_EAST = {type = EV_ABS, code = ABS_RX, is_positive = true},
+    .STICK_RIGHT_Y_NORTH = {type = EV_ABS, code = ABS_RY, is_positive = false},
+    .STICK_RIGHT_Y_SOUTH = {type = EV_ABS, code = ABS_RY, is_positive = true},
+    .TRIGGER_LEFT = {type = EV_KEY, code = BTN_TL2, is_positive = true},
+    .TRIGGER_RIGHT = {type = EV_KEY, code = BTN_TR2, is_positive = true},
+    .SYSTEM = {type = EV_KEY, code = BTN_MODE, is_positive = true},
+}
+
+@(private = "file")
 SupportedControllers := map[u32]Bindings {
     0x045E_0B12 = Xbox_Series_S_Bindings_Wired, // XBox Series S|X Controller Wired
     0x045E_0B13 = Xbox_Series_S_Bindings_Wireless, // XBox Series S|X Controller Wireless
     0x054C_0268 = DualShock_3_Bindings, // Genuine Sony DualShock 3 (Wired & Wireless)
     0x054C_05C4 = DualShock_4_Bindings, // Genuine Sony DualShock 4 Gen1 (Wired & Wireless)
     0x054C_09CC = DualShock_4_Bindings, // Genuine Sony DualShock 4 Gen2 (Wired & Wireless)
+    0x057E_2009 = Switch_Pro_Bindings, // Switch Pro Controller
 }
 
 @(private = "file")
@@ -1243,7 +1273,7 @@ backend_gamepad_rumble :: proc(
 
     device_backend := linux_input_device(device)
     effect: evdev.ff_effect
-    effect.type = FF_RUMBLE
+    effect.type = FF_PERIODIC
     effect.id = device_backend.gamepad_rumble_id
     effect.replay.length = cast(u16)time.duration_milliseconds(duration)
     effect.replay.delay = cast(u16)time.duration_milliseconds(delay)
@@ -1491,7 +1521,9 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
 
                 // Check rumble capabilities and set data
                 effect: evdev.ff_effect
-                effect.type = FF_RUMBLE
+                // All devices that support FF_RUMBLE also support FF_PERIODIC
+                // https://docs.kernel.org/input/ff.html
+                effect.type = FF_PERIODIC
                 effect.id = -1
                 gamepad_fd := evdev.get_fd(gamepad_evdev)
                 errno := linux.ioctl(cast(linux.Fd)gamepad_fd, EVIOCSFF(), &effect)

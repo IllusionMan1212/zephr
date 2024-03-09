@@ -186,7 +186,8 @@ DS4_Button_Mapping := []GamepadAction {
     11 = .STICK_LEFT,
     12 = .STICK_RIGHT,
     13 = .SYSTEM,
-    14 = .TOUCHPAD,
+    // Ignored because we get the click from the touchpad events of the DS4.
+    14 = .NONE, // Touchpad click.
 }
 
 @(private = "file")

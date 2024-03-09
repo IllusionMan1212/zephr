@@ -337,8 +337,7 @@ GamepadAction :: enum {
     TRIGGER_LEFT,
     TRIGGER_RIGHT,
     SYSTEM, // Maps to PSButton on Playstation Controllers, and XBox Button on XBox Controllers.
-    TOUCHPAD, // Maps to the Touchpad on the Playstation Controllers.
-    COUNT = TOUCHPAD,
+    COUNT = SYSTEM,
 }
 
 TouchpadAction :: enum {
