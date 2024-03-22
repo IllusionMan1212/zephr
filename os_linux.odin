@@ -1,5 +1,5 @@
-// +build linux
-// +private
+//+build linux
+//+private
 package zephr
 
 import "core:container/bit_array"
@@ -743,7 +743,7 @@ x11_assign_window_icon :: proc(icon_path: cstring, window_title: cstring) {
     icon_width, icon_height: i32
     icon_data := image.load(icon_path, &icon_width, &icon_height, nil, 4)
     defer image.image_free(icon_data)
-    assert(icon_data != nil, "Failed to load icon image")
+    log.assert(icon_data != nil, "Failed to load icon image")
 
     target_size := 2 + icon_width * icon_height
 
@@ -795,7 +795,7 @@ get_active_monitor_dims :: proc(root: x11.Window) -> m.vec4 {
     c_pos := get_cursor_pos(root)
 
     scr_resources := xrandr.XRRGetScreenResources(l_os.x11_display, root)
-    assert(scr_resources != nil, "Failed to get X11 screen resources")
+    log.assert(scr_resources != nil, "Failed to get X11 screen resources")
     defer xrandr.XRRFreeScreenResources(scr_resources)
 
     dims: m.vec4
@@ -1186,9 +1186,9 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
         major: i32 = 1
         minor: i32 = 0
         success := x11.XkbQueryExtension(l_os.x11_display, nil, nil, nil, &major, &minor)
-        assert(cast(bool)success, "XKB extension not available")
+        log.assert(cast(bool)success, "XKB extension not available")
         success = x11.XkbUseExtension(l_os.x11_display, &major, &minor)
-        assert(cast(bool)success, "Failed to initialize XKB extension")
+        log.assert(cast(bool)success, "Failed to initialize XKB extension")
 
         l_os.xkb = x11.XkbGetMap(l_os.x11_display, x11.XkbAllClientInfoMask, x11.XkbUseCoreKbd)
 
@@ -1273,7 +1273,7 @@ backend_gamepad_rumble :: proc(
 
     device_backend := linux_input_device(device)
     effect: evdev.ff_effect
-    effect.type = FF_PERIODIC
+    effect.type = FF_RUMBLE
     effect.id = device_backend.gamepad_rumble_id
     effect.replay.length = cast(u16)time.duration_milliseconds(duration)
     effect.replay.delay = cast(u16)time.duration_milliseconds(delay)
@@ -1523,7 +1523,8 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 effect: evdev.ff_effect
                 // All devices that support FF_RUMBLE also support FF_PERIODIC
                 // https://docs.kernel.org/input/ff.html
-                effect.type = FF_PERIODIC
+                // But we're not querying for capabilities here so it fails with FF_PERIODIC
+                effect.type = FF_RUMBLE
                 effect.id = -1
                 gamepad_fd := evdev.get_fd(gamepad_evdev)
                 errno := linux.ioctl(cast(linux.Fd)gamepad_fd, EVIOCSFF(), &effect)
@@ -1739,21 +1740,21 @@ backend_get_os_events :: proc() {
 
                 switch ev.type {
                     case EV_KEY:
-                        btn: MouseButton = .BUTTON_NONE
+                        btn: MouseButton = .NONE
                         switch ev.code {
                             case BTN_LEFT:
-                                btn = .BUTTON_LEFT
+                                btn = .LEFT
                             case BTN_RIGHT:
-                                btn = .BUTTON_RIGHT
+                                btn = .RIGHT
                             case BTN_MIDDLE:
-                                btn = .BUTTON_MIDDLE
+                                btn = .MIDDLE
                             case BTN_SIDE:
-                                btn = .BUTTON_BACK
+                                btn = .BACK
                             case BTN_EXTRA:
-                                btn = .BUTTON_FORWARD
+                                btn = .FORWARD
                         }
 
-                        if btn != .BUTTON_NONE {
+                        if btn != .NONE {
                             os_event_queue_raw_mouse_button(id, btn, cast(bool)ev.value)
                         }
                     case EV_REL:
@@ -2122,22 +2123,22 @@ backend_get_os_events :: proc() {
                     os_event_queue_virt_mouse_scroll(scroll_rel)
                 }
             } else {
-                btn: MouseButton = .BUTTON_NONE
+                btn: MouseButton = .NONE
                 #partial switch xev.xbutton.button {
                     case .Button1:
-                        btn = .BUTTON_LEFT
+                        btn = .LEFT
                     case .Button2:
-                        btn = .BUTTON_MIDDLE
+                        btn = .MIDDLE
                     case .Button3:
-                        btn = .BUTTON_RIGHT
+                        btn = .RIGHT
                     case cast(x11.MouseButton)8:
-                        btn = .BUTTON_BACK
+                        btn = .BACK
                     case cast(x11.MouseButton)9:
-                        btn = .BUTTON_FORWARD
+                        btn = .FORWARD
                     case:
                         log.warnf("Unknown mouse button pressed: %d", xev.xbutton.button)
                 }
-                if btn != .BUTTON_NONE {
+                if btn != .NONE {
                     os_event_queue_virt_mouse_button(btn, xev.type == .ButtonPress)
                 }
             }
@@ -2160,8 +2161,8 @@ backend_get_os_events :: proc() {
             e.mouse_moved.device_id = 0
             e.mouse_moved.pos = pos
             e.mouse_moved.rel_pos = pos - zephr_ctx.virt_mouse.pos
-            zephr_ctx.virt_mouse.pos = pos
             zephr_ctx.virt_mouse.rel_pos = pos - zephr_ctx.virt_mouse.pos
+            zephr_ctx.virt_mouse.pos = pos
 
             queue.push(&zephr_ctx.event_queue, e)
         } else if xev.type == .GenericEvent {
@@ -2267,7 +2268,7 @@ disable_raw_mouse_input :: proc() {
 
 @(private = "file")
 get_cursor_pos :: proc(window: x11.Window) -> m.vec2 {
-    assert(l_os.x11_display != nil, "Attempted to use display before initialization")
+    log.assert(l_os.x11_display != nil, "Attempted to use display before initialization")
 
     root, child: x11.Window
     root_x, root_y, child_x, child_y: i32
@@ -2277,7 +2278,7 @@ get_cursor_pos :: proc(window: x11.Window) -> m.vec2 {
 }
 
 backend_grab_cursor :: proc() {
-    assert(l_os.x11_window != 0, "Attempted to use window before initialization")
+    log.assert(l_os.x11_window != 0, "Attempted to use window before initialization")
 
     enable_raw_mouse_input()
     cursor_pos := get_cursor_pos(l_os.x11_window)

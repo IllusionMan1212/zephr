@@ -1,5 +1,5 @@
 // +build linux
-// +private
+//+private
 package zephr
 
 import "3rdparty/evdev"

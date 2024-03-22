@@ -495,8 +495,8 @@ draw_button :: proc(
 
     is_hovered := zephr_ctx.ui.hovered_element == hash
     is_held := zephr_ctx.ui.active_element == hash
-    left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
-    left_mouse_released := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
+    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
     clicked := false
 
     if (zephr_ctx.ui.active_element == 0) {
@@ -571,7 +571,7 @@ draw_icon_button :: proc(
     id: u32 = 0,
     caller := #caller_location,
 ) -> bool {
-    assert(icon_tex_id != 0, "draw_icon_button() requires that you provide an icon texture")
+    log.assert(icon_tex_id != 0, "draw_icon_button() requires that you provide an icon texture")
 
     line := caller.line
     line_bytes := mem.byte_slice(&line, size_of(line))
@@ -589,8 +589,8 @@ draw_icon_button :: proc(
 
     is_hovered := zephr_ctx.ui.hovered_element == hash
     is_held := zephr_ctx.ui.active_element == hash
-    left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
-    left_mouse_released := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
+    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
     clicked := false
 
     if (zephr_ctx.ui.active_element == 0) {
@@ -682,8 +682,8 @@ draw_color_picker_slider :: proc(constraints: ^UiConstraints, align: Alignment, 
     constraints.y = rect.pos.y
 
     is_hovered := zephr_ctx.ui.hovered_element == hash
-    left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
-    left_mouse_released := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
+    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
 
     if (zephr_ctx.ui.active_element == 0) {
         if (is_hovered && left_mouse_pressed) {
@@ -793,8 +793,8 @@ draw_color_picker_canvas :: proc(
     constraints.y = rect.pos.y
 
     is_hovered := zephr_ctx.ui.hovered_element == hash
-    left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
-    left_mouse_released := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
+    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
 
     if (zephr_ctx.ui.active_element == 0) {
         if (is_hovered && left_mouse_pressed) {
@@ -984,8 +984,8 @@ draw_color_picker :: proc(
 
     is_held := zephr_ctx.ui.active_element == hash
     is_hovered := zephr_ctx.ui.hovered_element == hash
-    left_mouse_pressed := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
-    left_mouse_released := .BUTTON_LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
+    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
     clicked := false
 
     if (zephr_ctx.ui.active_element == 0) {

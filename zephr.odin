@@ -56,12 +56,12 @@ EventType :: enum {
 }
 
 MouseButton :: enum {
-    BUTTON_NONE    = 0x00,
-    BUTTON_LEFT    = 0x01,
-    BUTTON_RIGHT   = 0x02,
-    BUTTON_MIDDLE  = 0x04,
-    BUTTON_BACK    = 0x08,
-    BUTTON_FORWARD = 0x10,
+    NONE    = 0x00,
+    LEFT    = 0x01,
+    RIGHT   = 0x02,
+    MIDDLE  = 0x04,
+    BACK    = 0x08,
+    FORWARD = 0x10,
 }
 
 KeyMod :: bit_set[KeyModBits;u16]
@@ -488,6 +488,7 @@ Context :: struct {
     projection:                   m.mat4,
     shaders:                      [dynamic]^Shader,
     changed_shaders_queue:        queue.Queue(string),
+    clear_color: m.vec4,
 }
 
 @(private)
@@ -546,7 +547,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     engine_font_path := filepath.join([]string{engine_rel_path, "res/fonts/Rubik/Rubik-VariableFont_wght.ttf"})
 
     //ok := audio_init();
-    //assert(ok, "Failed to initialize audio");
+    //log.assert(ok, "Failed to initialize audio");
 
     queue.init(&zephr_ctx.event_queue, EVENT_QUEUE_INIT_CAP)
     queue.init(&zephr_ctx.changed_shaders_queue, CHANGED_SHADERS_QUEUE_CAP)
@@ -562,6 +563,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     zephr_ctx.window.size = window_size
     zephr_ctx.window.non_resizable = window_non_resizable
     zephr_ctx.projection = orthographic_projection_2d(0, window_size.x, window_size.y, 0)
+    zephr_ctx.clear_color = {0.2, 0.2, 0.2, 1}
 
     backend_init_cursors()
 
@@ -579,10 +581,14 @@ deinit :: proc() {
     //audio_close()
 }
 
+set_clear_color :: proc(color: m.vec4) {
+    zephr_ctx.clear_color = color
+}
+
 should_quit :: proc() -> bool {
     frame_init()
 
-    gl.ClearColor(0.2, 0.2, 0.2, 1)
+    gl.ClearColor(zephr_ctx.clear_color.r, zephr_ctx.clear_color.g, zephr_ctx.clear_color.b, zephr_ctx.clear_color.a)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
     if zephr_ctx.virt_mouse.captured {
@@ -636,8 +642,8 @@ frame_init :: proc() {
         if .MOUSE in device.features {
             device.mouse.rel_pos = m.vec2{0, 0}
             device.mouse.scroll_rel = m.vec2{0, 0}
-            device.mouse.button_has_been_pressed_bitset = {.BUTTON_NONE}
-            device.mouse.button_has_been_released_bitset = {.BUTTON_NONE}
+            device.mouse.button_has_been_pressed_bitset = {.NONE}
+            device.mouse.button_has_been_released_bitset = {.NONE}
         }
 
         if .TOUCHPAD in device.features {
@@ -663,8 +669,8 @@ frame_init :: proc() {
 
     zephr_ctx.virt_mouse.rel_pos = m.vec2{}
     zephr_ctx.virt_mouse.scroll_rel = m.vec2{}
-    zephr_ctx.virt_mouse.button_has_been_pressed_bitset = {.BUTTON_NONE}
-    zephr_ctx.virt_mouse.button_has_been_released_bitset = {.BUTTON_NONE}
+    zephr_ctx.virt_mouse.button_has_been_pressed_bitset = {.NONE}
+    zephr_ctx.virt_mouse.button_has_been_released_bitset = {.NONE}
 
     zephr_ctx.virt_keyboard.key_mod_has_been_pressed_bitset = {.NONE}
     zephr_ctx.virt_keyboard.key_mod_has_been_released_bitset = {.NONE}
@@ -710,6 +716,26 @@ toggle_fullscreen :: proc() {
     zephr_ctx.window.is_fullscreen = !zephr_ctx.window.is_fullscreen
 }
 
+virt_mouse_button_is_pressed :: #force_inline proc(button: MouseButton) -> bool {
+    return button in zephr_ctx.virt_mouse.button_is_pressed_bitset
+}
+
+virt_mouse_button_has_been_pressed :: #force_inline proc(button: MouseButton) -> bool {
+    return button in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
+}
+
+virt_mouse_button_has_been_released :: #force_inline proc(button: MouseButton) -> bool {
+    return button in zephr_ctx.virt_mouse.button_has_been_released_bitset
+}
+
+virt_mouse_rel_pos :: #force_inline proc() -> m.vec2 {
+    return zephr_ctx.virt_mouse.rel_pos
+}
+
+virt_mouse_pos :: #force_inline proc() -> m.vec2 {
+    return zephr_ctx.virt_mouse.pos
+}
+
 toggle_cursor_capture :: proc() {
     if zephr_ctx.virt_mouse.captured {
         backend_release_cursor()
@@ -736,8 +762,12 @@ load_font :: proc(font_path: cstring) {
     // For now we'll just require that the ttf font file is included with the game.
 }
 
-gamepad_action_is_pressed :: proc(gamepad: ^Gamepad, action: GamepadAction) -> bool {
+gamepad_action_is_pressed :: #force_inline proc(gamepad: ^Gamepad, action: GamepadAction) -> bool {
     return action in gamepad.action_is_pressed_bitset
+}
+
+gamepad_action_value :: #force_inline proc(gamepad: ^Gamepad, action: GamepadAction) -> f32 {
+    return gamepad.action_value_unorms[action]
 }
 
 gamepad_rumble :: proc(
@@ -772,7 +802,7 @@ set_cursor :: proc(cursor: Cursor) {
 @(private)
 input_device_get_checked :: proc(id: u64, features: InputDeviceFeatures) -> ^InputDevice {
     device := &zephr_ctx.input_devices_map[id]
-    assert(
+    log.assert(
         device.features & features == features,
         fmt.tprintf("expected features '0x%x' but got '0x%x'", features, device.features),
     )
@@ -831,6 +861,16 @@ os_event_queue_input_device_connected :: proc(
     queue.push(&zephr_ctx.event_queue, e)
 
     return &zephr_ctx.input_devices_map[key]
+}
+
+get_first_input_device :: proc(features: InputDeviceFeatures) -> ^InputDevice {
+    for _, device in &zephr_ctx.input_devices_map {
+        if device.features & features == features {
+            return &device
+        }
+    }
+
+    return nil
 }
 
 @(private)

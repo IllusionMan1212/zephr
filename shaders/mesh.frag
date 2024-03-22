@@ -24,17 +24,13 @@ struct Material {
 struct DirLight {
   vec3 direction;
 
-  vec3 ambient;
   vec3 diffuse;
-  vec3 specular;
 };
 
 struct PointLight {
   vec3 position;
 
-  vec3 ambient;
   vec3 diffuse;
-  vec3 specular;
 
   float constant;
   float linear;
@@ -47,9 +43,7 @@ struct SpotLight {
   float cutOff;
   float outerCutOff;
 
-  vec3 ambient;
   vec3 diffuse;
-  vec3 specular;
 
   float constant;
   float linear;

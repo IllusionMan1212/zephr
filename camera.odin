@@ -24,6 +24,25 @@ DEFAULT_CAMERA :: Camera {
     fov         = 45,
 }
 
+new_camera :: proc(pitch: f32 = 0, yaw: f32 = -90, fov: f32 = 45) -> Camera {
+    front := m.vec3 {
+        m.cos(m.radians(pitch)) * m.cos(m.radians(yaw)),
+        m.sin(m.radians(pitch)),
+        m.cos(m.radians(pitch)) * m.sin(m.radians(yaw)),
+    }
+
+    return Camera {
+        position    = m.vec3{0, 0, 0},
+        front       = front,
+        up          = m.vec3{0, 1, 0},
+        yaw         = yaw,
+        pitch       = pitch,
+        speed       = 5,
+        sensitivity = 0.05,
+        fov         = fov,
+    }
+}
+
 move_camera_view :: proc(camera: ^Camera, xoffset: f32, yoffset: f32) {
     xoffset := xoffset * camera.sensitivity
     yoffset := yoffset * camera.sensitivity

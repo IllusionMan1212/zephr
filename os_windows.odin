@@ -1,5 +1,5 @@
-// +build windows
-// +private
+//+build windows
+//+private
 package zephr
 
 import "core:container/bit_array"
@@ -1289,28 +1289,28 @@ window_proc :: proc "stdcall" (
         case win32.WM_LBUTTONDOWN:
             fallthrough
         case win32.WM_LBUTTONUP:
-            os_event_queue_virt_mouse_button(.BUTTON_LEFT, msg == win32.WM_LBUTTONDOWN)
+            os_event_queue_virt_mouse_button(.LEFT, msg == win32.WM_LBUTTONDOWN)
         case win32.WM_MBUTTONDOWN:
             fallthrough
         case win32.WM_MBUTTONUP:
-            os_event_queue_virt_mouse_button(.BUTTON_MIDDLE, msg == win32.WM_MBUTTONDOWN)
+            os_event_queue_virt_mouse_button(.MIDDLE, msg == win32.WM_MBUTTONDOWN)
         case win32.WM_RBUTTONDOWN:
             fallthrough
         case win32.WM_RBUTTONUP:
-            os_event_queue_virt_mouse_button(.BUTTON_RIGHT, msg == win32.WM_RBUTTONDOWN)
+            os_event_queue_virt_mouse_button(.RIGHT, msg == win32.WM_RBUTTONDOWN)
         case win32.WM_XBUTTONDOWN:
             fallthrough
         case win32.WM_XBUTTONUP:
-            btn: MouseButton = .BUTTON_NONE
+            btn: MouseButton = .NONE
 
             switch win32.HIWORD(auto_cast wparam) {
                 case win32.XBUTTON1:
-                    btn = .BUTTON_BACK
+                    btn = .BACK
                 case win32.XBUTTON2:
-                    btn = .BUTTON_FORWARD
+                    btn = .FORWARD
             }
 
-            if btn != .BUTTON_NONE {
+            if btn != .NONE {
                 os_event_queue_virt_mouse_button(btn, msg == win32.WM_XBUTTONDOWN)
             }
         // SYSKEYUP/DOWN is needed to receive ALT and F10 keys
@@ -1429,44 +1429,44 @@ window_proc :: proc "stdcall" (
 
                             if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_1_DOWN ==
                                win32.RI_MOUSE_BUTTON_1_DOWN {
-                                os_event_queue_raw_mouse_button(key, .BUTTON_LEFT, true)
+                                os_event_queue_raw_mouse_button(key, .LEFT, true)
                             }
                             if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_2_DOWN ==
                                win32.RI_MOUSE_BUTTON_2_DOWN {
-                                os_event_queue_raw_mouse_button(key, .BUTTON_RIGHT, true)
+                                os_event_queue_raw_mouse_button(key, .RIGHT, true)
                             }
                             if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_3_DOWN ==
                                win32.RI_MOUSE_BUTTON_3_DOWN {
-                                os_event_queue_raw_mouse_button(key, .BUTTON_MIDDLE, true)
+                                os_event_queue_raw_mouse_button(key, .MIDDLE, true)
                             }
                             if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_4_DOWN ==
                                win32.RI_MOUSE_BUTTON_4_DOWN {
-                                os_event_queue_raw_mouse_button(key, .BUTTON_BACK, true)
+                                os_event_queue_raw_mouse_button(key, .BACK, true)
                             }
                             if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_5_DOWN ==
                                win32.RI_MOUSE_BUTTON_5_DOWN {
-                                os_event_queue_raw_mouse_button(key, .BUTTON_FORWARD, true)
+                                os_event_queue_raw_mouse_button(key, .FORWARD, true)
                             }
 
                             if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_1_UP ==
                                win32.RI_MOUSE_BUTTON_1_UP {
-                                os_event_queue_raw_mouse_button(key, .BUTTON_LEFT, false)
+                                os_event_queue_raw_mouse_button(key, .LEFT, false)
                             }
                             if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_2_UP ==
                                win32.RI_MOUSE_BUTTON_2_UP {
-                                os_event_queue_raw_mouse_button(key, .BUTTON_RIGHT, false)
+                                os_event_queue_raw_mouse_button(key, .RIGHT, false)
                             }
                             if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_3_UP ==
                                win32.RI_MOUSE_BUTTON_3_UP {
-                                os_event_queue_raw_mouse_button(key, .BUTTON_MIDDLE, false)
+                                os_event_queue_raw_mouse_button(key, .MIDDLE, false)
                             }
                             if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_4_UP ==
                                win32.RI_MOUSE_BUTTON_4_UP {
-                                os_event_queue_raw_mouse_button(key, .BUTTON_BACK, false)
+                                os_event_queue_raw_mouse_button(key, .BACK, false)
                             }
                             if raw_input.data.mouse.usButtonFlags & win32.RI_MOUSE_BUTTON_5_UP ==
                                win32.RI_MOUSE_BUTTON_5_UP {
-                                os_event_queue_raw_mouse_button(key, .BUTTON_FORWARD, false)
+                                os_event_queue_raw_mouse_button(key, .FORWARD, false)
                             }
                         case win32.RIM_TYPEKEYBOARD:
                             if !(.KEYBOARD in input_device.features) {
