@@ -279,7 +279,6 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Materia
     gl.BindVertexArray(0)
 }
 
-@(private = "file", disabled = RELEASE_BUILD)
 draw_lights :: proc(lights: []Light) {
     context.logger = logger
 
