@@ -279,7 +279,7 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Materia
     gl.BindVertexArray(0)
 }
 
-@(private = "file")
+@(private = "file", disabled = RELEASE_BUILD)
 draw_lights :: proc(lights: []Light) {
     context.logger = logger
 
@@ -289,9 +289,7 @@ draw_lights :: proc(lights: []Light) {
         if light.type == .DIRECTIONAL {
             use_shader(mesh_shader)
             set_vec3fv(mesh_shader, "dirLight.direction", light.direction)
-            set_vec3fv(mesh_shader, "dirLight.ambient", light.ambient)
             set_vec3fv(mesh_shader, "dirLight.diffuse", light.diffuse)
-            set_vec3fv(mesh_shader, "dirLight.specular", light.specular)
         } else if light.type == .POINT {
             use_shader(mesh_shader)
             pos_c_str := strings.clone_to_cstring(
@@ -316,21 +314,11 @@ draw_lights :: proc(lights: []Light) {
             )
             set_float(mesh_shader, quadratic_c_str, light.point.quadratic)
 
-            ambient_c_str := strings.clone_to_cstring(
-                fmt.tprintf("pointLights[%d].ambient", point_light_idx),
-                context.temp_allocator,
-            )
-            set_vec3fv(mesh_shader, ambient_c_str, light.ambient)
             diffuse_c_str := strings.clone_to_cstring(
                 fmt.tprintf("pointLights[%d].diffuse", point_light_idx),
                 context.temp_allocator,
             )
             set_vec3fv(mesh_shader, diffuse_c_str, light.diffuse)
-            specular_c_str := strings.clone_to_cstring(
-                fmt.tprintf("pointLights[%d].specular", point_light_idx),
-                context.temp_allocator,
-            )
-            set_vec3fv(mesh_shader, specular_c_str, light.specular)
 
             point_light_idx += 1
         }

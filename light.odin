@@ -4,18 +4,16 @@ import m "core:math/linalg/glsl"
 
 import gl "vendor:OpenGL"
 
-LightType :: enum {
+LightType :: enum u8 {
     DIRECTIONAL,
     POINT,
     SPOT,
 }
 
-Light :: struct {
+Light :: struct #packed {
     type:     LightType,
     position: m.vec3,
-    ambient:  m.vec3,
     diffuse:  m.vec3,
-    specular: m.vec3,
     using _:  struct #raw_union {
         direction: m.vec3,
         point:     struct {
@@ -29,7 +27,7 @@ Light :: struct {
     ebo:      u32,
 }
 
-new_dir_light :: proc(direction, ambient, diffuse, specular: m.vec3) -> Light {
+new_dir_light :: proc(direction, diffuse: m.vec3) -> Light {
     vao, vbo, ebo: u32
     //odinfmt: disable
     gizmo_verts := [2]m.vec3 {
@@ -60,9 +58,7 @@ new_dir_light :: proc(direction, ambient, diffuse, specular: m.vec3) -> Light {
     return(
         Light {
             type = .DIRECTIONAL,
-            ambient = ambient,
             diffuse = diffuse,
-            specular = specular,
             direction = direction,
             vao = vao,
             vbo = vbo,
@@ -71,7 +67,7 @@ new_dir_light :: proc(direction, ambient, diffuse, specular: m.vec3) -> Light {
     )
 }
 
-new_point_light :: proc(position, ambient, diffuse, specular: m.vec3) -> Light {
+new_point_light :: proc(position, diffuse: m.vec3, constant: f32 = 1.0, linear: f32 = 0.09, quadratic: f32 = 0.032) -> Light {
     vao, vbo, ebo: u32
     //odinfmt: disable
     gizmo_verts := [4]m.vec3 {
@@ -107,11 +103,9 @@ new_point_light :: proc(position, ambient, diffuse, specular: m.vec3) -> Light {
     return(
         Light {
             type = .POINT,
-            ambient = ambient,
             diffuse = diffuse,
             position = position,
-            specular = specular,
-            point = {constant = 1.0, linear = 0.09, quadratic = 0.032},
+            point = {constant = constant, linear = linear, quadratic = quadratic},
             vao = vao,
             vbo = vbo,
             ebo = ebo,
