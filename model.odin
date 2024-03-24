@@ -28,6 +28,7 @@ Mesh :: struct {
     primitive:             cgltf.primitive_type,
     vertices:              [dynamic]Vertex,
     indices:               []u32,
+    parent: ^Node,
     material_id:           uintptr,
     weights:               []f32,
     morph_targets_tex:     TextureId,
@@ -40,6 +41,7 @@ Mesh :: struct {
     ebo:                   u32,
     morph_weights_buf:     u32,
     morph_weights_tex:     TextureId,
+    aabb: AABB,
 }
 
 Node :: struct {
@@ -63,16 +65,18 @@ Model :: struct {
     nodes:            []^Node,
     materials:        map[uintptr]Material,
     arena:            virtual.Arena,
-    position:         m.vec3,
-    scale:            m.vec3,
-    rotation:         m.vec3,
-    rotation_angle_d: f32,
     animations:       []Animation,
     active_animation: ^Animation,
+    aabb: AABB,
 }
 
 node_name_idx: ^int
 bone_name_idx: ^int
+
+// BUG: There seems to be a bug with how we're handling the hierarchy for skins/joints or something, a blender export doesn't move the skin/bones
+// when we move the root node. The same model works fine in babylonjs, when I exported from babylon it works fine in the engine
+// now, which makes me think there's a chance it's a blender export issue. But also means my importer should do a better job.
+// Related: https://github.com/KhronosGroup/glTF-Blender-IO/issues/1626
 
 @(private = "file")
 process_sparse_accessor_vec2 :: proc(accessor: ^cgltf.accessor_sparse, data_out: []f32) {
@@ -299,6 +303,10 @@ process_accessor_mat4 :: proc(accessor: ^cgltf.accessor, data_out: []m.mat4) {
             buf[i * stride + 15],
         }
     }
+
+    if accessor.is_sparse {
+        log.error("Sparse mat4 accessors are not supported yet.")
+    }
 }
 
 @(private = "file")
@@ -313,6 +321,10 @@ process_accessor_scalar_float :: proc(accessor: ^cgltf.accessor, data_out: []f32
         for i in 0 ..< accessor.count {
             data_out[i] = buf[i * accessor.buffer_view.stride / size_of(f32)]
         }
+    }
+
+    if accessor.is_sparse {
+        log.error("Sparse scalar float accessors are not supported yet.")
     }
     // TODO: sparse??
 }
@@ -361,6 +373,7 @@ process_mesh :: proc(
     primitive: ^cgltf.primitive,
     materials: ^map[uintptr]Material,
     model_path: string,
+    parent: ^Node,
     textures: ^map[cstring]TextureId,
     weights_len: int,
     joints_len: int,
@@ -401,6 +414,11 @@ process_mesh :: proc(
     defer delete(joints)
     weights: []f32
     defer delete(weights)
+    has_aabb := false
+    mesh_aabb := AABB{
+        min = {math.INF_F32, math.INF_F32, math.INF_F32},
+        max = {math.NEG_INF_F32, math.NEG_INF_F32, math.NEG_INF_F32},
+    }
 
     for a in 0 ..< len(primitive.attributes) {
         attribute := primitive.attributes[a]
@@ -409,6 +427,11 @@ process_mesh :: proc(
         #partial switch attribute.type {
             case .position:
                 positions = make([]f32, accessor.count * 3)
+                if accessor.has_min && accessor.has_max {
+                    mesh_aabb.min = m.min(mesh_aabb.min, m.vec3{accessor.min[0], accessor.min[1], accessor.min[2]})
+                    mesh_aabb.max = m.max(mesh_aabb.max, m.vec3{accessor.max[0], accessor.max[1], accessor.max[2]})
+                    has_aabb = true
+                }
                 process_accessor_vec3(accessor, positions)
             case .normal:
                 normals = make([]f32, accessor.count * 3)
@@ -438,7 +461,7 @@ process_mesh :: proc(
     if len(tangents) == 0 {
         // TODO: calculate tangents using mikkTSpace??
         // Not sure if worth because I can just export with tangents from blender.
-        log.warn("No tangents found. Some meshes will not have lighting applied")
+        log.warn("No tangents found. Normal mapping will not be applied")
     }
 
     // TODO: different pipeline and mesh shader for static meshes to reduce GPU memory usage
@@ -446,6 +469,7 @@ process_mesh :: proc(
     // any attribute that is not used for the specific mesh. This requires that we implement some sort of
     // runtime shader modification stuff or something.
     for i in 0 ..< len(positions) / 3 {
+        pos := m.vec3{positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]}
         tex_coords := len(texcoords) != 0 ? m.vec2{texcoords[i * 2], texcoords[i * 2 + 1]} : m.vec2{0, 0}
         normal := len(normals) != 0 ? m.vec3{normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]} : m.vec3{0, 0, 0}
         tangents :=
@@ -460,10 +484,16 @@ process_mesh :: proc(
             len(weights) != 0 \
             ? m.vec4{weights[i * 4], weights[i * 4 + 1], weights[i * 4 + 2], weights[i * 4 + 3]} \
             : m.vec4{0, 0, 0, 0}
+
+        if !has_aabb {
+            mesh_aabb.min = m.min(mesh_aabb.min, pos)
+            mesh_aabb.max = m.max(mesh_aabb.max, pos)
+        }
+
         append(
             &vertices,
             Vertex {
-                position = m.vec3{positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]},
+                position = pos,
                 normal = normal,
                 tex_coords = tex_coords,
                 tangents = tangents,
@@ -539,6 +569,7 @@ process_mesh :: proc(
             primitive_type,
             vertices,
             indices,
+            parent,
             material_id,
             weights_len,
             joints_len,
@@ -546,6 +577,7 @@ process_mesh :: proc(
             morph_attribute_count,
             morph_normals_offset,
             morph_tangents_offset,
+            mesh_aabb,
             allocator,
         ),
         true
@@ -586,6 +618,7 @@ process_node :: proc(
     translation := m.vec3{0, 0, 0}
     rotation := cast(m.quat)quaternion(x = 0, y = 0, z = 0, w = 1)
     scale := m.vec3{1, 1, 1}
+
     if node.has_matrix {
         transform = m.mat4 {
             node.matrix_[0],
@@ -661,6 +694,7 @@ process_node :: proc(
                 &node.mesh.primitives[idx],
                 materials,
                 model_path,
+                new_node,
                 textures,
                 len(node.mesh.weights),
                 len(joints),
@@ -706,6 +740,7 @@ new_mesh :: proc(
     primitive: cgltf.primitive_type,
     vertices: [dynamic]Vertex,
     indices: []u32,
+    parent: ^Node,
     material_id: uintptr,
     weights_len: int,
     joints_len: int,
@@ -713,6 +748,7 @@ new_mesh :: proc(
     morph_attribute_count: int,
     morph_normals_offset: int,
     morph_tangents_offset: int,
+    aabb: AABB,
     allocator: ^mem.Allocator,
 ) -> Mesh {
     context.logger = logger
@@ -834,6 +870,7 @@ new_mesh :: proc(
             primitive,
             vertices,
             indices,
+            parent,
             material_id,
             make([]f32, weights_len, allocator^),
             morph_texture,
@@ -846,6 +883,7 @@ new_mesh :: proc(
             ebo,
             morph_weights_buf,
             morph_weights_texture,
+            aabb,
         } \
     )
 }
@@ -929,7 +967,12 @@ process_material :: proc(
     )
 }
 
-load_gltf_model :: proc(file_path: string) -> (Model, bool) {
+load_gltf_model :: proc(
+    file_path: string,
+) -> (
+    Model,
+    bool,
+) {
     context.logger = logger
 
     file_path_cstr := strings.clone_to_cstring(file_path)
@@ -955,7 +998,7 @@ load_gltf_model :: proc(file_path: string) -> (Model, bool) {
     }
 
     model, err := virtual.arena_growing_bootstrap_new_by_name(Model, "arena")
-    assert(err == nil)
+    log.assert(err == nil)
     arena_allocator := virtual.arena_allocator(&model.arena)
 
     nodes := make([]^Node, len(data.scene.nodes), arena_allocator)
@@ -964,6 +1007,10 @@ load_gltf_model :: proc(file_path: string) -> (Model, bool) {
     materials := make(map[uintptr]Material, allocator = arena_allocator)
     textures_map := make(map[cstring]TextureId)
     defer delete(textures_map)
+    aabb := AABB{
+        min = {math.INF_F32, math.INF_F32, math.INF_F32},
+        max = {math.NEG_INF_F32, math.NEG_INF_F32, math.NEG_INF_F32},
+    }
 
     materials[0] = DEFAULT_MATERIAL
 
@@ -1046,13 +1093,54 @@ load_gltf_model :: proc(file_path: string) -> (Model, bool) {
 
     log.debugf("Loading model took: %s", time.diff(start, time.now()))
 
+    create_model_aabb(nodes, &aabb)
+
     model.nodes = nodes
     model.materials = materials
-    model.position = {0, 0, 0}
-    model.scale = {1, 1, 1}
-    model.rotation = {0, 1, 0}
-    model.rotation_angle_d = 0
     model.animations = animations
+    model.aabb = aabb
 
     return model^, true
+}
+
+create_model_aabb :: proc(nodes: []^Node, aabb: ^AABB) {
+    calc_transform_and_aabb :: proc(node: ^Node, aabb: ^AABB, parent_world_transform: m.mat4) {
+        transform: m.mat4
+        if node.parent != nil {
+            transform = parent_world_transform * get_local_transform(node)
+        } else {
+            transform = get_local_transform(node)
+        }
+
+        for mesh in node.meshes {
+            for vert in mesh.vertices {
+                aabb.min = m.min(aabb.min, vert.position + m.vec3{transform[3][0], transform[3][1], transform[3][2]})
+                aabb.max = m.max(aabb.max, vert.position + m.vec3{transform[3][0], transform[3][1], transform[3][2]})
+            }
+        }
+
+        for child in node.children {
+            calc_transform_and_aabb(child, aabb, transform)
+        }
+    }
+
+    for node in nodes {
+        calc_transform_and_aabb(node, aabb, m.identity(m.mat4))
+    }
+}
+
+get_local_transform :: proc(node: ^Node) -> m.mat4 {
+    if node.has_transform {
+        return node.transform
+    } else {
+        mat := m.identity(m.mat4)
+        mat = m.mat4Scale(node.scale) * mat
+        mat = m.mat4FromQuat(node.rotation) * mat
+        mat = m.mat4Translate(node.translation) * mat
+        return mat
+    }
+}
+
+get_world_translation :: proc(node: ^Node) -> m.vec3 {
+    return m.vec3{node.world_transform[3][0], node.world_transform[3][1], node.world_transform[3][2]}
 }

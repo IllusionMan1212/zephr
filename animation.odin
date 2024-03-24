@@ -19,12 +19,12 @@ AnimationTrack :: struct {
 }
 
 Animation :: struct {
-    name:     string,
-    tracks:   []AnimationTrack,
-    max_time: f32,
-    timer:    time.Stopwatch,
+    name:        string,
+    tracks:      []AnimationTrack,
+    max_time:    f32,
+    timer:       time.Stopwatch,
+    root_motion: bool,
 }
-
 
 @(private = "file")
 interpolate_rotation :: proc(track: ^AnimationTrack, t, td: f32) -> m.quat #no_bounds_check {
@@ -194,10 +194,57 @@ interpolate_weights :: proc(track: ^AnimationTrack, t, td: f32, weights_len: int
     return val
 }
 
+// TODO: GARBAGE
+get_current_animation_value :: proc(anim: ^Animation, track: ^AnimationTrack) -> m.vec3 {
+    n := len(track.time)
+
+    tc := cast(f32)time.duration_seconds(time.stopwatch_duration(anim.timer))
+
+    tc = math.mod(tc, anim.max_time)
+    tc = clamp(tc, track.time[0], track.time[n - 1])
+    if track.prev_t > tc {
+        track.prev_keyframe = 0
+    }
+
+    track.prev_t = tc
+
+    next_key := 0
+    for i in track.prev_keyframe + 1 ..< n {
+        if tc <= track.time[i] {
+            next_key = clamp(i, 1, n - 1)
+            break
+        }
+    }
+    track.prev_keyframe = clamp(next_key - 1, 0, next_key)
+    tk_prev := track.time[track.prev_keyframe]
+    tk_next := track.time[next_key]
+
+    td := tk_next - tk_prev
+    t := (tc - tk_prev) / td
+
+    prev_val := m.vec3 {
+        track.data[track.prev_keyframe * 3],
+        track.data[track.prev_keyframe * 3 + 1],
+        track.data[track.prev_keyframe * 3 + 2],
+    }
+    next_val := m.vec3 {
+        track.data[track.prev_keyframe * 3 + 3],
+        track.data[track.prev_keyframe * 3 + 4],
+        track.data[track.prev_keyframe * 3 + 5],
+    }
+
+    return m.lerp(prev_val, next_val, t)
+}
+
 advance_animation :: proc(anim: ^Animation) #no_bounds_check {
     context.logger = logger
 
-    for track in &anim.tracks {
+    for track, t in &anim.tracks {
+        // TODO: this is some BS that I wrote to quickly get something that resembles root motion.
+        // Needs to be removed.
+        if anim.root_motion && t == 0 {
+            continue
+        }
         n := len(track.time)
 
         if n == 1 {
@@ -235,7 +282,7 @@ advance_animation :: proc(anim: ^Animation) #no_bounds_check {
         track.prev_t = tc
 
         next_key := 0
-        for i in track.prev_keyframe + 1 ..< n {
+        for i in track.prev_keyframe ..< n {
             if tc <= track.time[i] {
                 next_key = clamp(i, 1, n - 1)
                 break
@@ -268,12 +315,108 @@ advance_animation :: proc(anim: ^Animation) #no_bounds_check {
     }
 }
 
+move_to_next_keyframe :: proc(anim: ^Animation) {
+    for track in &anim.tracks {
+        n := len(track.time)
+
+        track.prev_keyframe = clamp(track.prev_keyframe + 1, 0, n - 1)
+
+        #partial switch track.property {
+            case .translation:
+                val := m.vec3 {
+                    track.data[track.prev_keyframe * 3],
+                    track.data[track.prev_keyframe * 3 + 1],
+                    track.data[track.prev_keyframe * 3 + 2],
+                }
+                track.node.translation = val
+            case .rotation:
+                val := cast(m.quat)quaternion(
+                    x = track.data[track.prev_keyframe * 4],
+                    y = track.data[track.prev_keyframe * 4 + 1],
+                    z = track.data[track.prev_keyframe * 4 + 2],
+                    w = track.data[track.prev_keyframe * 4 + 3],
+                )
+                track.node.rotation = val
+            case .scale:
+                val := m.vec3 {
+                    track.data[track.prev_keyframe * 3],
+                    track.data[track.prev_keyframe * 3 + 1],
+                    track.data[track.prev_keyframe * 3 + 2],
+                }
+                track.node.scale = val
+            case .weights:
+                weights_len := len(track.node.meshes[0].weights)
+                val := track.data[(track.prev_keyframe * weights_len):(track.prev_keyframe * weights_len) + weights_len]
+                for mesh in &track.node.meshes {
+                    copy(mesh.weights, val)
+                }
+        }
+    }
+}
+
+move_to_prev_keyframe :: proc(anim: ^Animation) {
+    for track in &anim.tracks {
+        n := len(track.time)
+
+        track.prev_keyframe = clamp(track.prev_keyframe - 1, 0, n - 1)
+
+        #partial switch track.property {
+            case .translation:
+                val := m.vec3 {
+                    track.data[track.prev_keyframe * 3],
+                    track.data[track.prev_keyframe * 3 + 1],
+                    track.data[track.prev_keyframe * 3 + 2],
+                }
+                track.node.translation = val
+            case .rotation:
+                val := cast(m.quat)quaternion(
+                    x = track.data[track.prev_keyframe * 4],
+                    y = track.data[track.prev_keyframe * 4 + 1],
+                    z = track.data[track.prev_keyframe * 4 + 2],
+                    w = track.data[track.prev_keyframe * 4 + 3],
+                )
+                track.node.rotation = val
+            case .scale:
+                val := m.vec3 {
+                    track.data[track.prev_keyframe * 3],
+                    track.data[track.prev_keyframe * 3 + 1],
+                    track.data[track.prev_keyframe * 3 + 2],
+                }
+                track.node.scale = val
+            case .weights:
+                weights_len := len(track.node.meshes[0].weights)
+                val := track.data[(track.prev_keyframe * weights_len):(track.prev_keyframe * weights_len) + weights_len]
+                for mesh in &track.node.meshes {
+                    copy(mesh.weights, val)
+                }
+        }
+    }
+}
+
 pause_animation :: proc(anim: ^Animation) {
     time.stopwatch_stop(&anim.timer)
 }
 
 resume_animation :: proc(anim: ^Animation) {
     time.stopwatch_start(&anim.timer)
+}
+
+play_animation_with_name :: proc(model: ^Model, name: string) {
+    log.assert(len(model.animations) > 0, "Tried playing animation on model with no animations")
+
+    if model.active_animation != nil {
+        time.stopwatch_reset(&model.active_animation.timer)
+    }
+
+    for anim in &model.animations {
+        if anim.name == name {
+            model.active_animation = &anim
+            time.stopwatch_start(&anim.timer)
+            return
+        }
+    }
+
+    log.errorf("Animation with name \"%s\" not found on model %s", name, model.nodes[0].name)
 }
 
 reset_animation :: proc(anim: ^Animation) {

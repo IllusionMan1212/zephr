@@ -15,6 +15,9 @@ missing_texture: TextureId
 @(private = "file")
 editor_camera: Camera
 
+// FIXME: I think we're doing something wrong when applying the transformation hierarchy
+// and that causes the rotations to be "flipped" for entities. But I'm not 100% sure yet tbh
+
 //@(private = "file")
 //sort_by_transparency :: proc(i, j: Node) -> bool {
 //    sort :: proc(node: Node) -> bool {
@@ -64,43 +67,52 @@ init_renderer :: proc() {
 
     log.debugf("Max texture size: %d", max_tex_size)
     log.debugf("Max texture layers: %d", max_tex_arr_size)
+
+    init_aabb()
 }
 
 // MUST be called every frame
-draw :: proc(models: []Model, lights: []Light) {
-    view_mat := m.mat4LookAt(editor_camera.position, editor_camera.position + editor_camera.front, editor_camera.up)
+draw :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
+    view_mat := m.mat4LookAt(camera.position, camera.position + camera.front, camera.up)
     projection := m.mat4Perspective(
-        m.radians(editor_camera.fov),
+        m.radians(camera.fov),
         zephr_ctx.window.size.x / zephr_ctx.window.size.y,
         0.01,
         200,
     )
 
     use_shader(mesh_shader)
-    set_vec3fv(mesh_shader, "viewPos", editor_camera.position)
+    set_vec3fv(mesh_shader, "viewPos", camera.position)
     set_mat4f(mesh_shader, "projectionView", projection * view_mat)
     set_bool(mesh_shader, "useTextures", false)
 
     // sort meshes by transparency for proper alpha blending
     // TODO: also sort by distance for transparent meshes
     // TODO: also sort ALL models first
-    if len(models) > 0 {
-        // TODO: don't sort nodes that don't have meshes (camera nodes, etc..)
+    if len(entities) > 0 {
         //slice.sort_by(models[0].nodes[:], sort_by_transparency)
         //slice.sort_by(game.models[0].nodes[:], sort_by_distance)
     }
 
     draw_lights(lights)
 
-    models := models
+    entities := entities
 
-    for model in &models {
-        apply_transform_hierarchy(&model)
-        draw_model(&model)
+    for entity in &entities {
+        model_mat := m.identity(m.mat4)
+        model_mat = m.mat4Scale(entity.scale) * model_mat
+        model_mat = m.mat4FromQuat(entity.rotation) * model_mat
+        model_mat = m.mat4Translate(entity.position) * model_mat
+
+        apply_transform_hierarchy(&entity.model, model_mat)
+        draw_model(&entity.model)
+        //draw_aabb(entity.model.aabb, entity.model.nodes[0].world_transform)
+        //draw_collision_shape()
     }
 }
 
-apply_transform_hierarchy :: proc(model: ^Model) {
+@(private = "file")
+apply_transform_hierarchy :: proc(model: ^Model, model_transform: m.mat4) {
     apply_transform :: proc(node: ^Node) {
         node.world_transform = get_local_transform(node)
         if node.parent != nil {
@@ -113,17 +125,20 @@ apply_transform_hierarchy :: proc(model: ^Model) {
     }
 
     for node in model.nodes {
-        apply_transform(node)
+        node.world_transform = model_transform * get_local_transform(node)
+        if node.parent != nil {
+            node.world_transform = node.parent.world_transform * node.world_transform
+        }
+
+        for child in node.children {
+            apply_transform(child)
+        }
     }
 }
 
 @(private = "file")
 draw_model :: proc(model: ^Model) {
     use_shader(mesh_shader)
-    model_mat := m.identity(m.mat4)
-    //model_mat = m.mat4Scale(model.scale) * model_mat
-    //model_mat = m.mat4Rotate(model.rotation, m.radians(model.rotation_angle_d)) * model_mat
-    //model_mat = m.mat4Translate(model.position) * model_mat
 
     if model.active_animation != nil && model.active_animation.timer.running {
         advance_animation(model.active_animation)
@@ -131,18 +146,6 @@ draw_model :: proc(model: ^Model) {
 
     for node in &model.nodes {
         draw_node(node, &model.materials)
-    }
-}
-
-get_local_transform :: proc(node: ^Node) -> m.mat4 {
-    if node.has_transform {
-        return node.transform
-    } else {
-        mat := m.identity(m.mat4)
-        mat = m.mat4Scale(node.scale) * mat
-        mat = m.mat4FromQuat(node.rotation) * mat
-        mat = m.mat4Translate(node.translation) * mat
-        return mat
     }
 }
 
@@ -168,11 +171,47 @@ draw_node :: proc(node: ^Node, materials: ^map[uintptr]Material) {
 
     for mesh in node.meshes {
         draw_mesh(mesh, node.world_transform, materials, joint_matrices)
+        //draw_aabb(mesh.aabb, node.world_transform)
     }
 
     for child in node.children {
         draw_node(child, materials)
     }
+}
+
+@(private = "file", disabled = RELEASE_BUILD)
+draw_aabb :: proc(aabb: AABB, transform: m.mat4) {
+    set_mat4f(mesh_shader, "model", transform)
+    set_bool(mesh_shader, "useSkinning", false)
+
+    vertices := []m.vec3{
+        aabb.min,
+        {aabb.max.x, aabb.min.y, aabb.min.z},
+        {aabb.max.x, aabb.max.y, aabb.min.z},
+        {aabb.min.x, aabb.max.y, aabb.min.z},
+        {aabb.min.x, aabb.min.y, aabb.max.z},
+        {aabb.max.x, aabb.min.y, aabb.max.z},
+        aabb.max,
+        {aabb.min.x, aabb.max.y, aabb.max.z},
+    }
+
+    gl.LineWidth(4)
+    gl.BindVertexArray(aabb_vao)
+    gl.BindBuffer(gl.ARRAY_BUFFER, aabb_vbo)
+    gl.BufferSubData(gl.ARRAY_BUFFER, 0, size_of(m.vec3) * len(vertices), raw_data(vertices))
+    gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+    gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
+    gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, nil)
+
+    gl.BindVertexArray(0)
+    gl.PolygonMode(gl.FRONT_AND_BACK, gl.FILL)
+    gl.LineWidth(1)
+}
+
+@(private = "file", disabled = RELEASE_BUILD)
+draw_collision_shape :: proc() {
+    // TODO:
 }
 
 @(private = "file")
