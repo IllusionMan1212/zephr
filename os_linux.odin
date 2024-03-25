@@ -1334,9 +1334,6 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
     vendor_id: u16
     product_id: u16
 
-    // TODO: maybe a INPUT_DEVICE_UPDATED event ?? for when the DS3 gets new features?
-    // Or maybe only queue the events after going thru all the devices
-
     // TODO: sound devices
 
     add_feature: if subsystem == "input" {

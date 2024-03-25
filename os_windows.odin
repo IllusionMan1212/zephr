@@ -1970,7 +1970,7 @@ window_proc :: proc "stdcall" (
                             switch device_info.hid.usUsagePage {
                                 case HID_USAGE_PAGE_GENERIC:
                                     if device_info.hid.usUsage == HID_USAGE_GENERIC_JOYSTICK {
-                                        log.warn("Got a joystick device. Not supported yet")
+                                        log.warn("Got a joystick device. Not supported")
                                     }
                                     if device_info.hid.usUsage == HID_USAGE_GENERIC_GAMEPAD {
                                         // TODO: Gyroscope, Accelerator, Touchpad (PlayStation only) and Rumble support.

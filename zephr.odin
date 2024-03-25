@@ -32,6 +32,7 @@ EventType :: enum {
     UNKNOWN,
     INPUT_DEVICE_CONNECTED,
     INPUT_DEVICE_DISCONNECTED,
+    INPUT_DEVICE_UPDATED,
     RAW_GAMEPAD_ACTION_PRESSED,
     RAW_GAMEPAD_ACTION_RELEASED,
     RAW_TOUCHPAD_ACTION_PRESSED,
@@ -515,7 +516,7 @@ when ODIN_DEBUG {
     TerminalLoggerOpts :: log.Default_Console_Logger_Opts
 } else {
     @(private)
-    TerminalLoggerOpts :: log.Options{.Level, .Terminal_Color, .Short_File_Path, .Line}
+    TerminalLoggerOpts :: log.Options{.Level, .Terminal_Color, .Short_File_Path, .Line, .Date, .Time}
 }
 
 COLOR_BLACK :: Color{0, 0, 0, 255}
@@ -830,6 +831,14 @@ os_event_queue_input_device_connected :: proc(
         if found_device.name == "" {
             found_device.name = name
         }
+
+        e: Event
+        e.type = .INPUT_DEVICE_UPDATED
+        e.input_device.id = key
+        e.input_device.features |= features
+        e.input_device.vendor_id = vendor_id
+        e.input_device.product_id = product_id
+        queue.push(&zephr_ctx.event_queue, e)
 
         return found_device
     }
