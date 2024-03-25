@@ -38,6 +38,8 @@ GlyphInstanceList :: [dynamic]GlyphInstance
 FONT_PIXEL_SIZE :: 100
 @(private)
 LINE_HEIGHT :: 2.0
+@(private)
+LINE_HEIGHT_PIXELS :: 36
 
 @(private)
 font_shader: ^Shader
@@ -267,13 +269,14 @@ init_fonts :: proc(font_path: string) -> i32 {
     return 0
 }
 
-
 calculate_text_size :: proc(text: string, font_size: u32) -> m.vec2 {
     scale := cast(f32)font_size / FONT_PIXEL_SIZE
     size: m.vec2 = ---
     w: f32 = 0
     h: f32 = 0
     max_bearing_h: f32 = 0
+    w_of_last_line: f32 = 0
+    max_w: f32 = 0
 
     // NOTE: I don't like looping through the characters twice, but it's fine for now
     for i in 0 ..< len(text) {
@@ -303,11 +306,15 @@ calculate_text_size :: proc(text: string, font_size: u32) -> m.vec2 {
         h = max(h, max_bearing_h - ch.bearing.y + ch.size.y)
 
         if (text[i] == '\n') {
+            w_of_last_line = w
             w = 0
-            h += max_bearing_h
+            h += max_bearing_h + (LINE_HEIGHT_PIXELS * LINE_HEIGHT)
         }
     }
-    size.x = w * scale
+
+    max_w = max(w, w_of_last_line)
+
+    size.x = max_w * scale
     size.y = h * scale
 
     return size
@@ -420,7 +427,7 @@ get_glyph_instance_list_from_text :: proc(
 
         if (text[c] == '\n') {
             x = 0
-            y += max_bearing_h + (36 * LINE_HEIGHT)
+            y += max_bearing_h + (LINE_HEIGHT_PIXELS * LINE_HEIGHT)
             c += 1
             continue
         }
