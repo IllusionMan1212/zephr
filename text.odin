@@ -3,12 +3,16 @@ package zephr
 import "core:fmt"
 import "core:log"
 import m "core:math/linalg/glsl"
+import "core:math/bits"
 import "core:strings"
 
 import gl "vendor:OpenGL"
 
 import FT "3rdparty/freetype"
 
+Glyph :: [6]Character
+
+#assert(size_of(Character) == 52)
 Character :: struct {
     size:       m.vec2,
     bearing:    m.vec2,
@@ -18,16 +22,16 @@ Character :: struct {
 
 Font :: struct {
     atlas_tex_id: TextureId,
-    characters:   [128]Character,
+    glyphs:   [128]Glyph,
 }
 
-// GlyphInstance needs to be 100 bytes (meaning no padding) otherwise the data we send to the shader
+// GlyphInstance needs to be 128 bytes (meaning no padding) otherwise the data we send to the shader
 // is misaligned and we get rendering errors
-#assert(size_of(GlyphInstance) == 100)
+#assert(size_of(GlyphInstance) == 128)
 
 GlyphInstance :: struct #packed {
     pos:            m.vec4,
-    tex_coords_idx: u32,
+    tex_coords: [4]m.vec2,
     color:          m.vec4,
     model:          m.mat4,
 }
@@ -35,11 +39,19 @@ GlyphInstance :: struct #packed {
 GlyphInstanceList :: [dynamic]GlyphInstance
 
 @(private)
-FONT_PIXEL_SIZE :: 100
+FONT_PIXEL_SIZES := [?]u8 {
+    100,
+    64,
+    30,
+    20,
+    16,
+    11,
+}
+
 @(private)
 LINE_HEIGHT :: 2.0
 @(private)
-LINE_HEIGHT_PIXELS :: 36
+LINE_HEIGHT_PERCENT :: 0.36
 
 @(private)
 font_shader: ^Shader
@@ -48,6 +60,16 @@ font_vao: u32
 @(private)
 font_instance_vbo: u32
 
+// sets the variable font to be bold
+/* if ((face->face_flags & FT_FACE_FLAG_MULTIPLE_MASTERS)) { */
+/*   printf("[INFO] Got a variable font\n"); */
+/*   FT_MM_Var *mm; */
+/*   FT_Get_MM_Var(face, &mm); */
+
+/*   FT_Set_Var_Design_Coordinates(face, mm->num_namedstyles, mm->namedstyle[mm->num_namedstyles - 4].coords); */
+
+/*   FT_Done_MM_Var(ft, mm); */
+/* } */
 
 init_freetype :: proc(font_path: cstring) -> i32 {
     context.logger = logger
@@ -64,19 +86,6 @@ init_freetype :: proc(font_path: cstring) -> i32 {
         return -2
     }
 
-    // sets the variable font to be bold
-    /* if ((face->face_flags & FT_FACE_FLAG_MULTIPLE_MASTERS)) { */
-    /*   printf("[INFO] Got a variable font\n"); */
-    /*   FT_MM_Var *mm; */
-    /*   FT_Get_MM_Var(face, &mm); */
-
-    /*   FT_Set_Var_Design_Coordinates(face, mm->num_namedstyles, mm->namedstyle[mm->num_namedstyles - 4].coords); */
-
-    /*   FT_Done_MM_Var(ft, mm); */
-    /* } */
-
-    FT.Set_Pixel_Sizes(face, 0, FONT_PIXEL_SIZE)
-
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 
     pen_x, pen_y: u32
@@ -86,67 +95,99 @@ init_freetype :: proc(font_path: cstring) -> i32 {
 
     tex_width, tex_height: u32
     for i in 32 ..< 128 {
-        if (FT.Load_Char(face, cast(FT.ULong)i, .RENDER) != 0) {
-            log.errorf("Failed to load glyph for char '0x%x'", i)
+        height_of_different_glyph_sizes: u32 = 0
+
+        for pixel_size, s in FONT_PIXEL_SIZES {
+            FT.Set_Pixel_Sizes(face, 0, cast(u32)pixel_size)
+
+            if (FT.Load_Char(face, cast(FT.ULong)i, .RENDER | .FORCE_AUTOHINT) != 0) {
+                log.errorf("Failed to load glyph for char '0x%x'", i)
+            }
+
+            //FT.Render_Glyph(face.glyph, .SDF)
+
+            // Only set the width for the biggest pixel size which is the first one in the array
+            if s == 0 {
+                tex_width += face.glyph.bitmap.width + 1
+            }
+            height_of_different_glyph_sizes += face.glyph.bitmap.rows
         }
 
-        /* FT_Render_Glyph(face->glyph, FT_RENDER_MODE_SDF); */
-
-        tex_width += face.glyph.bitmap.width + 1
-        tex_height = max(tex_height, face.glyph.bitmap.rows)
+        tex_height = max(tex_height, height_of_different_glyph_sizes)
     }
 
-    pixels := make([dynamic]u8, tex_width * tex_height)
+    pixels := make([dynamic]u8, tex_width * tex_height * 2)
     defer delete(pixels)
 
     for i in 32 ..< 128 {
-        /* while (glyph_idx) { */
-        if (FT.Load_Char(face, cast(FT.ULong)i, .RENDER) != 0) {
-            log.errorf("Failed to load glyph for char '0x%x'", i)
-        }
+        max_pen_x_for_glyph: u32 = 0
+        glyph: Glyph
 
-        /* FT_Render_Glyph(face->glyph, FT_RENDER_MODE_SDF); */
+        for pixel_size, s in FONT_PIXEL_SIZES {
+            FT.Set_Pixel_Sizes(face, 0, cast(u32)pixel_size)
 
-        bmp := &face.glyph.bitmap
-
-        if (pen_x + bmp.width >= tex_width) {
-            pen_x = 0
-            pen_y += cast(u32)(1 + (face.size.metrics.height >> 6))
-        }
-
-        for row in 0 ..< bmp.rows {
-            for col in 0 ..< bmp.width {
-                x := pen_x + col
-                y := pen_y + row
-                pixels[y * tex_width + x] = bmp.buffer[row * cast(u32)bmp.pitch + col]
+            /* while (glyph_idx) { */
+            if (FT.Load_Char(face, cast(FT.ULong)i, .RENDER | .FORCE_AUTOHINT) != 0) {
+                log.errorf("Failed to load glyph for char '0x%x'", i)
             }
+
+            //FT.Render_Glyph(face.glyph, .SDF)
+
+            bmp := &face.glyph.bitmap
+
+            //if (pen_x + bmp.width >= tex_width) {
+            //    pen_x = 0
+            //    pen_y += cast(u32)(1 + (face.size.metrics.height >> 6))
+            //}
+
+            for row in 0 ..< bmp.rows {
+                for col in 0 ..< bmp.width {
+                    x := pen_x + col
+                    y := pen_y + row
+                    pixels[y * tex_width + x] = bmp.buffer[row * cast(u32)bmp.pitch + col]
+                }
+            }
+
+            atlas_x0 := cast(f32)pen_x / cast(f32)tex_width
+            atlas_y0 := cast(f32)pen_y / cast(f32)tex_height
+            atlas_x1 := cast(f32)(pen_x + bmp.width) / cast(f32)tex_width
+            atlas_y1 := cast(f32)(pen_y + bmp.rows) / cast(f32)tex_height
+
+            top_left := m.vec2{atlas_x0, atlas_y1}
+            top_right := m.vec2{atlas_x1, atlas_y1}
+            bottom_right := m.vec2{atlas_x1, atlas_y0}
+            bottom_left := m.vec2{atlas_x0, atlas_y0}
+
+
+            glyph[s].tex_coords[0] = top_left
+            glyph[s].tex_coords[1] = top_right
+            glyph[s].tex_coords[2] = bottom_right
+            glyph[s].tex_coords[3] = bottom_left
+            glyph[s].advance = cast(u32)face.glyph.advance.x
+            glyph[s].size = m.vec2{cast(f32)face.glyph.bitmap.width, cast(f32)face.glyph.bitmap.rows}
+            glyph[s].bearing = m.vec2{cast(f32)face.glyph.bitmap_left, cast(f32)face.glyph.bitmap_top}
+
+            //character.tex_coords[0] = top_left
+            //character.tex_coords[1] = top_right
+            //character.tex_coords[2] = bottom_right
+            //character.tex_coords[3] = bottom_left
+            //character.advance = cast(u32)face.glyph.advance.x
+            //character.size = m.vec2{cast(f32)face.glyph.bitmap.width, cast(f32)face.glyph.bitmap.rows}
+            //character.bearing = m.vec2{cast(f32)face.glyph.bitmap_left, cast(f32)face.glyph.bitmap_top}
+
+
+            max_pen_x_for_glyph = max(max_pen_x_for_glyph, bmp.width + 1)
+            pen_y += bmp.rows + 1
+
+            // When adding support for unicode, don't actually loop over every single glyph in the font,
+            // instead have a range of glyphs that we want to support and only add those.
+            /* c = FT_Get_Next_Char(face, c, &glyph_idx); */
         }
 
-        atlas_x0 := cast(f32)pen_x / cast(f32)tex_width
-        atlas_y0 := cast(f32)pen_y / cast(f32)tex_height
-        atlas_x1 := cast(f32)(pen_x + bmp.width) / cast(f32)tex_width
-        atlas_y1 := cast(f32)(pen_y + bmp.rows) / cast(f32)tex_height
+        zephr_ctx.font.glyphs[i] = glyph
 
-        top_left := m.vec2{atlas_x0, atlas_y1}
-        top_right := m.vec2{atlas_x1, atlas_y1}
-        bottom_right := m.vec2{atlas_x1, atlas_y0}
-        bottom_left := m.vec2{atlas_x0, atlas_y0}
-
-        character: Character
-
-        character.tex_coords[0] = top_left
-        character.tex_coords[1] = top_right
-        character.tex_coords[2] = bottom_right
-        character.tex_coords[3] = bottom_left
-        character.advance = cast(u32)face.glyph.advance.x
-        character.size = m.vec2{cast(f32)face.glyph.bitmap.width, cast(f32)face.glyph.bitmap.rows}
-        character.bearing = m.vec2{cast(f32)face.glyph.bitmap_left, cast(f32)face.glyph.bitmap_top}
-
-        zephr_ctx.font.characters[i] = character
-
-        pen_x += bmp.width + 1
-
-        /* c = FT_Get_Next_Char(face, c, &glyph_idx); */
+        pen_x += max_pen_x_for_glyph
+        pen_y = 0
     }
 
     texture: TextureId
@@ -225,24 +266,30 @@ init_fonts :: proc(font_path: string) -> i32 {
     gl.EnableVertexAttribArray(1)
     gl.VertexAttribPointer(1, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), 0)
     gl.VertexAttribDivisor(1, 1)
+
     gl.EnableVertexAttribArray(2)
-    gl.VertexAttribIPointer(2, 1, gl.INT, size_of(GlyphInstance), size_of(m.vec4))
-    gl.VertexAttribDivisor(2, 1)
     gl.EnableVertexAttribArray(3)
-    gl.VertexAttribPointer(3, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(m.vec4) + size_of(i32)))
+    gl.VertexAttribPointer(2, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), size_of(m.vec4))
+    gl.VertexAttribPointer(3, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), size_of(m.vec4) * 2)
+    gl.VertexAttribDivisor(2, 1)
     gl.VertexAttribDivisor(3, 1)
+
     gl.EnableVertexAttribArray(4)
+    gl.VertexAttribPointer(4, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), size_of(m.vec4) * 3)
+    gl.VertexAttribDivisor(4, 1)
+
     gl.EnableVertexAttribArray(5)
     gl.EnableVertexAttribArray(6)
     gl.EnableVertexAttribArray(7)
-    gl.VertexAttribPointer(4, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(m.vec4) * 2 + size_of(i32)))
-    gl.VertexAttribPointer(5, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(m.vec4) * 3 + size_of(i32)))
-    gl.VertexAttribPointer(6, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(m.vec4) * 4 + size_of(i32)))
-    gl.VertexAttribPointer(7, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), (size_of(m.vec4) * 5 + size_of(i32)))
-    gl.VertexAttribDivisor(4, 1)
+    gl.EnableVertexAttribArray(8)
+    gl.VertexAttribPointer(5, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), size_of(m.vec4) * 4)
+    gl.VertexAttribPointer(6, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), size_of(m.vec4) * 5)
+    gl.VertexAttribPointer(7, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), size_of(m.vec4) * 6)
+    gl.VertexAttribPointer(8, 4, gl.FLOAT, gl.FALSE, size_of(GlyphInstance), size_of(m.vec4) * 7)
     gl.VertexAttribDivisor(5, 1)
     gl.VertexAttribDivisor(6, 1)
     gl.VertexAttribDivisor(7, 1)
+    gl.VertexAttribDivisor(8, 1)
 
     // font ebo
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, font_ebo)
@@ -250,18 +297,19 @@ init_fonts :: proc(font_path: string) -> i32 {
 
     use_shader(font_shader)
 
-    for i in 32 ..< 128 {
-        for j in 0 ..< 4 {
-            text := fmt.tprintf("texcoords[%d]", (i - 32) * 4 + j)
-            text_c_str := strings.clone_to_cstring(text, context.temp_allocator)
-            set_vec2f(
-                font_shader,
-                text_c_str,
-                zephr_ctx.font.characters[i].tex_coords[j].x,
-                zephr_ctx.font.characters[i].tex_coords[j].y,
-            )
-        }
-    }
+    // TODO: this uniform sucks ass ngl
+    //for i in 32 ..< 128 {
+    //    for j in 0 ..< 4 {
+    //        text := fmt.tprintf("texcoords[%d]", (i - 32) * 4 + j)
+    //        text_c_str := strings.clone_to_cstring(text, context.temp_allocator)
+    //        set_vec2f(
+    //            font_shader,
+    //            text_c_str,
+    //            zephr_ctx.font.characters[i].tex_coords[j].x,
+    //            zephr_ctx.font.characters[i].tex_coords[j].y,
+    //        )
+    //    }
+    //}
 
     gl.BindBuffer(gl.ARRAY_BUFFER, 0)
     gl.BindVertexArray(0)
@@ -270,7 +318,8 @@ init_fonts :: proc(font_path: string) -> i32 {
 }
 
 calculate_text_size :: proc(text: string, font_size: u32) -> m.vec2 {
-    scale := cast(f32)font_size / FONT_PIXEL_SIZE
+    closest := get_closest_font_size(font_size)
+    scale := cast(f32)font_size / cast(f32)FONT_PIXEL_SIZES[closest]
     size: m.vec2 = ---
     w: f32 = 0
     h: f32 = 0
@@ -278,14 +327,15 @@ calculate_text_size :: proc(text: string, font_size: u32) -> m.vec2 {
     w_of_last_line: f32 = 0
     max_w: f32 = 0
 
+
     // NOTE: I don't like looping through the characters twice, but it's fine for now
     for i in 0 ..< len(text) {
-        ch := zephr_ctx.font.characters[text[i]]
+        ch := zephr_ctx.font.glyphs[text[i]][closest]
         max_bearing_h = max(max_bearing_h, ch.bearing.y)
     }
 
     for i in 0 ..< len(text) {
-        ch := zephr_ctx.font.characters[text[i]]
+        ch := zephr_ctx.font.glyphs[text[i]][closest]
         w += cast(f32)ch.advance / 64
 
         // remove bearing of first character
@@ -308,7 +358,7 @@ calculate_text_size :: proc(text: string, font_size: u32) -> m.vec2 {
         if (text[i] == '\n') {
             w_of_last_line = w
             w = 0
-            h += max_bearing_h + (LINE_HEIGHT_PIXELS * LINE_HEIGHT)
+            h += max_bearing_h + ((LINE_HEIGHT_PERCENT * cast(f32)FONT_PIXEL_SIZES[closest]) * LINE_HEIGHT)
         }
     }
 
@@ -322,6 +372,7 @@ calculate_text_size :: proc(text: string, font_size: u32) -> m.vec2 {
 
 draw_text :: proc(text: string, font_size: u32, constraints: UiConstraints, color: Color, alignment: Alignment) {
     glyph_instance_list := get_glyph_instance_list_from_text(text, font_size, constraints, color, alignment)
+    defer delete(glyph_instance_list)
 
     gl.ActiveTexture(gl.TEXTURE0)
     gl.BindTexture(gl.TEXTURE_2D, zephr_ctx.font.atlas_tex_id)
@@ -339,11 +390,11 @@ draw_text :: proc(text: string, font_size: u32, constraints: UiConstraints, colo
 
     gl.BindVertexArray(0)
     gl.BindTexture(gl.TEXTURE_2D, 0)
-
-    delete(glyph_instance_list)
 }
 
 draw_text_batch :: proc(batch: ^GlyphInstanceList) {
+    defer delete(batch^)
+
     gl.ActiveTexture(gl.TEXTURE0)
     gl.BindTexture(gl.TEXTURE_2D, zephr_ctx.font.atlas_tex_id)
     gl.BindVertexArray(font_vao)
@@ -355,8 +406,21 @@ draw_text_batch :: proc(batch: ^GlyphInstanceList) {
 
     gl.BindVertexArray(0)
     gl.BindTexture(gl.TEXTURE_2D, 0)
+}
 
-    delete(batch^)
+@(private = "file")
+get_closest_font_size :: proc(font_size: u32) -> u8 {
+    closest: u32 = bits.U32_MAX
+    closest_idx: u8 = 0
+
+    #reverse for pixel_size, i in FONT_PIXEL_SIZES {
+        if abs(cast(u32)pixel_size - font_size) < closest {
+            closest = abs(cast(u32)pixel_size - font_size)
+            closest_idx = cast(u8)i
+        }
+    }
+
+    return closest_idx
 }
 
 get_glyph_instance_list_from_text :: proc(
@@ -381,8 +445,10 @@ get_glyph_instance_list_from_text :: proc(
 
     apply_constraints(&constraints, &rect.pos, &rect.size)
 
-    text_size := calculate_text_size(text, FONT_PIXEL_SIZE)
-    font_scale := cast(f32)font_size / FONT_PIXEL_SIZE * rect.size.x
+    closest_font_size := get_closest_font_size(font_size)
+
+    text_size := calculate_text_size(text, cast(u32)FONT_PIXEL_SIZES[closest_font_size])
+    font_scale := cast(f32)font_size / cast(f32)FONT_PIXEL_SIZES[closest_font_size] * rect.size.x
 
     apply_alignment(alignment, &constraints, m.vec2{text_size.x * font_scale, text_size.y * font_scale}, &rect.pos)
 
@@ -402,11 +468,11 @@ get_glyph_instance_list_from_text :: proc(
 
     max_bearing_h: f32 = 0
     for i in 0 ..< len(text) {
-        ch := zephr_ctx.font.characters[text[i]]
+        ch := zephr_ctx.font.glyphs[text[i]][closest_font_size]
         max_bearing_h = max(max_bearing_h, ch.bearing.y)
     }
 
-    first_char_bearing_w := zephr_ctx.font.characters[text[0]].bearing.x
+    first_char_bearing_w := zephr_ctx.font.glyphs[text[0]][closest_font_size].bearing.x
 
     glyph_instance_list: GlyphInstanceList
     reserve(&glyph_instance_list, 16)
@@ -419,7 +485,7 @@ get_glyph_instance_list_from_text :: proc(
     x: u32 = 0
     y: f32 = 0
     for c != len(text) {
-        ch := zephr_ctx.font.characters[text[c]]
+        ch := zephr_ctx.font.glyphs[text[c]][closest_font_size]
         // subtract the bearing width of the first character to remove the extra space
         // at the start of the text and move every char to the left by that width
         xpos := (cast(f32)x + (ch.bearing.x - first_char_bearing_w))
@@ -427,14 +493,14 @@ get_glyph_instance_list_from_text :: proc(
 
         if (text[c] == '\n') {
             x = 0
-            y += max_bearing_h + (LINE_HEIGHT_PIXELS * LINE_HEIGHT)
+            y += max_bearing_h + ((LINE_HEIGHT_PERCENT * cast(f32)FONT_PIXEL_SIZES[closest_font_size]) * LINE_HEIGHT)
             c += 1
             continue
         }
 
         instance := GlyphInstance {
             pos            = m.vec4{xpos, ypos, ch.size.x, ch.size.y},
-            tex_coords_idx = cast(u32)text[c] - 32,
+            tex_coords     = ch.tex_coords,
             color          = text_color,
             model          = model,
         }
@@ -457,8 +523,7 @@ add_text_instance :: proc(
     alignment: Alignment,
 ) {
     glyph_instance_list := get_glyph_instance_list_from_text(text, font_size, constraints, color, alignment)
+    defer delete(glyph_instance_list)
 
     append(batch, ..glyph_instance_list[:])
-
-    delete(glyph_instance_list)
 }

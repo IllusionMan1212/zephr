@@ -15,7 +15,8 @@ void main() {
   //vec4 color = mix(outlineColor, textColor, outlineFactor);
   //float alpha = smoothstep(outlineDistance - smoothness, outlineDistance + smoothness, distance);
 
+  //FragColor = vec4(textColor.rgb, 1.0);
+
   vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text, v_TexCoords).r);
   FragColor = textColor * sampled;
-  //FragColor = vec4(color.rgb, textColor.a * alpha);
 }
