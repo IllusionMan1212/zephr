@@ -1,3 +1,4 @@
+//+build linux
 package evdev
 
 import "core:os"

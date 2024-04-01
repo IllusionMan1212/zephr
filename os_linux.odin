@@ -270,6 +270,7 @@ Switch_Pro_Bindings :: #partial Bindings {
 SupportedControllers := map[u32]Bindings {
     0x045E_0B12 = Xbox_Series_S_Bindings_Wired, // XBox Series S|X Controller Wired
     0x045E_0B13 = Xbox_Series_S_Bindings_Wireless, // XBox Series S|X Controller Wireless
+    //0x0E6F_0162 = PDP_Xbox_One_Wired, // Performance Designed Products' Xbox One Controller
     0x054C_0268 = DualShock_3_Bindings, // Genuine Sony DualShock 3 (Wired & Wireless)
     0x054C_05C4 = DualShock_4_Bindings, // Genuine Sony DualShock 4 Gen1 (Wired & Wireless)
     0x054C_09CC = DualShock_4_Bindings, // Genuine Sony DualShock 4 Gen2 (Wired & Wireless)

@@ -63,3 +63,11 @@ Player :: struct {
     forward: m.vec3,
     animation_state: PlayerAnimationState,
 }
+
+entity_transform :: proc(entity: Entity) -> m.mat4 {
+    mat := m.identity(m.mat4)
+    mat = m.mat4Scale(entity.scale) * mat
+    mat = m.mat4FromQuat(entity.rotation) * mat
+    mat = m.mat4Translate(entity.position) * mat
+    return mat
+}

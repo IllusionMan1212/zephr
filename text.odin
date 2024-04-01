@@ -230,7 +230,7 @@ init_fonts :: proc(font_path: string) -> i32 {
         return res
     }
 
-    l_font_shader, success := create_shader(relative_path("shaders/font.vert"), relative_path("shaders/font.frag"))
+    l_font_shader, success := create_shader(create_resource_path("shaders/font.vert"), create_resource_path("shaders/font.frag"))
 
     if (!success) {
         log.fatal("Failed to create font shader")
@@ -296,20 +296,6 @@ init_fonts :: proc(font_path: string) -> i32 {
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(quad_indices), &quad_indices, gl.STATIC_DRAW)
 
     use_shader(font_shader)
-
-    // TODO: this uniform sucks ass ngl
-    //for i in 32 ..< 128 {
-    //    for j in 0 ..< 4 {
-    //        text := fmt.tprintf("texcoords[%d]", (i - 32) * 4 + j)
-    //        text_c_str := strings.clone_to_cstring(text, context.temp_allocator)
-    //        set_vec2f(
-    //            font_shader,
-    //            text_c_str,
-    //            zephr_ctx.font.characters[i].tex_coords[j].x,
-    //            zephr_ctx.font.characters[i].tex_coords[j].y,
-    //        )
-    //    }
-    //}
 
     gl.BindBuffer(gl.ARRAY_BUFFER, 0)
     gl.BindVertexArray(0)

@@ -1,4 +1,4 @@
-// +build linux
+//+build linux
 package xrandr
 
 import x11 "vendor:x11/xlib"

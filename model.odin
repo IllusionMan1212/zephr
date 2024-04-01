@@ -1107,9 +1107,9 @@ create_model_aabb :: proc(nodes: []^Node, aabb: ^AABB) {
     calc_transform_and_aabb :: proc(node: ^Node, aabb: ^AABB, parent_world_transform: m.mat4) {
         transform: m.mat4
         if node.parent != nil {
-            transform = parent_world_transform * get_local_transform(node)
+            transform = parent_world_transform * node_local_transform(node)
         } else {
-            transform = get_local_transform(node)
+            transform = node_local_transform(node)
         }
 
         for mesh in node.meshes {
@@ -1129,7 +1129,8 @@ create_model_aabb :: proc(nodes: []^Node, aabb: ^AABB) {
     }
 }
 
-get_local_transform :: proc(node: ^Node) -> m.mat4 {
+@(private)
+node_local_transform :: proc(node: ^Node) -> m.mat4 {
     if node.has_transform {
         return node.transform
     } else {
@@ -1141,6 +1142,6 @@ get_local_transform :: proc(node: ^Node) -> m.mat4 {
     }
 }
 
-get_world_translation :: proc(node: ^Node) -> m.vec3 {
-    return m.vec3{node.world_transform[3][0], node.world_transform[3][1], node.world_transform[3][2]}
+node_world_transform :: proc(node: ^Node) -> m.mat4 {
+    return node.world_transform
 }

@@ -42,7 +42,7 @@ init_renderer :: proc() {
 
     editor_camera = DEFAULT_CAMERA
 
-    l_mesh_shader, success := create_shader(relative_path("shaders/mesh.vert"), relative_path("shaders/mesh.frag"))
+    l_mesh_shader, success := create_shader(create_resource_path("shaders/mesh.vert"), create_resource_path("shaders/mesh.frag"))
 
     mesh_shader = l_mesh_shader
 
@@ -73,17 +73,9 @@ init_renderer :: proc() {
 
 // MUST be called every frame
 draw :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
-    view_mat := m.mat4LookAt(camera.position, camera.position + camera.front, camera.up)
-    projection := m.mat4Perspective(
-        m.radians(camera.fov),
-        zephr_ctx.window.size.x / zephr_ctx.window.size.y,
-        0.01,
-        200,
-    )
-
     use_shader(mesh_shader)
     set_vec3fv(mesh_shader, "viewPos", camera.position)
-    set_mat4f(mesh_shader, "projectionView", projection * view_mat)
+    set_mat4f(mesh_shader, "projectionView", camera.proj_mat * camera.view_mat)
     set_bool(mesh_shader, "useTextures", false)
 
     // sort meshes by transparency for proper alpha blending
@@ -114,7 +106,7 @@ draw :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
 @(private = "file")
 apply_transform_hierarchy :: proc(model: ^Model, model_transform: m.mat4) {
     apply_transform :: proc(node: ^Node) {
-        node.world_transform = get_local_transform(node)
+        node.world_transform = node_local_transform(node)
         if node.parent != nil {
             node.world_transform = node.parent.world_transform * node.world_transform
         }
@@ -125,7 +117,7 @@ apply_transform_hierarchy :: proc(model: ^Model, model_transform: m.mat4) {
     }
 
     for node in model.nodes {
-        node.world_transform = model_transform * get_local_transform(node)
+        node.world_transform = model_transform * node_local_transform(node)
         if node.parent != nil {
             node.world_transform = node.parent.world_transform * node.world_transform
         }
@@ -159,7 +151,7 @@ draw_node :: proc(node: ^Node, materials: ^map[uintptr]Material) {
     if len(node.joints) != 0 {
         joint_matrices = make([]m.mat4, len(node.joints))
         for joint, i in node.joints {
-            j_transform := get_local_transform(joint)
+            j_transform := node_local_transform(joint)
             if joint.parent != nil {
                 j_transform = joint.parent.world_transform * j_transform
             }

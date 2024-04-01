@@ -11,6 +11,8 @@ Camera :: struct {
     speed:       f32,
     sensitivity: f32,
     fov:         f32,
+    view_mat:    m.mat4,
+    proj_mat:    m.mat4,
 }
 
 DEFAULT_CAMERA :: Camera {
@@ -22,6 +24,8 @@ DEFAULT_CAMERA :: Camera {
     speed       = 5,
     sensitivity = 0.05,
     fov         = 45,
+    view_mat    = 1, // 1 is identity mat
+    proj_mat    = 1,
 }
 
 new_camera :: proc(pitch: f32 = 0, yaw: f32 = -90, fov: f32 = 45) -> Camera {
@@ -30,6 +34,17 @@ new_camera :: proc(pitch: f32 = 0, yaw: f32 = -90, fov: f32 = 45) -> Camera {
         m.sin(m.radians(pitch)),
         m.cos(m.radians(pitch)) * m.sin(m.radians(yaw)),
     }
+
+    position := m.vec3{0, 0, 0}
+    up := m.vec3{0, 1, 0}
+    window_size := get_window_size()
+
+    view_mat := m.mat4LookAt(
+        position,
+        position + front,
+        up,
+    )
+    projection := m.mat4Perspective(m.radians(fov), window_size.x / window_size.y, 0.01, 200)
 
     return Camera {
         position    = m.vec3{0, 0, 0},
@@ -40,6 +55,8 @@ new_camera :: proc(pitch: f32 = 0, yaw: f32 = -90, fov: f32 = 45) -> Camera {
         speed       = 5,
         sensitivity = 0.05,
         fov         = fov,
+        view_mat    = view_mat,
+        proj_mat    = projection,
     }
 }
 

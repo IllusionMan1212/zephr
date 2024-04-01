@@ -106,10 +106,10 @@ ui_init :: proc(font_path: string) {
         os.exit(1)
     }
 
-    l_ui_shader, success1 := create_shader(relative_path("shaders/ui.vert"), relative_path("shaders/ui.frag"))
+    l_ui_shader, success1 := create_shader(create_resource_path("shaders/ui.vert"), create_resource_path("shaders/ui.frag"))
     l_color_chooser_shader, success2 := create_shader(
-        relative_path("shaders/ui.vert"),
-        relative_path("shaders/color_chooser.frag"),
+        create_resource_path("shaders/ui.vert"),
+        create_resource_path("shaders/color_chooser.frag"),
     )
 
     ui_shader = l_ui_shader

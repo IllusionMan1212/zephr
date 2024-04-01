@@ -545,7 +545,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     // TODO: This font is currently used for the UI elements, but we should allow the user to specify
     //       their own font for the UI elements.
     //       In the future, this font should only be used for the engine's editor.
-    engine_font_path := filepath.join([]string{engine_rel_path, "res/fonts/Rubik/Rubik-VariableFont_wght.ttf"})
+    engine_font_path := create_resource_path("res/fonts/Rubik/Rubik-VariableFont_wght.ttf")
 
     //ok := audio_init();
     //log.assert(ok, "Failed to initialize audio");
@@ -1248,4 +1248,13 @@ logger_init :: proc() {
 @(private)
 relative_path :: proc(path: string) -> string {
     return filepath.join([]string{engine_rel_path, path})
+}
+
+@(private)
+create_resource_path :: proc(path: string) -> string {
+    when RELEASE_BUILD { // We want a relative path for builds that we distribute
+        return path
+    } else {
+        return filepath.join({engine_rel_path, path})
+    }
 }
