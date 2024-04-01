@@ -98,6 +98,8 @@ HID_USAGE_GENERIC_RY :: 0x34
 @(private = "file")
 HID_USAGE_GENERIC_RZ :: 0x35
 @(private = "file")
+HID_USAGE_GENERIC_SLIDER :: 0x36
+@(private = "file")
 HID_USAGE_GENERIC_HATSWITCH :: 0x39
 
 @(private = "file")
@@ -167,6 +169,48 @@ Xbox_Series_S_Hatswitch_Mapping := []bit_set[GamepadAction] {
     6 = {.DPAD_DOWN, .DPAD_LEFT},
     7 = {.DPAD_LEFT},
     8 = {.DPAD_LEFT, .DPAD_UP},
+}
+
+@(private = "file")
+DS3_Button_Mapping := []GamepadAction {
+    0 = .NONE,
+    1 = .FACE_UP,
+    2 = .FACE_RIGHT,
+    3 = .FACE_DOWN,
+    4 = .FACE_LEFT,
+    5 = .NONE, // TRIGGER_LEFT
+    6 = .NONE, // TRIGGER_RIGHT
+    7 = .SHOULDER_LEFT,
+    8 = .SHOULDER_RIGHT,
+    9 = .START,
+    10 = .SELECT,
+    11 = .STICK_LEFT,
+    12 = .STICK_RIGHT,
+    13 = .SYSTEM,
+}
+
+DS3_Axis_Mapping := []GamepadActionPair {
+    // NOTE: No idea what this axis is for
+    HID_USAGE_GENERIC_SLIDER = {.NONE, .NONE},
+    HID_USAGE_GENERIC_X  = {.STICK_LEFT_X_EAST, .STICK_LEFT_X_WEST},
+    HID_USAGE_GENERIC_Y  = {.STICK_LEFT_Y_SOUTH, .STICK_LEFT_Y_NORTH},
+    HID_USAGE_GENERIC_RX = {.TRIGGER_LEFT, .NONE},
+    HID_USAGE_GENERIC_RY = {.TRIGGER_RIGHT, .NONE},
+    HID_USAGE_GENERIC_Z  = {.STICK_RIGHT_X_EAST, .STICK_RIGHT_X_WEST},
+    HID_USAGE_GENERIC_RZ = {.STICK_RIGHT_Y_SOUTH, .STICK_RIGHT_Y_NORTH},
+}
+
+@(private = "file")
+DS3_Hatswitch_Mapping := []bit_set[GamepadAction] {
+    0 = {.DPAD_UP},
+    1 = {.DPAD_UP, .DPAD_RIGHT},
+    2 = {.DPAD_RIGHT},
+    3 = {.DPAD_RIGHT, .DPAD_DOWN},
+    4 = {.DPAD_DOWN},
+    5 = {.DPAD_DOWN, .DPAD_LEFT},
+    6 = {.DPAD_LEFT},
+    7 = {.DPAD_LEFT, .DPAD_UP},
+    8 = {.NONE},
 }
 
 @(private = "file")
@@ -243,6 +287,7 @@ SupportedControllers := map[u32]Bindings {
     //0x054C_0DF2 = DS5_Button_Mapping, // PS5 DualSense Edge (TODO: Could have extra buttons/axes)
     //0x057E_2009 = {Switch_Button_Mapping, Switch_Hatswitch_Mapping, Switch_Axis_Mapping}, // Switch Pro Controller
     0x7331_0002 = {Xbox_Series_S_Button_Mapping, Xbox_Series_S_Hatswitch_Mapping, Xbox_Series_S_Axis_Mapping}, // DS3 over DsHidMini as XInput
+    0x054C_0268 = {DS3_Button_Mapping, DS3_Hatswitch_Mapping, DS3_Axis_Mapping}, // Genuine Sony DualShock 3 over DsHidMini Wired
 }
 
 @(private = "file")
@@ -1969,10 +2014,7 @@ window_proc :: proc "stdcall" (
 
                             switch device_info.hid.usUsagePage {
                                 case HID_USAGE_PAGE_GENERIC:
-                                    if device_info.hid.usUsage == HID_USAGE_GENERIC_JOYSTICK {
-                                        log.warn("Got a joystick device. Not supported")
-                                    }
-                                    if device_info.hid.usUsage == HID_USAGE_GENERIC_GAMEPAD {
+                                    if device_info.hid.usUsage == HID_USAGE_GENERIC_GAMEPAD || device_info.hid.usUsage == HID_USAGE_GENERIC_JOYSTICK {
                                         // TODO: Gyroscope, Accelerator, Touchpad (PlayStation only) and Rumble support.
                                         gamepad_id := device_info.hid.dwVendorId << 16 | device_info.hid.dwProductId
                                         if !(gamepad_id in SupportedControllers) {
