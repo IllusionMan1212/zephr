@@ -238,6 +238,9 @@ DualShock_4_Bindings :: #partial Bindings {
 }
 
 @(private = "file")
+DualSense_Bindings :: DualShock_4_Bindings
+
+@(private = "file")
 Switch_Pro_Bindings :: #partial Bindings {
     .DPAD_LEFT = {type = EV_ABS, code = ABS_HAT0X, is_positive = false},
     .DPAD_DOWN = {type = EV_ABS, code = ABS_HAT0Y, is_positive = true},
@@ -274,6 +277,7 @@ SupportedControllers := map[u32]Bindings {
     0x054C_0268 = DualShock_3_Bindings, // Genuine Sony DualShock 3 (Wired & Wireless)
     0x054C_05C4 = DualShock_4_Bindings, // Genuine Sony DualShock 4 Gen1 (Wired & Wireless)
     0x054C_09CC = DualShock_4_Bindings, // Genuine Sony DualShock 4 Gen2 (Wired & Wireless)
+    0x054C_0CE6 = DualSense_Bindings, // Genuine Sony DualSense
     0x057E_2009 = Switch_Pro_Bindings, // Switch Pro Controller
 }
 
