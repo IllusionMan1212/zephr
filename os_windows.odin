@@ -2273,7 +2273,7 @@ backend_get_os_events :: proc() {
 }
 
 backend_shutdown :: proc() {
-    for id, device in &zephr_ctx.input_devices_map {
+    for id, &device in zephr_ctx.input_devices_map {
         virtual.arena_destroy(&device.arena)
         // The bit arrays can't be allocated using the arena because the 
         // Bit_Array struct allocates it itself using a dynamic array.

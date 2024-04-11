@@ -239,7 +239,7 @@ get_current_animation_value :: proc(anim: ^Animation, track: ^AnimationTrack) ->
 advance_animation :: proc(anim: ^Animation) #no_bounds_check {
     context.logger = logger
 
-    for track, t in &anim.tracks {
+    for &track, t in anim.tracks {
         // TODO: this is some BS that I wrote to quickly get something that resembles root motion.
         // Needs to be removed.
         if anim.root_motion && t == 0 {
@@ -257,7 +257,7 @@ advance_animation :: proc(anim: ^Animation) #no_bounds_check {
                     track.node.rotation =
                     cast(m.quat)quaternion(x = track.data[0], y = track.data[1], z = track.data[2], w = track.data[3])
                 case .weights:
-                    for mesh in &track.node.meshes {
+                    for &mesh in track.node.meshes {
                         copy(mesh.weights, track.data[:len(track.node.meshes[0].weights)])
                     }
             }
@@ -308,7 +308,7 @@ advance_animation :: proc(anim: ^Animation) #no_bounds_check {
             case .weights:
                 weights := interpolate_weights(&track, t, td, len(track.node.meshes[0].weights))
                 defer delete(weights)
-                for mesh in &track.node.meshes {
+                for &mesh in track.node.meshes {
                     copy(mesh.weights, weights)
                 }
         }
@@ -316,7 +316,7 @@ advance_animation :: proc(anim: ^Animation) #no_bounds_check {
 }
 
 move_to_next_keyframe :: proc(anim: ^Animation) {
-    for track in &anim.tracks {
+    for &track in anim.tracks {
         n := len(track.time)
 
         track.prev_keyframe = clamp(track.prev_keyframe + 1, 0, n - 1)
@@ -347,7 +347,7 @@ move_to_next_keyframe :: proc(anim: ^Animation) {
             case .weights:
                 weights_len := len(track.node.meshes[0].weights)
                 val := track.data[(track.prev_keyframe * weights_len):(track.prev_keyframe * weights_len) + weights_len]
-                for mesh in &track.node.meshes {
+                for &mesh in track.node.meshes {
                     copy(mesh.weights, val)
                 }
         }
@@ -355,7 +355,7 @@ move_to_next_keyframe :: proc(anim: ^Animation) {
 }
 
 move_to_prev_keyframe :: proc(anim: ^Animation) {
-    for track in &anim.tracks {
+    for &track in anim.tracks {
         n := len(track.time)
 
         track.prev_keyframe = clamp(track.prev_keyframe - 1, 0, n - 1)
@@ -386,7 +386,7 @@ move_to_prev_keyframe :: proc(anim: ^Animation) {
             case .weights:
                 weights_len := len(track.node.meshes[0].weights)
                 val := track.data[(track.prev_keyframe * weights_len):(track.prev_keyframe * weights_len) + weights_len]
-                for mesh in &track.node.meshes {
+                for &mesh in track.node.meshes {
                     copy(mesh.weights, val)
                 }
         }
@@ -408,7 +408,7 @@ play_animation_with_name :: proc(model: ^Model, name: string) {
         time.stopwatch_reset(&model.active_animation.timer)
     }
 
-    for anim in &model.animations {
+    for &anim in model.animations {
         if anim.name == name {
             model.active_animation = &anim
             time.stopwatch_start(&anim.timer)
@@ -424,7 +424,7 @@ reset_animation :: proc(anim: ^Animation) {
     time.stopwatch_reset(&anim.timer)
 
     reset_node_animation :: proc(anim: ^Animation) {
-        for track in &anim.tracks {
+        for &track in anim.tracks {
             track.prev_keyframe = 0
             track.prev_t = 0
 
@@ -441,7 +441,7 @@ reset_animation :: proc(anim: ^Animation) {
                 case .scale:
                     track.node.scale = m.vec3{track.data[0], track.data[1], track.data[2]}
                 case .weights:
-                    for mesh in &track.node.meshes {
+                    for &mesh in track.node.meshes {
                         copy(mesh.weights, track.data[:len(mesh.weights)])
                     }
             }

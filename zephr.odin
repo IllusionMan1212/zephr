@@ -639,7 +639,7 @@ swap_buffers :: proc() {
 }
 
 frame_init :: proc() {
-    for id, device in &zephr_ctx.input_devices_map {
+    for id, &device in zephr_ctx.input_devices_map {
         if .MOUSE in device.features {
             device.mouse.rel_pos = m.vec2{0, 0}
             device.mouse.scroll_rel = m.vec2{0, 0}
@@ -873,7 +873,7 @@ os_event_queue_input_device_connected :: proc(
 }
 
 get_first_input_device :: proc(features: InputDeviceFeatures) -> ^InputDevice {
-    for _, device in &zephr_ctx.input_devices_map {
+    for _, &device in zephr_ctx.input_devices_map {
         if device.features & features == features {
             return &device
         }

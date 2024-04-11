@@ -1660,7 +1660,7 @@ evdev_check_bit_from_string :: proc(str: cstring, string_size: u64, bit_idx: u32
 }
 
 backend_shutdown :: proc() {
-    for id, device in &zephr_ctx.input_devices_map {
+    for id, &device in zephr_ctx.input_devices_map {
         input_device_backend := linux_input_device(&device)
         evdev.free(input_device_backend.mouse_evdev)
         evdev.free(input_device_backend.gamepad_evdev)
@@ -1711,7 +1711,7 @@ backend_get_os_events :: proc() {
         udev.device_unref(dev)
     }
 
-    for id, input_device in &zephr_ctx.input_devices_map {
+    for id, &input_device in zephr_ctx.input_devices_map {
         input_device_backend := linux_input_device(&input_device)
 
         if .MOUSE in input_device.features {
@@ -2409,7 +2409,7 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
         // we trim unsplit_str here so we don't get an empty string in the slice
         strs := strings.split_lines(unsplit_str, context.temp_allocator)
 
-        for str in &strs {
+        for &str in strs {
             str = strings.trim_prefix(strings.trim_space(str), "file://")
             // get rid of the null terminator we added in place of the carriage return
             str = strings.trim_suffix(str, "\x00")
