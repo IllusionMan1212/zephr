@@ -303,6 +303,7 @@ Os :: struct {
     device_ctx:       win32.HDC,
     wgl_context:      win32.HGLRC,
     invisible_cursor: win32.HCURSOR,
+    wglSwapIntervalEXT: win32.SwapIntervalEXTType,
     events:           queue.Queue(WindowsEvent),
 }
 
@@ -1155,7 +1156,7 @@ init_gl :: proc(
     wglCreateContextAttribsARB := cast(win32.CreateContextAttribsARBType)win32.wglGetProcAddress(
         "wglCreateContextAttribsARB",
     )
-    wglSwapIntervalEXT := cast(win32.SwapIntervalEXTType)win32.wglGetProcAddress("wglSwapIntervalEXT")
+    w_os.wglSwapIntervalEXT = cast(win32.SwapIntervalEXTType)win32.wglGetProcAddress("wglSwapIntervalEXT")
     
     //odinfmt: disable
     pixel_attribs := []i32 {
@@ -1219,7 +1220,7 @@ init_gl :: proc(
     gl_version := gl.GetString(gl.VERSION)
     log.infof("GL Version: %s", gl_version)
 
-    new_success := wglSwapIntervalEXT(1)
+    new_success := w_os.wglSwapIntervalEXT(1)
     if !new_success {
         log.error("Failed to enable v-sync")
     }
@@ -2263,6 +2264,10 @@ keyboard_map_apply_scancode :: proc(win32_scancode: u32) {
         zephr_ctx.keyboard_scancode_to_keycode[scancode] = keycode
         zephr_ctx.keyboard_keycode_to_scancode[keycode] = scancode
     }
+}
+
+backend_change_vsync :: proc(on: bool) {
+    w_os.wglSwapIntervalEXT(on ? 1 : 0)
 }
 
 backend_get_os_events :: proc() {

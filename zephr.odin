@@ -621,6 +621,10 @@ consume_mouse_events :: proc() -> bool {
     return true
 }
 
+change_vsync :: proc(on: bool) {
+    backend_change_vsync(on)
+}
+
 swap_buffers :: proc() {
     update_shaders_if_changed()
     defer free_all(context.temp_allocator)

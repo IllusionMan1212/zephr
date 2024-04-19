@@ -1260,6 +1260,10 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
     }
 }
 
+backend_change_vsync :: proc(on: bool) {
+    glx.SwapIntervalEXT(l_os.x11_display, l_os.x11_window, on ? 1 : 0)
+}
+
 @(private = "file", disabled = RELEASE_BUILD)
 watch_shaders :: proc() {
     context.logger = logger
