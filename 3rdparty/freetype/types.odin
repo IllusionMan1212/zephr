@@ -5,6 +5,9 @@ package freetype
 
 import "core:c"
 
+// TODO: make an error enum
+// https://freetype.org/freetype2/docs/reference/ft2-error_code_values.html
+
 FT_Error :: c.int
 @(private)
 FT_Short :: c.short
@@ -12,8 +15,7 @@ FT_Short :: c.short
 FT_UShort :: c.ushort
 @(private)
 FT_Int :: c.int
-@(private)
-FT_UInt :: c.uint
+UInt :: c.uint
 @(private)
 FT_Long :: c.long
 ULong :: c.ulong
@@ -21,6 +23,8 @@ ULong :: c.ulong
 FT_String :: c.char
 @(private)
 FT_UInt32 :: c.uint
+@(private)
+FT_F26Dot6 :: c.long
 
 @(private)
 FT_Pos :: c.long
@@ -52,7 +56,6 @@ FT_Render_Mode_ :: enum {
     MAX,
 }
 
-@(private)
 LoadFlags :: enum {
     DEFAULT                     = 0x0,
     NO_SCALE                    = 1 << 0,
@@ -82,6 +85,28 @@ LoadFlags :: enum {
     FT_LOAD_TARGET_MONO         = (int(FT_Render_Mode_.MONO) & 15) << 16,
     FT_LOAD_TARGET_LCD          = (int(FT_Render_Mode_.LCD) & 15) << 16,
     FT_LOAD_TARGET_LCD_V        = (int(FT_Render_Mode_.LCD_V) & 15) << 16,
+}
+
+FaceFlags :: bit_set[FaceFlagsBits;FT_Long]
+
+@(private)
+FaceFlagsBits :: enum FT_Long {
+    SCALABLE          =  0,
+    FIXED_SIZES       =  1,
+    FIXED_WIDTH       =  2,
+    SFNT              =  3,
+    HORIZONTAL        =  4,
+    VERTICAL          =  5,
+    KERNING           =  6,
+    FAST_GLYPHS       =  7,
+    MULTIPLE_MASTERS  =  8,
+    GLYPH_NAMES       =  9,
+    EXTERNAL_STREAM   = 10,
+    HINTER            = 11,
+    CID_KEYED         = 12,
+    TRICKY            = 13,
+    COLOR             = 14,
+    VARIATION         = 15,
 }
 
 #assert(size_of(OutlineFlags) == 8)
@@ -126,13 +151,23 @@ FT_Encoding :: enum u32 {
     APPLE_ROMAN    = ('a' << 24) | ('r' << 16) | ('m' << 8) | 'n',
 }
 
+@(private)
+Platform :: enum FT_UShort {
+    APPLE_UNICODE = 0,
+    MACINTOSH = 1,
+    ISO = 2, // Deprecated
+    MICROSOFT = 3,
+    CUSTOM = 4,
+    ADOBE = 7, // Artificial
+}
+
 #assert(size_of(FT_CharMapRec_) == 16)
 
 @(private)
 FT_CharMapRec_ :: struct {
     face:        Face,
     encoding:    FT_Encoding,
-    platform_id: FT_UShort,
+    platform_id: Platform,
     encoding_id: FT_UShort,
 }
 
@@ -219,7 +254,7 @@ FT_GlyphSlotRec_ :: struct {
     library:           Library,
     face:              Face,
     next:              FT_GlyphSlot,
-    glyph_index:       FT_UInt, /* new in 2.10; was reserved previously */
+    glyph_index:       UInt, /* new in 2.10; was reserved previously */
     generic:           FT_Generic,
     metrics:           FT_Glyph_Metrics,
     linearHoriAdvance: FT_Fixed,
@@ -230,7 +265,7 @@ FT_GlyphSlotRec_ :: struct {
     bitmap_left:       FT_Int,
     bitmap_top:        FT_Int,
     outline:           FT_Outline,
-    num_subglyphs:     FT_UInt,
+    num_subglyphs:     UInt,
     subglyphs:         FT_SubGlyph,
     control_data:      rawptr,
     control_len:       c.long,
@@ -334,7 +369,7 @@ FT_ListRec :: struct {
 FT_FaceRec_ :: struct {
     num_faces:           FT_Long,
     face_index:          FT_Long,
-    face_flags:          FT_Long,
+    face_flags:          FaceFlags,
     style_flags:         FT_Long,
     num_glyphs:          FT_Long,
     family_name:         ^FT_String,
@@ -342,7 +377,7 @@ FT_FaceRec_ :: struct {
     num_fixed_sizes:     FT_Int,
     available_sizes:     ^FT_Bitmap_Size,
     num_charmaps:        FT_Int,
-    charmaps:            ^FT_CharMap,
+    charmaps:            [^]FT_CharMap,
     generic:             FT_Generic,
 
     /*# The following member variables (down to `underline_thickness`) */

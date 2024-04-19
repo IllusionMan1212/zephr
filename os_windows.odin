@@ -1109,6 +1109,8 @@ init_gl :: proc(
         cast(f32)win32.GetSystemMetrics(win32.SM_CYSCREEN),
     }
 
+    // TODO: get all the monitors and log them with their resolutions
+
     win_x := screen_size.x / 2 - window_size.x / 2
     win_y := screen_size.y / 2 - window_size.y / 2
 

@@ -808,13 +808,17 @@ get_active_monitor_dims :: proc(root: x11.Window) -> m.vec4 {
     for i in 0 ..< scr_resources.noutput {
         output_info := xrandr.XRRGetOutputInfo(l_os.x11_display, scr_resources, scr_resources.outputs[i])
         if output_info.connection == .RR_Connected {
+            if output_info.crtc == 0 { // ??? idk lol gets rid of a crtc error and the displays work fine anyway
+                xrandr.XRRFreeOutputInfo(output_info)
+                continue
+            }
             crtc_info := xrandr.XRRGetCrtcInfo(l_os.x11_display, scr_resources, output_info.crtc)
             if crtc_info != nil {
                 if cast(i32)c_pos.x >= crtc_info.x &&
                    cast(i32)c_pos.x <= cast(i32)crtc_info.width + crtc_info.x &&
                    cast(i32)c_pos.y >= crtc_info.y &&
                    cast(i32)c_pos.y <= cast(i32)crtc_info.height + crtc_info.y {
-                    log.debugf("Active Monitor is %d with Resolution %dx%d", i, crtc_info.width, crtc_info.height)
+                    log.infof("Active Monitor is %d with Resolution %dx%d", i, crtc_info.width, crtc_info.height)
                     dims =  {
                         cast(f32)crtc_info.x,
                         cast(f32)crtc_info.y,
@@ -822,7 +826,7 @@ get_active_monitor_dims :: proc(root: x11.Window) -> m.vec4 {
                         cast(f32)crtc_info.height,
                     }
                 } else {
-                    log.debugf("Found Monitor %d with Resolution %dx%d", i, crtc_info.width, crtc_info.height)
+                    log.infof("Found Monitor %d with Resolution %dx%d", i, crtc_info.width, crtc_info.height)
                 }
                 xrandr.XRRFreeCrtcInfo(crtc_info)
             }
@@ -1157,8 +1161,8 @@ x11_error_handler :: proc "c" (display: ^x11.Display, event: ^x11.XErrorEvent) -
 
     buf := make([^]u8, 2048)
     defer free(buf)
-    x11.XGetErrorText(display, cast(i32)event.error_code, buf, size_of(buf))
-    str := strings.string_from_null_terminated_ptr(buf, 2048)
+    x11.XGetErrorText(display, cast(i32)event.error_code, buf, 2048)
+    str := strings.string_from_ptr(buf, 2048)
     log.errorf("X11 Error: %s", str)
     return 0
 }

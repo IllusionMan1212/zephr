@@ -210,6 +210,7 @@ draw_collision_shape :: proc() {
 draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Material, joint_matrices: []m.mat4) {
     context.logger = logger
 
+    // TODO: calling set_int a shitton of times is apparently slow according to callgrind
     set_int(mesh_shader, "morphTargets", 0)
     set_int(mesh_shader, "morphTargetWeights", 1)
     set_int(mesh_shader, "jointMatrices", 2)

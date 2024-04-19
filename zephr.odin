@@ -494,7 +494,7 @@ Context :: struct {
 
 @(private)
 FNV_HASH32_INIT :: 0x811c9dc5
-@(private)
+@(private = "file")
 FNV_HASH32_PRIME :: 0x01000193
 @(private)
 INIT_UI_STACK_SIZE :: 256
