@@ -39,6 +39,7 @@ EventType :: enum {
     RAW_TOUCHPAD_ACTION_RELEASED,
     RAW_TOUCHPAD_MOVED,
     RAW_ACCELEROMETER_CHANGED,
+    RAW_GYROSCOPE_CHANGED,
     RAW_KEY_PRESSED,
     RAW_KEY_RELEASED,
     RAW_MOUSE_BUTTON_PRESSED,
@@ -374,7 +375,7 @@ InputDevice :: struct {
     keyboard:      Keyboard,
     gamepad:       Gamepad,
     accelerometer: m.vec3,
-    gyroscope:     m.quat,
+    gyroscope:     m.vec3,
     backend_data:  [OS_INPUT_DEVICE_BACKEND_SIZE]u8,
     arena:         virtual.Arena,
 }
@@ -407,6 +408,10 @@ Event :: struct {
         accelerometer:   struct {
             device_id: u64,
             accel:     m.vec3,
+        },
+        gyroscope:   struct {
+            device_id: u64,
+            gyro:     m.vec3,
         },
         key:             struct {
             device_id:  u64, // 0 for virtual keyboard
@@ -506,7 +511,7 @@ CHANGED_SHADERS_QUEUE_CAP :: 32
 INPUT_DEVICE_MAP_CAP :: 256
 when ODIN_OS == .Linux {
     @(private)
-    OS_INPUT_DEVICE_BACKEND_SIZE :: 512
+    OS_INPUT_DEVICE_BACKEND_SIZE :: 488
 } else when ODIN_OS == .Windows {
     OS_INPUT_DEVICE_BACKEND_SIZE :: 120
 }
@@ -995,6 +1000,19 @@ os_event_queue_raw_accelerometer_changed :: proc(key: u64, accel: m.vec3) {
     e.type = .RAW_ACCELEROMETER_CHANGED
     e.accelerometer.device_id = key
     e.accelerometer.accel = accel
+
+    queue.push(&zephr_ctx.event_queue, e)
+}
+
+@(private)
+os_event_queue_raw_gyroscope_changed :: proc(key: u64, gyro: m.vec3) {
+    device := input_device_get_checked(key, {.GYROSCOPE})
+    device.gyroscope = gyro
+
+    e: Event
+    e.type = .RAW_GYROSCOPE_CHANGED
+    e.gyroscope.device_id = key
+    e.gyroscope.gyro = gyro
 
     queue.push(&zephr_ctx.event_queue, e)
 }

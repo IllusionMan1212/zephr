@@ -29,6 +29,10 @@ import "3rdparty/xfixes"
 import "3rdparty/xinput2"
 import "3rdparty/xrandr"
 
+// TODO: support changing controller LEDs through evdev
+// TODO: support controller-specific stuff like haptics and adaptive triggers on DualSense
+// TODO: support controller audio devices (DS4, DualSense, Xbox Series)
+
 @(private = "file")
 LinuxEvdevBinding :: struct {
     // this maps to struct input_event in <linux/input.h>
@@ -54,14 +58,12 @@ LinuxInputDevice :: struct {
     touchpad_devnode:      string,
     keyboard_devnode:      string,
     gamepad_devnode:       string,
-    accelerometer_devnode: string,
-    gyroscope_devnode:     string,
+    motion_sensor_devnode: string,
     mouse_evdev:           ^evdev.libevdev,
     touchpad_evdev:        ^evdev.libevdev,
     keyboard_evdev:        ^evdev.libevdev,
     gamepad_evdev:         ^evdev.libevdev,
-    accelerometer_evdev:   ^evdev.libevdev,
-    gyroscope_evdev:       ^evdev.libevdev,
+    motion_sensor_evdev:   ^evdev.libevdev,
     gamepad_bindings:      Bindings,
     gamepad_action_ranges: [cast(int)GamepadAction.COUNT + 1]LinuxEvdevRange,
     gamepad_rumble_id:     i16,
@@ -1317,7 +1319,7 @@ linux_input_device :: proc(input_device: ^InputDevice) -> ^LinuxInputDevice {
 @(private = "file")
 udev_device_try_add :: proc(dev: ^udev.udev_device) {
     arena: virtual.Arena
-    err := virtual.arena_init_static(&arena, mem.Megabyte * 4)
+    err := virtual.arena_init_static(&arena, mem.Megabyte * 2)
     log.assert(err == nil, "Failed to init memory arena for input device")
     arena_allocator := virtual.arena_allocator(&arena)
 
@@ -1329,12 +1331,12 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
     touchpad_devnode: string
     keyboard_devnode: string
     gamepad_devnode: string
-    accelerometer_devnode: string
+    motion_sensor_devnode: string
     mouse_evdev: ^evdev.libevdev
     touchpad_evdev: ^evdev.libevdev
     keyboard_evdev: ^evdev.libevdev
     gamepad_evdev: ^evdev.libevdev
-    accelerometer_evdev: ^evdev.libevdev
+    motion_sensor_evdev: ^evdev.libevdev
 
     subsystem := udev.device_get_subsystem(dev)
     if subsystem == "" {
@@ -1352,18 +1354,10 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
     add_feature: if subsystem == "input" {
         /* udev rules reference: http://cgit.freedesktop.org/systemd/systemd/tree/src/udev/udev-builtin-input_id.c */
 
-        // TODO: we might not need to check for ABS here because an accelerometer is the same thing
-        // effectively I think. + there's no devnode for the gyro which means we can't read events for it anyway
-        prop_val := udev.device_get_property_value(dev, "ABS")
-        if prop_val != "" {
-            string_size := cast(u64)len(prop_val)
-            if (evdev_check_bit_from_string(prop_val, string_size, ABS_RX) &&
-                   evdev_check_bit_from_string(prop_val, string_size, ABS_RY) &&
-                   evdev_check_bit_from_string(prop_val, string_size, ABS_RZ)) {
-                log.debug("gyroscopic device")
-                device_features |= {.GYROSCOPE}
-            }
-        }
+        // The accelerometer is different than the gyro BUT they both use the same devnode (at least for gamepad!)
+        // Accel maps to ABS_X, ABS_Y, ABX_Z (range is -32767-32767 ish for modern controllers and -512-512 for DS3)
+        // and the gyro maps to ABS_RX, ABS_RY, ABS_RZ (range is 32 million ish for modern controllers) (DS3 only has a single axis for gyro
+        // which isn't handled by the kernel driver)
 
         if !strings.has_prefix(string(sysname), "event") {
             break add_feature
@@ -1397,15 +1391,22 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
             }
         }
         if prop_val := udev.device_get_property_value(dev, "ID_INPUT_ACCELEROMETER"); prop_val == "1" {
-            accelerometer_devnode = strings.clone_from_cstring(udev.device_get_devnode(dev))
-            accelerometer_devnode_fd, errno := os.open(accelerometer_devnode, os.O_RDONLY | os.O_NONBLOCK)
+            motion_sensor_devnode = strings.clone_from_cstring(udev.device_get_devnode(dev))
+            motion_sensor_devnode_fd, errno := os.open(motion_sensor_devnode, os.O_RDONLY | os.O_NONBLOCK)
 
             if (errno == os.ERROR_NONE) {
-                dev_name, vendor_id, product_id = evdev_device_info(accelerometer_devnode_fd, &accelerometer_evdev)
+                dev_name, vendor_id, product_id = evdev_device_info(motion_sensor_devnode_fd, &motion_sensor_evdev)
                 log.debugf("accelerometer device: %s", dev_name)
                 device_features |= {.ACCELEROMETER}
             } else {
-                log.errorf("failed to open accelerometer device node '%s': errno %d", accelerometer_devnode, errno)
+                log.errorf("failed to open accelerometer device node '%s': errno %d", motion_sensor_devnode, errno)
+            }
+
+            // Check for gyroscope properties here as well since the accelerometer device is the same for the gyro
+            // (at least for gamepads, idk about other accel devices)
+            if evdev_check_gyroscope_properties(motion_sensor_evdev) {
+                log.debugf("gyroscope device: %s", dev_name)
+                device_features |= {.GYROSCOPE}
             }
         }
         if prop_val := udev.device_get_property_value(dev, "ID_INPUT_MOUSE"); prop_val == "1" {
@@ -1475,9 +1476,8 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
         return
     }
 
-    if devnode := strings.clone_from_cstring(udev.device_get_devnode(dev)); devnode != "" {
+    if devnode := udev.device_get_devnode(dev); devnode != "" {
         log.debug(devnode)
-        delete(devnode)
     }
 
     if card(device_features) != 0 {
@@ -1566,9 +1566,14 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 }
             }
             if .ACCELEROMETER in device_features {
-                input_device_backend.accelerometer_devnode = accelerometer_devnode
-                input_device_backend.accelerometer_evdev = accelerometer_evdev
+                input_device_backend.motion_sensor_devnode = motion_sensor_devnode
+                input_device_backend.motion_sensor_evdev = motion_sensor_evdev
                 input_device.features |= {.ACCELEROMETER}
+            }
+            if .GYROSCOPE in device_features {
+                input_device_backend.motion_sensor_devnode = motion_sensor_devnode
+                input_device_backend.motion_sensor_evdev = motion_sensor_evdev
+                input_device.features |= {.GYROSCOPE}
             }
         }
     }
@@ -1595,8 +1600,7 @@ udev_device_try_remove :: proc(dev: ^udev.udev_device) {
         evdev.free(device_backend.gamepad_evdev)
         evdev.free(device_backend.touchpad_evdev)
         evdev.free(device_backend.keyboard_evdev)
-        evdev.free(device_backend.accelerometer_evdev)
-        evdev.free(device_backend.gyroscope_evdev)
+        evdev.free(device_backend.motion_sensor_evdev)
     }
 }
 
@@ -1647,24 +1651,14 @@ evdev_device_info :: proc(
     return name, vendor_id, product_id
 }
 
-@(private = "file")
-evdev_check_bit_from_string :: proc(str: cstring, string_size: u64, bit_idx: u32) -> bool {
-    bit_word_idx := bit_idx / 4
-    if (cast(u64)bit_word_idx >= string_size) {
-        return false
+evdev_check_gyroscope_properties :: proc(device: ^evdev.libevdev) -> bool {
+    if evdev.has_event_code(device, EV_ABS, ABS_RX) &&
+        evdev.has_event_code(device, EV_ABS, ABS_RY) &&
+        evdev.has_event_code(device, EV_ABS, ABS_RZ) {
+            return true
     }
 
-    ch := string(str)[string_size - cast(u64)bit_word_idx - 1]
-    word: u8 = 0
-    if ('0' <= ch && ch <= '9') {
-        word = ch - '0'
-    } else if ('a' <= ch && ch <= 'f') {
-        word = 10 + (ch - 'a')
-    } else if ('A' <= ch && ch <= 'F') {
-        word = 10 + (ch - 'A')
-    }
-    rel_bit_idx := bit_idx % 4
-    return cast(bool)(word & (1 << rel_bit_idx))
+    return false
 }
 
 backend_shutdown :: proc() {
@@ -1674,8 +1668,7 @@ backend_shutdown :: proc() {
         evdev.free(input_device_backend.gamepad_evdev)
         evdev.free(input_device_backend.touchpad_evdev)
         evdev.free(input_device_backend.keyboard_evdev)
-        evdev.free(input_device_backend.accelerometer_evdev)
-        evdev.free(input_device_backend.gyroscope_evdev)
+        evdev.free(input_device_backend.motion_sensor_evdev)
         virtual.arena_destroy(&device.arena)
         bit_array.destroy(&device.keyboard.keycode_is_pressed_bitset)
         bit_array.destroy(&device.keyboard.keycode_has_been_pressed_bitset)
@@ -1956,11 +1949,11 @@ backend_get_os_events :: proc() {
                 has_event = evdev.has_event_pending(input_device_backend.gamepad_evdev)
             }
         }
-        if .ACCELEROMETER in input_device.features {
-            has_event := evdev.has_event_pending(input_device_backend.accelerometer_evdev)
+        if .ACCELEROMETER in input_device.features || .GYROSCOPE in input_device.features {
+            has_event := evdev.has_event_pending(input_device_backend.motion_sensor_evdev)
             if has_event < 0 {
                 log.errorf(
-                    "Failed to check for pending evdev event for accelerometer device: %s. Errno: %s",
+                    "Failed to check for pending evdev event for motion sensor device: %s. Errno: %s",
                     input_device.name,
                     linux.Errno(-has_event),
                 )
@@ -1968,11 +1961,11 @@ backend_get_os_events :: proc() {
 
             for has_event >= 1 {
                 ev: evdev.input_event
-                ret := evdev.next_event(input_device_backend.accelerometer_evdev, .NORMAL, &ev)
+                ret := evdev.next_event(input_device_backend.motion_sensor_evdev, .NORMAL, &ev)
 
                 if ret < 0 {
                     log.errorf(
-                        "Failed to get next evdev event for accelerometer device: %s. Errno: %s",
+                        "Failed to get next evdev event for motion sensor device: %s. Errno: %s",
                         input_device.name,
                         linux.Errno(-ret),
                     )
@@ -1980,22 +1973,33 @@ backend_get_os_events :: proc() {
                 }
 
                 if ev.type == EV_ABS {
-                    if ev.code == ABS_X {
-                        input_device.accelerometer.x = cast(f32)ev.value
-                    } else if ev.code == ABS_Y {
-                        input_device.accelerometer.y = cast(f32)ev.value
-                    } else if ev.code == ABS_Z {
-                        input_device.accelerometer.z = cast(f32)ev.value
+                    if .ACCELEROMETER in input_device.features {
+                        if ev.code == ABS_X {
+                            input_device.accelerometer.x = cast(f32)ev.value
+                        } else if ev.code == ABS_Y {
+                            input_device.accelerometer.y = cast(f32)ev.value
+                        } else if ev.code == ABS_Z {
+                            input_device.accelerometer.z = cast(f32)ev.value
+                        }
+
+                        os_event_queue_raw_accelerometer_changed(id, input_device.accelerometer)
+                    }
+
+                    if .GYROSCOPE in input_device.features {
+                        if ev.code == ABS_RX {
+                            input_device.gyroscope.x = cast(f32)ev.value
+                        } else if ev.code == ABS_RY {
+                            input_device.gyroscope.y = cast(f32)ev.value
+                        } else if ev.code == ABS_RZ {
+                            input_device.gyroscope.z = cast(f32)ev.value
+                        }
+
+                        os_event_queue_raw_gyroscope_changed(id, input_device.gyroscope)
                     }
                 }
 
-                os_event_queue_raw_accelerometer_changed(id, input_device.accelerometer)
-
-                has_event = evdev.has_event_pending(input_device_backend.accelerometer_evdev)
+                has_event = evdev.has_event_pending(input_device_backend.motion_sensor_evdev)
             }
-        }
-        if .GYROSCOPE in input_device.features {
-            // TODO:
         }
     }
 

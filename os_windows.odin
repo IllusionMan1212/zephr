@@ -1164,6 +1164,8 @@ init_gl :: proc(
         win32.WGL_SUPPORT_OPENGL_ARB, 1,
         win32.WGL_DOUBLE_BUFFER_ARB,  1,
         win32.WGL_SWAP_METHOD_ARB,    win32.WGL_SWAP_EXCHANGE_ARB,
+        // NOTE: WGL_SWAP_COPY_ARB works with wine but I think WGL_SWAP_EXCHANGE_ARB is faster right?
+        //win32.WGL_SWAP_METHOD_ARB,    win32.WGL_SWAP_COPY_ARB,
         win32.WGL_PIXEL_TYPE_ARB,     win32.WGL_TYPE_RGBA_ARB,
         win32.WGL_ACCELERATION_ARB,   win32.WGL_FULL_ACCELERATION_ARB,
         win32.WGL_COLOR_BITS_ARB,     32,

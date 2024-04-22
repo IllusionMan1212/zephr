@@ -51,6 +51,24 @@ ABS_HAT2Y :: 0x15
 ABS_HAT3X :: 0x16
 ABS_HAT3Y :: 0x17
 
+/*
+ * LEDs
+ */
+
+LED_NUML     :: 0x00
+LED_CAPSL    :: 0x01
+LED_SCROLLL  :: 0x02
+LED_COMPOSE  :: 0x03
+LED_KANA     :: 0x04
+LED_SLEEP    :: 0x05
+LED_SUSPEND  :: 0x06
+LED_MUTE     :: 0x07
+LED_MISC     :: 0x08
+LED_MAIL     :: 0x09
+LED_CHARGING :: 0x0a
+LED_MAX      :: 0x0f
+LED_CNT      :: (LED_MAX+1)
+
 /* Buttons */
 
 BTN_SOUTH :: 0x130
