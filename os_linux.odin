@@ -1469,6 +1469,25 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 //log.warn("guessing device class for device '%s'", devnode)
             }
         }
+    } else if subsystem == "leds" {
+        // LEDs aren't exposed through evdev for PlayStation controllers, therefore, we enumerate the available LED devices
+        // and assign the virtual LED device file to the InputDevice that owns the controller.
+
+        // There are 2 types of LED "devices". an RGB LED device, and a single value (on-off) LED device
+        // Technically there are 3 types, RGB, On-Off, and a single light LED with a brightness slider.
+        // Not sure if we're gonna expose different devices for these?
+
+        // TODO: leds require us to write directly to the sysfs files because they provide no device file.
+        // this also means we'll have to somehow merge a sysfs udev device with the evdev gamepad device which means
+        // we'll need to look at the common ancestor in the syspath between the devices and merge accordingly. idk how this will look like in code tho.
+        // We kinda already do ancestor/parent-based merging for devices, so we'll just do the same for LEDs, although
+        // we'll only accept LEDs as part of a pre-existing device and not their own standalone "input" device.
+        // On second thought, maybe we should allow standalone LED input devices, because we don't know the order in which
+        // the enumeration happens, we could enumerate over the LED device of a controller first and THEN we get to the
+        // actual gamepad device.
+        //log.debug(sysname)
+        //log.debug(syspath)
+        //log.debug(udev.device_get_devnode(dev))
     }
 
     if card(device_features) == 0 {
@@ -1481,8 +1500,14 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
     }
 
     if card(device_features) != 0 {
-        parent := udev.device_get_parent_with_subsystem_devtype(dev, "usb", "usb_device")
-        id := udev.device_get_devnum(parent if parent != nil else dev)
+        // Finding the hid ancestor works nicely for merging leds, motion sensors, gamepad, mouse, and touchpad devices.
+        // I think it works for basically all devices we care about because at the base all devices we care about
+        // are hid devices, this also makes linux behave closer to Windows because on Windows we only look at hid devices.
+        parent := udev.device_get_parent_with_subsystem_devtype(dev, "hid", nil)
+
+        id_string := strings.clone_from_cstring(udev.device_get_sysname(parent if parent != nil else dev))
+        defer delete(id_string)
+        id := fnv_hash(raw_data(id_string), cast(u64)len(id_string), FNV_HASH64_INIT)
 
         input_device := os_event_queue_input_device_connected(id, dev_name, device_features, vendor_id, product_id)
 
@@ -1700,7 +1725,6 @@ backend_get_os_events :: proc() {
         }
 
         dev := udev.monitor_receive_device(l_os.udev_monitor)
-        parent_dev: ^udev.udev_device = nil
         action := udev.device_get_action(dev)
 
         if (action == "bind" || action == "add") {

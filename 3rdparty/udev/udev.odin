@@ -24,12 +24,16 @@ foreign udev_lib {
     list_entry_get_next :: proc(list_entry: ^udev_list_entry) -> ^udev_list_entry ---
     enumerate_add_match_parent :: proc(enumerate: ^udev_enumerate, parent: ^udev_device) -> i32 ---
     device_get_sysname :: proc(dev: ^udev_device) -> cstring ---
+    device_get_syspath :: proc(dev: ^udev_device) -> cstring ---
+    device_get_devtype :: proc(dev: ^udev_device) -> cstring ---
+    device_get_devpath :: proc(dev: ^udev_device) -> cstring ---
     device_get_property_value :: proc(dev: ^udev_device, key: cstring) -> cstring ---
     monitor_receive_device :: proc(udev_monitor: ^udev_monitor) -> ^udev_device ---
     device_get_action :: proc(udev_device: ^udev_device) -> cstring ---
     device_get_devnum :: proc(dev: ^udev_device) -> dev_t ---
     device_get_devnode :: proc(dev: ^udev_device) -> cstring ---
     device_get_sysattr_value :: proc(dev: ^udev_device, attr: cstring) -> cstring ---
+    device_get_parent :: proc(dev: ^udev_device) -> ^udev_device ---
     device_get_parent_with_subsystem_devtype :: proc(dev: ^udev_device, subsystem: cstring, devtype: cstring) -> ^udev_device ---
     device_get_subsystem :: proc(dev: ^udev_device) -> cstring ---
     device_get_properties_list_entry :: proc(dev: ^udev_device) -> ^udev_list_entry ---

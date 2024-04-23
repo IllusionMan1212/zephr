@@ -365,6 +365,8 @@ Gamepad :: struct {
     supports_rumble:                 bool,
 }
 
+// An input device can contain one or more of these types of devices based on its features.
+// e.g A controller can contain a gamepad, a touchpad, accelerometer, gyroscope, and LEDs
 InputDevice :: struct {
     name:          string,
     vendor_id:     u16,
@@ -498,9 +500,13 @@ Context :: struct {
 }
 
 @(private)
-FNV_HASH32_INIT :: 0x811c9dc5
+FNV_HASH32_INIT: u32 : 0x811c9dc5
 @(private = "file")
 FNV_HASH32_PRIME :: 0x01000193
+@(private)
+FNV_HASH64_INIT: u64 : 0xcbf29ce484222325
+@(private = "file")
+FNV_HASH64_PRIME :: 0x00000100000001B3
 @(private)
 INIT_UI_STACK_SIZE :: 256
 @(private)
@@ -881,14 +887,14 @@ os_event_queue_input_device_connected :: proc(
     return &zephr_ctx.input_devices_map[key]
 }
 
-get_first_input_device :: proc(features: InputDeviceFeatures) -> ^InputDevice {
-    for _, &device in zephr_ctx.input_devices_map {
+get_first_input_device :: proc(features: InputDeviceFeatures) -> (u64, ^InputDevice) {
+    for id, &device in zephr_ctx.input_devices_map {
         if device.features & features == features {
-            return &device
+            return id, &device
         }
     }
 
-    return nil
+    return 0, nil
 }
 
 @(private)
@@ -1241,8 +1247,8 @@ os_event_queue_drag_and_drop_file :: proc(paths: []string) {
 /////////////////////////////
 
 
-@(private)
-fnv_hash32 :: proc(data: []byte, size: u32, hash: u32) -> u32 {
+@(private = "file")
+fnv_hash32 :: proc(data: []byte, size: u64, hash: u32) -> u32 {
     hash := hash
 
     for i in 0 ..< size {
@@ -1252,6 +1258,44 @@ fnv_hash32 :: proc(data: []byte, size: u32, hash: u32) -> u32 {
 
     return hash
 }
+
+@(private = "file")
+fnv_hash32_multipointer :: proc(data: [^]byte, size: u64, hash: u32) -> u32 {
+    hash := hash
+
+    for i in 0 ..< size {
+        hash ~= cast(u32)data[i]
+        hash *= FNV_HASH32_PRIME
+    }
+
+    return hash
+}
+
+@(private = "file")
+fnv_hash64 :: proc(data: []byte, size: u64, hash: u64) -> u64 {
+    hash := hash
+
+    for i in 0 ..< size {
+        hash ~= cast(u64)data[i]
+        hash *= FNV_HASH64_PRIME
+    }
+
+    return hash
+}
+
+@(private = "file")
+fnv_hash64_multipointer :: proc(data: [^]byte, size: u64, hash: u64) -> u64 {
+    hash := hash
+
+    for i in 0 ..< size {
+        hash ~= cast(u64)data[i]
+        hash *= FNV_HASH64_PRIME
+    }
+
+    return hash
+}
+
+fnv_hash :: proc{fnv_hash32, fnv_hash32_multipointer, fnv_hash64, fnv_hash64_multipointer}
 
 @(private)
 logger_init :: proc() {

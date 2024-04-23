@@ -483,9 +483,9 @@ draw_button :: proc(
     line_bytes := mem.byte_slice(&line, size_of(line))
     id := id
     id_bytes := mem.byte_slice(&id, size_of(id))
-    hash := fnv_hash32(id_bytes, size_of(id), FNV_HASH32_INIT)
-    hash = fnv_hash32(transmute([]byte)caller.file_path, cast(u32)len(caller.file_path), hash)
-    hash = fnv_hash32(line_bytes, size_of(caller.line), hash)
+    hash := fnv_hash(id_bytes, size_of(id), FNV_HASH32_INIT)
+    hash = fnv_hash(transmute([]byte)caller.file_path, cast(u64)len(caller.file_path), hash)
+    hash = fnv_hash(line_bytes, size_of(caller.line), hash)
 
     style := style
     rect: Rect = ---
@@ -577,9 +577,9 @@ draw_icon_button :: proc(
     line_bytes := mem.byte_slice(&line, size_of(line))
     id := id
     id_bytes := mem.byte_slice(&id, size_of(id))
-    hash := fnv_hash32(id_bytes, size_of(id), FNV_HASH32_INIT)
-    hash = fnv_hash32(transmute([]byte)caller.file_path, cast(u32)len(caller.file_path), hash)
-    hash = fnv_hash32(line_bytes, size_of(caller.line), hash)
+    hash := fnv_hash(id_bytes, size_of(id), FNV_HASH32_INIT)
+    hash = fnv_hash(transmute([]byte)caller.file_path, cast(u64)len(caller.file_path), hash)
+    hash = fnv_hash(line_bytes, size_of(caller.line), hash)
 
     style := style
     rect: Rect = ---
@@ -664,8 +664,8 @@ draw_color_picker_slider :: proc(constraints: ^UiConstraints, align: Alignment, 
 
     line := caller.line
     line_bytes := mem.byte_slice(&line, size_of(line))
-    hash := fnv_hash32(transmute([]byte)caller.file_path, cast(u32)len(caller.file_path), FNV_HASH32_INIT)
-    hash = fnv_hash32(line_bytes, size_of(caller.line), hash)
+    hash := fnv_hash(transmute([]byte)caller.file_path, cast(u64)len(caller.file_path), FNV_HASH32_INIT)
+    hash = fnv_hash(line_bytes, size_of(caller.line), hash)
 
     use_shader(color_chooser_shader)
 
@@ -774,8 +774,8 @@ draw_color_picker_canvas :: proc(
 
     line := caller.line
     line_bytes := mem.byte_slice(&line, size_of(line))
-    hash := fnv_hash32(transmute([]byte)caller.file_path, cast(u32)len(caller.file_path), FNV_HASH32_INIT)
-    hash = fnv_hash32(line_bytes, size_of(caller.line), hash)
+    hash := fnv_hash(transmute([]byte)caller.file_path, cast(u64)len(caller.file_path), FNV_HASH32_INIT)
+    hash = fnv_hash(line_bytes, size_of(caller.line), hash)
 
     use_shader(color_chooser_shader)
 
@@ -891,7 +891,7 @@ draw_color_picker_canvas :: proc(
 draw_color_picker_popup :: proc(picker_button_con: ^UiConstraints) {
     id := 023467
     id_bytes := mem.byte_slice(&id, size_of(id))
-    hash := fnv_hash32(id_bytes, size_of(id), zephr_ctx.ui.popup_parent_hash)
+    hash := fnv_hash(id_bytes, size_of(id), zephr_ctx.ui.popup_parent_hash)
     popup_con := DEFAULT_UI_CONSTRAINTS
     set_parent_constraint(&popup_con, picker_button_con)
     set_x_constraint(&popup_con, 0, .FIXED)
@@ -970,9 +970,9 @@ draw_color_picker :: proc(
     line_bytes := mem.byte_slice(&line, size_of(line))
     id := id
     id_bytes := mem.byte_slice(&id, size_of(id))
-    hash := fnv_hash32(id_bytes, size_of(id), FNV_HASH32_INIT)
-    hash = fnv_hash32(transmute([]byte)caller.file_path, cast(u32)len(caller.file_path), hash)
-    hash = fnv_hash32(line_bytes, size_of(line), hash)
+    hash := fnv_hash(id_bytes, size_of(id), FNV_HASH32_INIT)
+    hash = fnv_hash(transmute([]byte)caller.file_path, cast(u64)len(caller.file_path), hash)
+    hash = fnv_hash(line_bytes, size_of(line), hash)
 
     rect: Rect = ---
     display_color := color^
