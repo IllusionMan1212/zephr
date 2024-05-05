@@ -29,9 +29,10 @@ import "3rdparty/xfixes"
 import "3rdparty/xinput2"
 import "3rdparty/xrandr"
 
-// TODO: support changing controller LEDs through evdev
 // TODO: support controller-specific stuff like haptics and adaptive triggers on DualSense
 // TODO: support controller audio devices (DS4, DualSense, Xbox Series)
+// TODO: support changing controller LEDs through evdev (maybe not lol cuz idk how this would work in Windows, I think
+//       we would have to have controller specific stuff which would be a lot)
 
 @(private = "file")
 LinuxEvdevBinding :: struct {
@@ -2391,6 +2392,8 @@ xdnd_enter :: proc(client_data_l: [5]int) {
             x11.XFree(data)
         }
     } else {
+        l_os.xdnd.transient.exchange_started = true
+        l_os.xdnd.transient.source_window = cast(x11.Window)client_data_l[0]
         // Only three data types
         outer: for i in 2 ..< 5 {
             for supported_type in l_os.xdnd.supported_types {

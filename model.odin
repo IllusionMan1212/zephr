@@ -13,7 +13,7 @@ import "core:time"
 import gl "vendor:OpenGL"
 import "vendor:cgltf"
 
-#assert(size_of(Vertex) == 80)
+#assert(size_of(Vertex) == 96)
 Vertex :: struct {
     position:   m.vec3,
     normal:     m.vec3,
@@ -21,6 +21,7 @@ Vertex :: struct {
     tangents:   m.vec4,
     joints:     [4]u32,
     weights:    m.vec4,
+    color:      m.vec4,
 }
 
 @(private)
@@ -339,6 +340,7 @@ process_indices :: proc(
     context.logger = logger
 
     if buffer_view.stride != 0 {
+        // TODO: support stride
         log.error("We don't support non zero stride for indices. Faces might not look correct")
     }
 
@@ -365,6 +367,85 @@ process_indices :: proc(
             copy(indices_out, (transmute([^]u32)buffer_view.buffer.data)[start:end])
         case:
             log.error("Unsupported index type")
+    }
+}
+
+@(private = "file")
+process_vertex_colors :: proc(accessor: ^cgltf.accessor, color_out: ^[]f32) {
+    // TODO: there can be multiple sets of vertex colors.
+    // TODO: support when buffer_view is nil ?? (does this even happen for vert colors?)
+
+    color_out := color_out
+    color_out^ = make([]f32, accessor.count * 4)
+    byte_offset := accessor.offset + accessor.buffer_view.offset
+
+    if accessor.buffer_view == nil {
+        log.error("Nil buffer views for vertex colors are not supported.")
+    }
+
+    if accessor.type == .vec3 {
+        #partial switch accessor.component_type {
+            case .r_32f:
+                buf := intrinsics.ptr_offset(transmute([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
+                stride := accessor.stride / size_of(f32)
+
+                for i in 0..<accessor.count {
+                    color_out[i * 4 + 0] = cast(f32)buf[i * stride + 0]
+                    color_out[i * 4 + 1] = cast(f32)buf[i * stride + 1]
+                    color_out[i * 4 + 2] = cast(f32)buf[i * stride + 2]
+                    color_out[i * 4 + 3] = 1.0
+                }
+            case .r_8u:
+                buf := intrinsics.ptr_offset(transmute([^]u8)accessor.buffer_view.buffer.data, byte_offset / size_of(u8))
+                stride := accessor.stride / size_of(u8)
+
+                for i in 0..<accessor.count {
+                    color_out[i * 4 + 0] = cast(f32)buf[i * stride + 0] / 255.0
+                    color_out[i * 4 + 1] = cast(f32)buf[i * stride + 1] / 255.0
+                    color_out[i * 4 + 2] = cast(f32)buf[i * stride + 2] / 255.0
+                    color_out[i * 4 + 3] = 1.0
+                }
+            case .r_16u:
+                buf := intrinsics.ptr_offset(transmute([^]u16)accessor.buffer_view.buffer.data, byte_offset / size_of(u16))
+                stride := accessor.stride / size_of(u16)
+
+                for i in 0..<accessor.count {
+                    color_out[i * 4 + 0] = cast(f32)buf[i * stride + 0] / 65535.0
+                    color_out[i * 4 + 1] = cast(f32)buf[i * stride + 1] / 65535.0
+                    color_out[i * 4 + 2] = cast(f32)buf[i * stride + 2] / 65535.0
+                    color_out[i * 4 + 3] = 1.0
+                }
+            case:
+                log.error("Unsupported vertex color type")
+        }
+    } else {
+        #partial switch accessor.component_type {
+            case .r_32f:
+                buf := intrinsics.ptr_offset(transmute([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
+                copy(color_out^, buf[:accessor.count * 4])
+            case .r_8u:
+                buf := intrinsics.ptr_offset(transmute([^]u8)accessor.buffer_view.buffer.data, byte_offset / size_of(u8))
+                stride := accessor.stride / size_of(u8)
+
+                for i in 0..<accessor.count {
+                    color_out[i * 4 + 0] = cast(f32)buf[i * stride + 0] / 255.0
+                    color_out[i * 4 + 1] = cast(f32)buf[i * stride + 1] / 255.0
+                    color_out[i * 4 + 2] = cast(f32)buf[i * stride + 2] / 255.0
+                    color_out[i * 4 + 3] = cast(f32)buf[i * stride + 3] / 255.0
+                }
+            case .r_16u:
+                buf := intrinsics.ptr_offset(transmute([^]u16)accessor.buffer_view.buffer.data, byte_offset / size_of(u16))
+                stride := accessor.stride / size_of(u16)
+
+                for i in 0..<accessor.count {
+                    color_out[i * 4 + 0] = cast(f32)buf[i * stride + 0] / 65535.0
+                    color_out[i * 4 + 1] = cast(f32)buf[i * stride + 1] / 65535.0
+                    color_out[i * 4 + 2] = cast(f32)buf[i * stride + 2] / 65535.0
+                    color_out[i * 4 + 3] = cast(f32)buf[i * stride + 3] / 65535.0
+                }
+            case:
+                log.error("Unsupported vertex color type")
+        }
     }
 }
 
@@ -414,6 +495,8 @@ process_mesh :: proc(
     defer delete(joints)
     weights: []f32
     defer delete(weights)
+    colors: []f32
+    defer delete(colors)
     has_aabb := false
     mesh_aabb := AABB{
         min = {math.INF_F32, math.INF_F32, math.INF_F32},
@@ -451,6 +534,8 @@ process_mesh :: proc(
             case .weights:
                 weights = make([]f32, accessor.count * 4)
                 process_accessor_vec4(accessor, weights)
+            case .color:
+                process_vertex_colors(accessor, &colors)
         }
     }
 
@@ -484,6 +569,10 @@ process_mesh :: proc(
             len(weights) != 0 \
             ? m.vec4{weights[i * 4], weights[i * 4 + 1], weights[i * 4 + 2], weights[i * 4 + 3]} \
             : m.vec4{0, 0, 0, 0}
+        color :=
+            len(colors) != 0 \
+            ? m.vec4{colors[i * 4], colors[i * 4 + 1], colors[i * 4 + 2], colors[i * 4 + 3]} \
+            : m.vec4{0, 0, 0, 0}
 
         if !has_aabb {
             mesh_aabb.min = m.min(mesh_aabb.min, pos)
@@ -499,6 +588,7 @@ process_mesh :: proc(
                 tangents = tangents,
                 joints = joints,
                 weights = weights,
+                color = color,
             },
         )
     }
@@ -753,9 +843,6 @@ new_mesh :: proc(
 ) -> Mesh {
     context.logger = logger
 
-    vertices := vertices
-    indices := indices
-
     vao, vbo, ebo: u32
     morph_texture, morph_weights_texture, morph_weights_buf: u32
     joint_matrices_buf, joint_matrices_texture: u32
@@ -861,6 +948,10 @@ new_mesh :: proc(
     // weights
     gl.EnableVertexAttribArray(5)
     gl.VertexAttribPointer(5, 4, gl.FLOAT, gl.FALSE, size_of(Vertex), 16 * size_of(u32))
+
+    // color
+    gl.EnableVertexAttribArray(6)
+    gl.VertexAttribPointer(6, 4, gl.FLOAT, gl.FALSE, size_of(Vertex), 20 * size_of(u32))
 
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(u32) * len(indices), raw_data(indices), gl.STATIC_DRAW)

@@ -99,10 +99,7 @@ direction_t :: enum {
   BTT
 }
 
-// TODO: do this abomination
-//#define HB_TAG(c1,c2,c3,c4) ((hb_tag_t)((((uint32_t)(c1)&0xFF)<<24)|(((uint32_t)(c2)&0xFF)<<16)|(((uint32_t)(c3)&0xFF)<<8)|((uint32_t)(c4)&0xFF)))
-//
-hb_script_t :: enum {
+hb_script_t :: enum hb_tag_t {
   COMMON     = ('Z' << 24) | ('y' << 16) | ('y' << 8) | 'y', /*1.1*/
   INHERITED  = ('Z' << 24) | ('i' << 16) | ('n' << 8) | 'h', /*1.1*/
   UNKNOWN    = ('Z' << 24) | ('z' << 16) | ('z' << 8) | 'z', /*5.0*/

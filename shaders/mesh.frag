@@ -4,6 +4,7 @@ in vec3 fragPos;
 in vec3 fragNormal;
 in vec2 fragTexCoords;
 in mat3 TBN;
+in vec4 vertColor;
 
 out vec4 fragColor;
 
@@ -185,11 +186,12 @@ vec3 CalculatePointLights(vec3 albedo, float metallic, float roughness, vec3 nor
 }
 
 void main() {
-  // TODO: multiply baseColor with vertex color too but idc about that for now
-
   vec4 baseColor = material.diffuse;
   if (hasDiffuseTexture) {
     baseColor *= texture(material.texture_diffuse, fragTexCoords);
+  }
+  if (vertColor != vec4(0.0, 0.0, 0.0, 0.0)) {
+    baseColor *= vertColor;
   }
 
   if (alphaMode == ALPHAMODE_MASK) {
@@ -224,13 +226,8 @@ void main() {
     norm = normalize(TBN * normal);
   }
 
-  vec3 albedo = material.diffuse.rgb;
   float metallic = material.metallic;
   float roughness = material.roughness;
-
-  if (hasDiffuseTexture) {
-    albedo *= texture(material.texture_diffuse, fragTexCoords).rgb;
-  }
 
   if (hasMetallicRoughnessTexture) {
     vec4 metallic_roughness = texture(material.texture_metallic_roughness, fragTexCoords);
@@ -246,8 +243,8 @@ void main() {
   vec3 viewDir = normalize(viewPos - fragPos);
 
   // TODO: deferred shading because these lights are crazy expensive
-  vec3 result = CalculateDirLight(albedo, metallic, roughness, dirLight, norm, viewDir);
-  result += CalculatePointLights(albedo, metallic, roughness, norm, viewDir);
+  vec3 result = CalculateDirLight(baseColor.xyz, metallic, roughness, dirLight, norm, viewDir);
+  result += CalculatePointLights(baseColor.xyz, metallic, roughness, norm, viewDir);
 
   if (hasEmissiveTexture) {
     result += texture(material.texture_emissive, fragTexCoords).rgb * material.emissive;

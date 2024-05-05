@@ -6,10 +6,12 @@ layout (location = 2) in vec2 texCoords;
 layout (location = 3) in vec4 tangent;
 layout (location = 4) in uvec4 joint;
 layout (location = 5) in vec4 weight;
+layout (location = 6) in vec4 color;
 
 out vec3 fragPos;
 out vec3 fragNormal;
 out vec2 fragTexCoords;
+out vec4 vertColor;
 out mat3 TBN;
 
 uniform mediump sampler2DArray morphTargets;
@@ -103,6 +105,7 @@ void main() {
     fragNormal = mat3(transpose(inverse(modelMat))) * norm;
     fragPos = vec3(modelMat * vec4(pos, 1.0));
     fragTexCoords = texCoords;
+    vertColor = color;
 
     // TODO: More efficient way of calculating the normal maps by moving most of the processing from the frag shader
     // to the vert shader, check learnopengl.com
