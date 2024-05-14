@@ -67,68 +67,6 @@ Bindings :: struct {
 OsCursor :: win32.HCURSOR
 
 @(private = "file")
-HID_USAGE_PAGE_GENERIC :: 0x01
-@(private = "file")
-HID_USAGE_PAGE_BUTTON :: 0x09
-@(private = "file")
-HID_USAGE_PAGE_DIGITIZER :: 0x0D
-@(private = "file")
-HID_USAGE_PAGE_HAPTICS :: 0x0E
-
-@(private = "file")
-HID_USAGE_GENERIC_MOUSE :: 0x02
-@(private = "file")
-HID_USAGE_GENERIC_JOYSTICK :: 0x04
-@(private = "file")
-HID_USAGE_GENERIC_GAMEPAD :: 0x05
-@(private = "file")
-HID_USAGE_GENERIC_KEYBOARD :: 0x06
-@(private = "file")
-HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER :: 0x08
-@(private = "file")
-HID_USAGE_GENERIC_X :: 0x30
-@(private = "file")
-HID_USAGE_GENERIC_Y :: 0x31
-@(private = "file")
-HID_USAGE_GENERIC_Z :: 0x32
-@(private = "file")
-HID_USAGE_GENERIC_RX :: 0x33
-@(private = "file")
-HID_USAGE_GENERIC_RY :: 0x34
-@(private = "file")
-HID_USAGE_GENERIC_RZ :: 0x35
-@(private = "file")
-HID_USAGE_GENERIC_SLIDER :: 0x36
-@(private = "file")
-HID_USAGE_GENERIC_HATSWITCH :: 0x39
-
-@(private = "file")
-HID_USAGE_DIGITIZER_TOUCH_PAD :: 0x05
-@(private = "file")
-HID_USAGE_DIGITIZER_TIP_SWITCH :: 0x42
-
-@(private = "file")
-HID_USAGE_HAPTICS_SIMPLE_CONTROLLER :: 0x01
-@(private = "file")
-HID_USAGE_HAPTICS_WAVEFORM_RUMBLE :: 0x1005
-
-@(private = "file")
-RIDI_PREPARSEDDATA :: 0x20000005
-@(private = "file")
-RIDI_DEVICENAME :: 0x20000007
-@(private = "file")
-RIDI_DEVICEINFO :: 0x2000000b
-
-@(private = "file")
-RI_KEY_MAKE :: 0
-@(private = "file")
-RI_KEY_BREAK :: 1
-@(private = "file")
-RI_KEY_E0 :: 2
-@(private = "file")
-RI_KEY_E1 :: 4
-
-@(private = "file")
 HID_STRING_CAP :: 2048
 // 4093 comes from: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/hidsdi/nf-hidsdi-hidd_getproductstring
 @(private = "file")
@@ -152,11 +90,11 @@ Xbox_Series_S_Button_Mapping := []GamepadAction {
 
 @(private = "file")
 Xbox_Series_S_Axis_Mapping := []GamepadActionPair {
-    HID_USAGE_GENERIC_X  = {.STICK_LEFT_X_EAST, .STICK_LEFT_X_WEST},
-    HID_USAGE_GENERIC_Y  = {.STICK_LEFT_Y_SOUTH, .STICK_LEFT_Y_NORTH},
-    HID_USAGE_GENERIC_RX = {.STICK_RIGHT_X_EAST, .STICK_RIGHT_X_WEST},
-    HID_USAGE_GENERIC_RY = {.STICK_RIGHT_Y_SOUTH, .STICK_RIGHT_Y_NORTH},
-    HID_USAGE_GENERIC_Z  = {.TRIGGER_LEFT, .TRIGGER_RIGHT},
+    win32.HID_USAGE_GENERIC_X  = {.STICK_LEFT_X_EAST, .STICK_LEFT_X_WEST},
+    win32.HID_USAGE_GENERIC_Y  = {.STICK_LEFT_Y_SOUTH, .STICK_LEFT_Y_NORTH},
+    win32.HID_USAGE_GENERIC_RX = {.STICK_RIGHT_X_EAST, .STICK_RIGHT_X_WEST},
+    win32.HID_USAGE_GENERIC_RY = {.STICK_RIGHT_Y_SOUTH, .STICK_RIGHT_Y_NORTH},
+    win32.HID_USAGE_GENERIC_Z  = {.TRIGGER_LEFT, .TRIGGER_RIGHT},
 }
 
 @(private = "file")
@@ -191,13 +129,13 @@ DS3_Button_Mapping := []GamepadAction {
 
 DS3_Axis_Mapping := []GamepadActionPair {
     // NOTE: No idea what this axis is for
-    HID_USAGE_GENERIC_SLIDER = {.NONE, .NONE},
-    HID_USAGE_GENERIC_X  = {.STICK_LEFT_X_EAST, .STICK_LEFT_X_WEST},
-    HID_USAGE_GENERIC_Y  = {.STICK_LEFT_Y_SOUTH, .STICK_LEFT_Y_NORTH},
-    HID_USAGE_GENERIC_RX = {.TRIGGER_LEFT, .NONE},
-    HID_USAGE_GENERIC_RY = {.TRIGGER_RIGHT, .NONE},
-    HID_USAGE_GENERIC_Z  = {.STICK_RIGHT_X_EAST, .STICK_RIGHT_X_WEST},
-    HID_USAGE_GENERIC_RZ = {.STICK_RIGHT_Y_SOUTH, .STICK_RIGHT_Y_NORTH},
+    win32.HID_USAGE_GENERIC_SLIDER = {.NONE, .NONE},
+    win32.HID_USAGE_GENERIC_X  = {.STICK_LEFT_X_EAST, .STICK_LEFT_X_WEST},
+    win32.HID_USAGE_GENERIC_Y  = {.STICK_LEFT_Y_SOUTH, .STICK_LEFT_Y_NORTH},
+    win32.HID_USAGE_GENERIC_RX = {.TRIGGER_LEFT, .NONE},
+    win32.HID_USAGE_GENERIC_RY = {.TRIGGER_RIGHT, .NONE},
+    win32.HID_USAGE_GENERIC_Z  = {.STICK_RIGHT_X_EAST, .STICK_RIGHT_X_WEST},
+    win32.HID_USAGE_GENERIC_RZ = {.STICK_RIGHT_Y_SOUTH, .STICK_RIGHT_Y_NORTH},
 }
 
 @(private = "file")
@@ -236,12 +174,12 @@ DS4_Button_Mapping := []GamepadAction {
 
 @(private = "file")
 DS4_Axis_Mapping := []GamepadActionPair {
-    HID_USAGE_GENERIC_X  = {.STICK_LEFT_X_EAST, .STICK_LEFT_X_WEST},
-    HID_USAGE_GENERIC_Y  = {.STICK_LEFT_Y_SOUTH, .STICK_LEFT_Y_NORTH},
-    HID_USAGE_GENERIC_RX = {.TRIGGER_LEFT, .NONE},
-    HID_USAGE_GENERIC_RY = {.TRIGGER_RIGHT, .NONE},
-    HID_USAGE_GENERIC_Z  = {.STICK_RIGHT_X_EAST, .STICK_RIGHT_X_WEST},
-    HID_USAGE_GENERIC_RZ = {.STICK_RIGHT_Y_SOUTH, .STICK_RIGHT_Y_NORTH},
+    win32.HID_USAGE_GENERIC_X  = {.STICK_LEFT_X_EAST, .STICK_LEFT_X_WEST},
+    win32.HID_USAGE_GENERIC_Y  = {.STICK_LEFT_Y_SOUTH, .STICK_LEFT_Y_NORTH},
+    win32.HID_USAGE_GENERIC_RX = {.TRIGGER_LEFT, .NONE},
+    win32.HID_USAGE_GENERIC_RY = {.TRIGGER_RIGHT, .NONE},
+    win32.HID_USAGE_GENERIC_Z  = {.STICK_RIGHT_X_EAST, .STICK_RIGHT_X_WEST},
+    win32.HID_USAGE_GENERIC_RZ = {.STICK_RIGHT_Y_SOUTH, .STICK_RIGHT_Y_NORTH},
 }
 
 @(private = "file")
@@ -1093,6 +1031,7 @@ init_legacy_gl :: proc(class_name: win32.wstring, hInstance: win32.HINSTANCE) {
             gl_major,
             gl_minor,
         )
+        // TODO: show the same logged message in a MessageBox
         os.exit(1)
     }
 }
@@ -1523,12 +1462,12 @@ window_proc :: proc "stdcall" (
                                 break
                             }
                             win32_scancode := raw_input.data.keyboard.MakeCode
-                            if raw_input.data.keyboard.Flags & RI_KEY_E0 == RI_KEY_E0 {
+                            if raw_input.data.keyboard.Flags & win32.RI_KEY_E0 == win32.RI_KEY_E0 {
                                 win32_scancode |= 0xE000
-                            } else if raw_input.data.keyboard.Flags & RI_KEY_E1 == RI_KEY_E1 {
+                            } else if raw_input.data.keyboard.Flags & win32.RI_KEY_E1 == win32.RI_KEY_E1 {
                                 win32_scancode |= 0xE100
                             }
-                            is_pressed := !(raw_input.data.keyboard.Flags & RI_KEY_BREAK == RI_KEY_BREAK)
+                            is_pressed := !(raw_input.data.keyboard.Flags & win32.RI_KEY_BREAK == win32.RI_KEY_BREAK)
 
                             switch (win32_scancode) {
                                 //0xE11D: first part of the Pause
@@ -1613,18 +1552,18 @@ window_proc :: proc "stdcall" (
 
                                     for u in 0 ..< usage_count {
                                         usage := usages[u]
-                                        if cap.UsagePage == HID_USAGE_PAGE_DIGITIZER {
+                                        if cap.UsagePage == win32.HID_USAGE_PAGE_DIGITIZER {
                                             // When tapping/touching the touchpad
                                             // Tip switch is usually for Stylus pens but is also used as a button click(in this case touch)
                                             // for other digitizer devices.
-                                            if usage == HID_USAGE_DIGITIZER_TIP_SWITCH {
+                                            if usage == win32.HID_USAGE_DIGITIZER_TIP_SWITCH {
                                                 has_touch = true
                                                 if !(.TOUCH in input_device.touchpad.action_is_pressed_bitset) {
                                                     os_event_queue_raw_touchpad_action(key, .TOUCH, true)
                                                 }
                                             }
                                         }
-                                        if cap.UsagePage == HID_USAGE_PAGE_BUTTON {
+                                        if cap.UsagePage == win32.HID_USAGE_PAGE_BUTTON {
                                             // When clicking the touchpad's physical button
                                             if usage == 1 {     // Button 1
                                                 has_click = true
@@ -1668,15 +1607,15 @@ window_proc :: proc "stdcall" (
                                         break
                                     }
 
-                                    if cap.UsagePage == HID_USAGE_PAGE_GENERIC {
+                                    if cap.UsagePage == win32.HID_USAGE_PAGE_GENERIC {
                                         // For X and Y position
-                                        if cap.NotRange.Usage == HID_USAGE_GENERIC_X {
+                                        if cap.NotRange.Usage == win32.HID_USAGE_GENERIC_X {
                                             pos.x = cast(f32)value
-                                        } else if cap.NotRange.Usage == HID_USAGE_GENERIC_Y {
+                                        } else if cap.NotRange.Usage == win32.HID_USAGE_GENERIC_Y {
                                             pos.y = cast(f32)value
                                         }
                                     }
-                                    if cap.UsagePage == HID_USAGE_PAGE_DIGITIZER {
+                                    if cap.UsagePage == win32.HID_USAGE_PAGE_DIGITIZER {
                                         // ??? Some special touchpad stuff
                                     }
                                 }
@@ -1751,7 +1690,7 @@ window_proc :: proc "stdcall" (
                                         break
                                     }
 
-                                    if cap.NotRange.Usage == HID_USAGE_GENERIC_HATSWITCH {
+                                    if cap.NotRange.Usage == win32.HID_USAGE_GENERIC_HATSWITCH {
                                         dpad_actions := input_device_backend.gamepad_button_bindings.hatswitch[value]
 
                                         if .NONE in dpad_actions {
@@ -1821,7 +1760,7 @@ window_proc :: proc "stdcall" (
                     device_info_size: u32 = size_of(win32.RID_DEVICE_INFO)
                     res := win32.GetRawInputDeviceInfoW(
                         raw_input_device_handle,
-                        RIDI_DEVICEINFO,
+                        win32.RIDI_DEVICEINFO,
                         &device_info,
                         &device_info_size,
                     )
@@ -1832,7 +1771,7 @@ window_proc :: proc "stdcall" (
                     }
 
                     device_name_len: win32.UINT
-                    res = win32.GetRawInputDeviceInfoW(raw_input_device_handle, RIDI_DEVICENAME, nil, &device_name_len)
+                    res = win32.GetRawInputDeviceInfoW(raw_input_device_handle, win32.RIDI_DEVICENAME, nil, &device_name_len)
 
                     if cast(i32)res == -1 {
                         log.error("Failed to query raw input device's name length")
@@ -1844,7 +1783,7 @@ window_proc :: proc "stdcall" (
 
                     res = win32.GetRawInputDeviceInfoW(
                         raw_input_device_handle,
-                        RIDI_DEVICENAME,
+                        win32.RIDI_DEVICENAME,
                         device_name,
                         &device_name_len,
                     )
@@ -1952,7 +1891,7 @@ window_proc :: proc "stdcall" (
                             preparsed_data_size: win32.UINT
                             res := win32.GetRawInputDeviceInfoW(
                                 raw_input_device_handle,
-                                RIDI_PREPARSEDDATA,
+                                win32.RIDI_PREPARSEDDATA,
                                 nil,
                                 &preparsed_data_size,
                             )
@@ -1968,7 +1907,7 @@ window_proc :: proc "stdcall" (
                             preparsed_data := make([^]win32.HIDP_PREPARSED_DATA, preparsed_data_size, arena_allocator)
                             res = win32.GetRawInputDeviceInfoW(
                                 raw_input_device_handle,
-                                RIDI_PREPARSEDDATA,
+                                win32.RIDI_PREPARSEDDATA,
                                 preparsed_data,
                                 &preparsed_data_size,
                             )
@@ -2018,8 +1957,8 @@ window_proc :: proc "stdcall" (
                             }
 
                             switch device_info.hid.usUsagePage {
-                                case HID_USAGE_PAGE_GENERIC:
-                                    if device_info.hid.usUsage == HID_USAGE_GENERIC_GAMEPAD || device_info.hid.usUsage == HID_USAGE_GENERIC_JOYSTICK {
+                                case win32.HID_USAGE_PAGE_GENERIC:
+                                    if device_info.hid.usUsage == win32.HID_USAGE_GENERIC_GAMEPAD || device_info.hid.usUsage == win32.HID_USAGE_GENERIC_JOYSTICK {
                                         // TODO: Gyroscope, Accelerator, Touchpad (PlayStation only) and Rumble support.
                                         gamepad_id := device_info.hid.dwVendorId << 16 | device_info.hid.dwProductId
                                         if !(gamepad_id in SupportedControllers) {
@@ -2081,15 +2020,15 @@ window_proc :: proc "stdcall" (
                                         input_device_backend.value_caps_count = value_caps_count
                                         input_device_backend.gamepad_button_bindings = SupportedControllers[gamepad_id]
                                     }
-                                case HID_USAGE_PAGE_DIGITIZER:
-                                    if device_info.hid.usUsage == HID_USAGE_DIGITIZER_TOUCH_PAD {
+                                case win32.HID_USAGE_PAGE_DIGITIZER:
+                                    if device_info.hid.usUsage == win32.HID_USAGE_DIGITIZER_TOUCH_PAD {
                                         dims: m.vec2
 
                                         for v in 0 ..< caps.NumberInputValueCaps {
-                                            if value_caps[v].UsagePage == HID_USAGE_PAGE_GENERIC {
-                                                if value_caps[v].NotRange.Usage == HID_USAGE_GENERIC_X {
+                                            if value_caps[v].UsagePage == win32.HID_USAGE_PAGE_GENERIC {
+                                                if value_caps[v].NotRange.Usage == win32.HID_USAGE_GENERIC_X {
                                                     dims.x = cast(f32)value_caps[v].LogicalMax
-                                                } else if value_caps[v].NotRange.Usage == HID_USAGE_GENERIC_Y {
+                                                } else if value_caps[v].NotRange.Usage == win32.HID_USAGE_GENERIC_Y {
                                                     dims.y = cast(f32)value_caps[v].LogicalMax
                                                 }
                                             }
@@ -2181,33 +2120,33 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
 
     input_devices_types := []win32.RAWINPUTDEVICE {
          {
-            usUsagePage = HID_USAGE_PAGE_GENERIC,
+            usUsagePage = win32.HID_USAGE_PAGE_GENERIC,
             dwFlags = win32.RIDEV_DEVNOTIFY,
-            usUsage = HID_USAGE_GENERIC_MOUSE,
+            usUsage = win32.HID_USAGE_GENERIC_MOUSE,
             hwndTarget = w_os.hwnd,
         },
          {
-            usUsagePage = HID_USAGE_PAGE_GENERIC,
+            usUsagePage = win32.HID_USAGE_PAGE_GENERIC,
             dwFlags = win32.RIDEV_DEVNOTIFY,
-            usUsage = HID_USAGE_GENERIC_KEYBOARD,
+            usUsage = win32.HID_USAGE_GENERIC_KEYBOARD,
             hwndTarget = w_os.hwnd,
         },
          {
-            usUsagePage = HID_USAGE_PAGE_GENERIC,
+            usUsagePage = win32.HID_USAGE_PAGE_GENERIC,
             dwFlags = win32.RIDEV_DEVNOTIFY,
-            usUsage = HID_USAGE_GENERIC_GAMEPAD,
+            usUsage = win32.HID_USAGE_GENERIC_GAMEPAD,
             hwndTarget = w_os.hwnd,
         },
          {
-            usUsagePage = HID_USAGE_PAGE_GENERIC,
+            usUsagePage = win32.HID_USAGE_PAGE_GENERIC,
             dwFlags = win32.RIDEV_DEVNOTIFY,
-            usUsage = HID_USAGE_GENERIC_JOYSTICK,
+            usUsage = win32.HID_USAGE_GENERIC_JOYSTICK,
             hwndTarget = w_os.hwnd,
         },
          {
-            usUsagePage = HID_USAGE_PAGE_DIGITIZER,
+            usUsagePage = win32.HID_USAGE_PAGE_DIGITIZER,
             dwFlags = win32.RIDEV_DEVNOTIFY,
-            usUsage = HID_USAGE_DIGITIZER_TOUCH_PAD,
+            usUsage = win32.HID_USAGE_DIGITIZER_TOUCH_PAD,
             hwndTarget = w_os.hwnd,
         },
     }
