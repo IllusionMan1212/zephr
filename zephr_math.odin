@@ -1,6 +1,6 @@
 package zephr
 
-import "core:intrinsics"
+import "base:intrinsics"
 import "core:math"
 import m "core:math/linalg/glsl"
 

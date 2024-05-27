@@ -5,8 +5,10 @@ import "core:log"
 import m "core:math/linalg/glsl"
 import "core:slice"
 import "core:strings"
+import "core:time"
 
 import gl "vendor:OpenGL"
+import "vendor:stb/image"
 
 @(private = "file")
 mesh_shader: ^Shader
@@ -90,7 +92,7 @@ draw :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
 
     entities := entities
 
-    for entity in &entities {
+    for &entity in entities {
         model_mat := m.identity(m.mat4)
         model_mat = m.mat4Scale(entity.scale) * model_mat
         model_mat = m.mat4FromQuat(entity.rotation) * model_mat
@@ -360,3 +362,30 @@ draw_lights :: proc(lights: []Light) {
 get_editor_camera :: proc() -> ^Camera {
     return &editor_camera
 }
+
+// MUST be called after drawing and before swapping buffers, otherwise you only get the clear color
+save_default_framebuffer_to_image :: proc(filename: string = "") -> bool {
+    filename := filename
+    w := i32(zephr_ctx.window.size.x)
+    h := i32(zephr_ctx.window.size.y)
+
+    if filename == "" {
+        now := time.now()
+        year, month, day := time.date(now)
+        hour, mins, secs := time.clock_from_time(now)
+        filename = fmt.tprintf("%d-%02d-%02d %02d:%02d:%02d.png", year, cast(i32)month, day, hour, mins, secs)
+    } else {
+        filename = strings.concatenate({filename, ".png"}, context.temp_allocator)
+    }
+
+    pixels := make([]u8, w * h * 3)
+    defer delete(pixels)
+    gl.PixelStorei(gl.PACK_ALIGNMENT, 1)
+    gl.ReadPixels(0, 0, w, h, gl.RGB, gl.UNSIGNED_BYTE, raw_data(pixels))
+    gl.PixelStorei(gl.PACK_ALIGNMENT, 4)
+
+    cstr := strings.clone_to_cstring(filename, context.temp_allocator)
+    image.flip_vertically_on_write(true)
+    return image.write_png(cstr, w, h, 3, raw_data(pixels), w * 3) != 0
+}
+

@@ -1,7 +1,7 @@
 package zephr
 
+import "base:intrinsics"
 import "core:fmt"
-import "core:intrinsics"
 import "core:log"
 import "core:math"
 import m "core:math/linalg/glsl"
