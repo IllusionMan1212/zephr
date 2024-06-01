@@ -1031,7 +1031,9 @@ init_legacy_gl :: proc(class_name: win32.wstring, hInstance: win32.HINSTANCE) {
             gl_major,
             gl_minor,
         )
-        // TODO: show the same logged message in a MessageBox
+        title := win32.utf8_to_wstring("Failed to initialize OpenGL", context.temp_allocator)
+        msg := win32.utf8_to_wstring(fmt.tprintf("You need at least OpenGL 3.3 to run this application. Your OpenGL version is %d.%d", gl_major, gl_minor), context.temp_allocator)
+        win32.MessageBoxExW(w_os.hwnd, msg, title, win32.MB_OK | win32.MB_ICONERROR, 0)
         os.exit(1)
     }
 }
@@ -1111,7 +1113,6 @@ init_gl :: proc(
         win32.WGL_ALPHA_BITS_ARB,     8,
         win32.WGL_DEPTH_BITS_ARB,     24,
         win32.WGL_STENCIL_BITS_ARB,   0,
-        win32.WGL_SAMPLES_ARB,        4,
         0,
     }
     //odinfmt: enable
@@ -1231,7 +1232,7 @@ window_proc :: proc "stdcall" (
             height := win32.HIWORD(auto_cast lparam)
             zephr_ctx.window.size = m.vec2{cast(f32)width, cast(f32)height}
             zephr_ctx.projection = orthographic_projection_2d(0, zephr_ctx.window.size.x, zephr_ctx.window.size.y, 0)
-            gl.Viewport(0, 0, cast(i32)zephr_ctx.window.size.x, cast(i32)zephr_ctx.window.size.y)
+            resize_multisample_fb(i32(width), i32(height))
 
             e: Event
             e.window.width = cast(u32)width
