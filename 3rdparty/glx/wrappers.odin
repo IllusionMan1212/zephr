@@ -51,30 +51,20 @@ __FBConfigRec :: struct {
     minAlpha, maxAlpha:                                                  f64,
 }
 
-// apparently this isn't defined anywhere ???
-// so we define a minimal one according to this
-// https://dri.freedesktop.org/docs/gallium/glxapi_8h-source.html
-// see also: https://github.com/Tarnyko/EGLX/blob/b82af86a8a0daf3408fb7a6e7b07b02b01476626/EGLX.h#L280
-@(private)
-__ContextRec :: struct {
-    currentDpy:      ^x11.Display,
-    isDirect:        b8,
-    currentDrawable: Drawable,
-    currentReadable: Drawable,
-    xid:             x11.XID,
-}
-
 FBConfig :: ^__FBConfigRec
-Context :: ^__ContextRec
+Context :: rawptr
 
 @(link_prefix = "glX")
 foreign glx {
     GetProcAddressARB :: proc(name: ^u8) -> rawptr ---
     SwapBuffers :: proc(display: ^x11.Display, drawable: Drawable) ---
-    QueryVersion :: proc(display: ^x11.Display, major: ^i32, minor: ^i32) -> bool ---
+    QueryVersion :: proc(display: ^x11.Display, major: ^i32, minor: ^i32) -> b32 ---
+    QueryExtensionsString :: proc(display: ^x11.Display, screen: i32) -> cstring ---
+    GetFBConfigAttrib :: proc(display: ^x11.Display, config: FBConfig, attribute: i32, value: ^i32) -> i32 ---
     ChooseFBConfig :: proc(display: ^x11.Display, screen: i32, attrib_list: ^i32, nelements: ^i32) -> [^]FBConfig ---
-    CreateContextAttribsARB :: proc(display: ^x11.Display, config: FBConfig, share_context: Context, direct: bool, attrib_list: ^i32) -> Context ---
+    CreateContextAttribsARB :: proc(display: ^x11.Display, config: FBConfig, share_context: Context, direct: b32, attrib_list: ^i32) -> Context ---
+    GetVisualFromFBConfig :: proc(display: ^x11.Display, config: FBConfig) -> ^x11.XVisualInfo ---
     DestroyContext :: proc(display: ^x11.Display, ctx: Context) ---
-    SwapIntervalEXT :: proc(display: ^x11.Display, drawable: Drawable, interval: i32) -> bool ---
-    MakeCurrent :: proc(display: ^x11.Display, drawable: Drawable, ctx: Context) -> bool ---
+    SwapIntervalEXT :: proc(display: ^x11.Display, drawable: Drawable, interval: i32) ---
+    MakeCurrent :: proc(display: ^x11.Display, drawable: Drawable, ctx: Context) -> b32 ---
 }

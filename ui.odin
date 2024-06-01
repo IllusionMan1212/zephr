@@ -404,7 +404,7 @@ draw_triangle :: proc(constraints: ^UiConstraints, style: UiStyle) {
     gl.BindVertexArray(0)
 }
 
-draw_texture :: proc(constraints: ^UiConstraints, texture_id: TextureId, style: UiStyle) {
+draw_texture :: proc(constraints: ^UiConstraints, texture_id: TextureId, style: UiStyle, flip_y: bool = false) {
     use_shader(ui_shader)
 
     set_vec4f(
@@ -446,16 +446,32 @@ draw_texture :: proc(constraints: ^UiConstraints, texture_id: TextureId, style: 
 
     gl.BindVertexArray(ui_vao)
 
+    v1_uv := m.vec2{0.0, 1.0}
+    v2_uv := m.vec2{0.0, 0.0}
+    v3_uv := m.vec2{1.0, 0.0}
+    v4_uv := m.vec2{0.0, 1.0}
+    v5_uv := m.vec2{1.0, 0.0}
+    v6_uv := m.vec2{1.0, 1.0}
+
+    if flip_y {
+        v1_uv.y = 0.0
+        v2_uv.y = 1.0
+        v3_uv.y = 1.0
+        v4_uv.y = 0.0
+        v5_uv.y = 1.0
+        v6_uv.y = 0.0
+    }
+
     vertices := [6][4]f32 {
         // bottom left tri
-        {0, 0 + rect.size.y, 0.0, 1.0},
-        {0, 0, 0.0, 0.0},
-        {0 + rect.size.x, 0, 1.0, 0.0},
+        {0, 0 + rect.size.y, v1_uv.x, v1_uv.y},
+        {0, 0, v2_uv.x, v2_uv.y},
+        {0 + rect.size.x, 0, v3_uv.x, v3_uv.y},
 
         // top right tri
-        {0, 0 + rect.size.y, 0.0, 1.0},
-        {0 + rect.size.x, 0, 1.0, 0.0},
-        {0 + rect.size.x, 0 + rect.size.y, 1.0, 1.0},
+        {0, 0 + rect.size.y, v4_uv.x, v4_uv.y},
+        {0 + rect.size.x, 0, v5_uv.x, v5_uv.y},
+        {0 + rect.size.x, 0 + rect.size.y, v6_uv.x, v6_uv.y},
     }
 
     gl.BindBuffer(gl.ARRAY_BUFFER, ui_vbo)

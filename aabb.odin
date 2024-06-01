@@ -9,6 +9,10 @@ AABB :: struct {
     max: m.vec3,
 }
 
+// TODO: this is an OBB (Object bounding box) that I'm doing btw
+// Real AABBs are aligned to the world axes and don't rotate when the object rotates, they instead expand and shrink
+// to fix the object while still being aligned to the world axes.
+
 @(private)
 aabb_vao, aabb_vbo, aabb_ebo: u32
 
