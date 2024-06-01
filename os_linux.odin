@@ -790,13 +790,6 @@ backend_get_screen_size :: proc() -> m.vec2 {
 }
 
 @(private = "file")
-x11_resize_window :: proc() {
-    win_attrs: x11.XWindowAttributes
-    x11.XGetWindowAttributes(l_os.x11_display, l_os.x11_window, &win_attrs)
-    gl.Viewport(0, 0, win_attrs.width, win_attrs.height)
-}
-
-@(private = "file")
 get_active_monitor_dims :: proc(root: x11.Window) -> m.vec4 {
     context.logger = logger
 
@@ -849,12 +842,61 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
     context.logger = logger
 
     screen_num := x11.XDefaultScreen(l_os.x11_display)
-    root := x11.XRootWindow(l_os.x11_display, screen_num)
-    visual := x11.XDefaultVisual(l_os.x11_display, screen_num)
 
+    // Load up GL/GLX before creating the window to be able to use the FBConfig's visual info when creating the window.
+    gl.load_up_to(
+        3,
+        3,
+        proc(p: rawptr, name: cstring) {(cast(^rawptr)p)^ = glx.GetProcAddressARB(raw_data(string(name)))},
+    )
+
+    glx_major: i32
+    glx_minor: i32
+    glx.QueryVersion(l_os.x11_display, &glx_major, &glx_minor)
+
+    log.infof("Loaded GLX: %d.%d", glx_major, glx_minor)
+    
+    //odinfmt: disable
+    visual_attributes := []i32 {
+        glx.X_RENDERABLE, 1,
+        glx.DRAWABLE_TYPE, glx.WINDOW_BIT,
+        glx.X_VISUAL_TYPE, glx.TRUE_COLOR,
+        glx.RENDER_TYPE, glx.RGBA_BIT,
+        glx.BUFFER_SIZE, 8,
+        glx.RED_SIZE, 8,
+        glx.GREEN_SIZE, 8,
+        glx.BLUE_SIZE, 8,
+        glx.ALPHA_SIZE, 8,
+        glx.DEPTH_SIZE, 24,
+        glx.DOUBLEBUFFER, 1,
+        x11.None,
+    }
+    //odinfmt: enable
+
+    num_fbc: i32
+    fbc := glx.ChooseFBConfig(l_os.x11_display, screen_num, raw_data(visual_attributes), &num_fbc)
+    visual_info := glx.GetVisualFromFBConfig(l_os.x11_display, fbc[0])
+
+    //odinfmt: disable
+    context_attributes := []i32 {
+        glx.CONTEXT_MAJOR_VERSION_ARB, 3,
+        glx.CONTEXT_MINOR_VERSION_ARB, 3,
+        glx.CONTEXT_PROFILE_MASK_ARB,  glx.CONTEXT_CORE_PROFILE_BIT_ARB,
+        x11.None,
+    }
+    //odinfmt: enable
+
+    l_os.glx_context = glx.CreateContextAttribsARB(l_os.x11_display, fbc[0], nil, true, raw_data(context_attributes))
+
+    if l_os.glx_context == nil {
+        log.error("Failed to create GLX context")
+        return
+    }
+
+    root := x11.XRootWindow(l_os.x11_display, visual_info.screen)
     active_monitor_dims := get_active_monitor_dims(root)
 
-    l_os.x11_colormap = x11.XCreateColormap(l_os.x11_display, root, visual, x11.ColormapAlloc.AllocNone)
+    l_os.x11_colormap = x11.XCreateColormap(l_os.x11_display, root, visual_info.visual, x11.ColormapAlloc.AllocNone)
 
     attributes: x11.XSetWindowAttributes
     attributes.event_mask =  {
@@ -883,9 +925,9 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         cast(u32)window_size.x,
         cast(u32)window_size.y,
         0,
-        x11.XDefaultDepth(l_os.x11_display),
+        visual_info.depth,
         .InputOutput,
-        visual,
+        visual_info.visual,
         {.CWColormap, .CWEventMask},
         &attributes,
     )
@@ -1025,65 +1067,17 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
 
     x11.XMapWindow(l_os.x11_display, l_os.x11_window)
 
-    gl.load_up_to(
-        3,
-        3,
-        proc(p: rawptr, name: cstring) {(cast(^rawptr)p)^ = glx.GetProcAddressARB(raw_data(string(name)))},
-    )
-
-    glx_major: i32
-    glx_minor: i32
-    glx.QueryVersion(l_os.x11_display, &glx_major, &glx_minor)
-
-    log.infof("Loaded GLX: %d.%d", glx_major, glx_minor)
-    
-    //odinfmt: disable
-    visual_attributes := []i32 {
-        glx.RENDER_TYPE, glx.RGBA_BIT,
-        glx.RED_SIZE, 8,
-        glx.GREEN_SIZE, 8,
-        glx.BLUE_SIZE, 8,
-        // BUG: This causes a crash when running the engine on the dGPU
-        //glx.ALPHA_SIZE, 8,
-        glx.DEPTH_SIZE, 24,
-        glx.DOUBLEBUFFER, 1,
-        glx.SAMPLES, 4, // MSAA
-        x11.None,
-    }
-    //odinfmt: enable
-
-    num_fbc: i32
-    fbc := glx.ChooseFBConfig(l_os.x11_display, screen_num, raw_data(visual_attributes), &num_fbc)
-    
-    //odinfmt: disable
-    context_attributes := []i32 {
-        glx.CONTEXT_MAJOR_VERSION_ARB, 3,
-        glx.CONTEXT_MINOR_VERSION_ARB, 3,
-        glx.CONTEXT_PROFILE_MASK_ARB,  glx.CONTEXT_CORE_PROFILE_BIT_ARB,
-        x11.None,
-    }
-    //odinfmt: enable
-
-    l_os.glx_context = glx.CreateContextAttribsARB(l_os.x11_display, fbc[0], nil, true, raw_data(context_attributes))
-
-    if l_os.glx_context == nil {
-        log.error("Failed to create GLX context")
-        return
-    }
-
     glx.MakeCurrent(l_os.x11_display, l_os.x11_window, l_os.glx_context)
 
     gl_version := gl.GetString(gl.VERSION)
-
     log.infof("GL Version: %s", gl_version)
 
     glx.SwapIntervalEXT(l_os.x11_display, l_os.x11_window, 1)
+
     // we enable blending for text
     gl.Enable(gl.BLEND)
     gl.Enable(gl.DEPTH_TEST)
-    gl.Enable(gl.MULTISAMPLE)
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-    x11_resize_window()
 
     x11.XFree(fbc)
 }
@@ -2078,7 +2072,7 @@ backend_get_os_events :: proc() {
                     zephr_ctx.window.size.y,
                     0,
                 )
-                x11_resize_window()
+                resize_multisample_fb(xce.width, xce.height)
 
                 e.type = .WINDOW_RESIZED
                 e.window.width = cast(u32)xce.width

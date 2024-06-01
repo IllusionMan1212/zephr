@@ -567,15 +567,15 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
 
     backend_init(window_title, window_size, icon_path, window_non_resizable)
 
-    init_renderer()
-    ui_init(engine_font_path)
-
     zephr_ctx.ui.elements = make([dynamic]UiElement, INIT_UI_STACK_SIZE)
     zephr_ctx.virt_mouse.pos = m.vec2{-1, -1}
     zephr_ctx.window.size = window_size
     zephr_ctx.window.non_resizable = window_non_resizable
     zephr_ctx.projection = orthographic_projection_2d(0, window_size.x, window_size.y, 0)
     zephr_ctx.clear_color = {0.2, 0.2, 0.2, 1}
+
+    init_renderer(window_size)
+    ui_init(engine_font_path)
 
     backend_init_cursors()
 
@@ -599,9 +599,6 @@ set_clear_color :: proc(color: m.vec4) {
 
 should_quit :: proc() -> bool {
     frame_init()
-
-    gl.ClearColor(zephr_ctx.clear_color.r, zephr_ctx.clear_color.g, zephr_ctx.clear_color.b, zephr_ctx.clear_color.a)
-    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
     if zephr_ctx.virt_mouse.captured {
         zephr_ctx.cursor = .INVISIBLE

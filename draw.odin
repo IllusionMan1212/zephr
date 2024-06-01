@@ -3,6 +3,7 @@ package zephr
 import "core:fmt"
 import "core:log"
 import m "core:math/linalg/glsl"
+import "core:math"
 import "core:slice"
 import "core:strings"
 import "core:time"
@@ -10,12 +11,60 @@ import "core:time"
 import gl "vendor:OpenGL"
 import "vendor:stb/image"
 
+// We do 2^0, 2^2, 2^3, 2^4 to get 1, 4, 8, 16 for the corresponding MSAA samples
+MSAA_SAMPLES :: enum i32 {
+    NONE,
+    MSAA_4 = 2,
+    MSAA_8,
+    MSAA_16,
+}
+
+ANTIALIASING :: enum {
+    MSAA,
+}
+
 @(private = "file")
 mesh_shader: ^Shader
 @(private = "file")
 missing_texture: TextureId
 @(private = "file")
 editor_camera: Camera
+@(private = "file")
+multisample_fb: u32
+@(private = "file")
+depth_texture: TextureId
+@(private = "file")
+color_texture: TextureId
+@(private = "file")
+msaa := MSAA_SAMPLES.MSAA_4
+
+change_msaa :: proc(by: int) {
+    msaa_int := int(msaa)
+
+    defer {
+        log.debug("Setting MSAA to", msaa)
+        resize_multisample_fb(cast(i32)zephr_ctx.window.size.x, cast(i32)zephr_ctx.window.size.y)
+    }
+
+    msaa_int += by
+
+    if msaa_int == 1 {
+        msaa = MSAA_SAMPLES(msaa_int + by)
+        return
+    }
+
+    if msaa_int < int(MSAA_SAMPLES.NONE) {
+        msaa = .MSAA_16
+        return
+    }
+
+    if msaa_int > int(MSAA_SAMPLES.MSAA_16) {
+        msaa = .NONE
+        return
+    }
+
+    msaa = MSAA_SAMPLES(msaa_int)
+}
 
 // FIXME: I think we're doing something wrong when applying the transformation hierarchy
 // and that causes the rotations to be "flipped" for entities. But I'm not 100% sure yet tbh
@@ -39,7 +88,7 @@ editor_camera: Camera
 //    return sort(i)
 //}
 
-init_renderer :: proc() {
+init_renderer :: proc(window_size: m.vec2) {
     context.logger = logger
 
     editor_camera = DEFAULT_CAMERA
@@ -71,38 +120,55 @@ init_renderer :: proc() {
     log.debugf("Max texture layers: %d", max_tex_arr_size)
 
     init_aabb()
+    init_color_pass(window_size)
+}
+
+resize_multisample_fb :: proc(width, height: i32) {
+    gl.Viewport(0, 0, width, height)
+    _msaa := math.pow2_f32(msaa)
+
+    gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, color_texture)
+    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB, width, height, gl.FALSE)
+
+    gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, depth_texture)
+    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.DEPTH24_STENCIL8, width, height, gl.FALSE)
+}
+
+init_color_pass :: proc(size: m.vec2) {
+    _msaa := math.pow2_f32(msaa)
+    {
+        max_samples: i32
+        gl.GetIntegerv(gl.MAX_SAMPLES, &max_samples)
+        log.debug("MAX MSAA SAMPLES:", max_samples)
+    }
+
+    gl.GenTextures(1, &color_texture)
+    gl.GenTextures(1, &depth_texture)
+    gl.GenFramebuffers(1, &multisample_fb)
+
+    gl.BindFramebuffer(gl.FRAMEBUFFER, multisample_fb)
+
+    // Textures for both the color and depth attachments because renderbuffers just refuse to work
+    gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, color_texture)
+    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB, i32(size.x), i32(size.y), gl.FALSE)
+    gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D_MULTISAMPLE, color_texture, 0)
+
+    // There's no need for stencil here but renderdoc crashes when loading a capture if it isn't there.
+    gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, depth_texture)
+    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.DEPTH24_STENCIL8, i32(size.x), i32(size.y), gl.FALSE)
+    gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D_MULTISAMPLE, depth_texture, 0)
+
+    status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)
+    if status != gl.FRAMEBUFFER_COMPLETE {
+        log.errorf("Multisampled color framebuffer is not complete: 0x%X", status)
+    }
+
+    gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }
 
 // MUST be called every frame
 draw :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
-    use_shader(mesh_shader)
-    set_vec3fv(mesh_shader, "viewPos", camera.position)
-    set_mat4f(mesh_shader, "projectionView", camera.proj_mat * camera.view_mat)
-    set_bool(mesh_shader, "useTextures", false)
-
-    // sort meshes by transparency for proper alpha blending
-    // TODO: also sort by distance for transparent meshes
-    // TODO: also sort ALL models first
-    if len(entities) > 0 {
-        //slice.sort_by(models[0].nodes[:], sort_by_transparency)
-        //slice.sort_by(game.models[0].nodes[:], sort_by_distance)
-    }
-
-    draw_lights(lights)
-
-    entities := entities
-
-    for &entity in entities {
-        model_mat := m.identity(m.mat4)
-        model_mat = m.mat4Scale(entity.scale) * model_mat
-        model_mat = m.mat4FromQuat(entity.rotation) * model_mat
-        model_mat = m.mat4Translate(entity.position) * model_mat
-
-        apply_transform_hierarchy(&entity.model, model_mat)
-        draw_model(&entity.model)
-        //draw_aabb(entity.model.aabb, entity.model.nodes[0].world_transform)
-        //draw_collision_shape()
-    }
+    color_pass(entities, lights, camera)
 }
 
 @(private = "file")
@@ -356,6 +422,52 @@ draw_lights :: proc(lights: []Light) {
             point_light_idx += 1
         }
     }
+}
+
+color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
+    gl.BindFramebuffer(gl.FRAMEBUFFER, multisample_fb)
+    gl.Viewport(0, 0, cast(i32)zephr_ctx.window.size.x, cast(i32)zephr_ctx.window.size.y)
+    gl.ClearColor(zephr_ctx.clear_color.r, zephr_ctx.clear_color.g, zephr_ctx.clear_color.b, zephr_ctx.clear_color.a)
+    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+    use_shader(mesh_shader)
+    set_vec3fv(mesh_shader, "viewPos", camera.position)
+    set_mat4f(mesh_shader, "projectionView", camera.proj_mat * camera.view_mat)
+    set_bool(mesh_shader, "useTextures", false)
+
+    // sort meshes by transparency for proper alpha blending
+    // TODO: also sort by distance for transparent meshes
+    // TODO: also sort ALL models first
+    if len(entities) > 0 {
+        //slice.sort_by(models[0].nodes[:], sort_by_transparency)
+        //slice.sort_by(game.models[0].nodes[:], sort_by_distance)
+    }
+
+    draw_lights(lights)
+
+    entities := entities
+
+    for &entity in entities {
+        model_mat := m.identity(m.mat4)
+        model_mat = m.mat4Scale(entity.scale) * model_mat
+        model_mat = m.mat4FromQuat(entity.rotation) * model_mat
+        model_mat = m.mat4Translate(entity.position) * model_mat
+
+        apply_transform_hierarchy(&entity.model, model_mat)
+        draw_model(&entity.model)
+        //draw_aabb(entity.model.aabb, entity.model.nodes[0].world_transform)
+        //draw_collision_shape()
+    }
+
+    size_x := cast(i32)zephr_ctx.window.size.x
+    size_y := cast(i32)zephr_ctx.window.size.y
+
+    gl.BindFramebuffer(gl.READ_FRAMEBUFFER, multisample_fb)
+    gl.BindFramebuffer(gl.DRAW_FRAMEBUFFER, 0)
+    gl.DrawBuffer(gl.BACK)
+    gl.BlitFramebuffer(0, 0, size_x, size_y, 0, 0, size_x, size_y, gl.COLOR_BUFFER_BIT, gl.NEAREST)
+
+    gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }
 
 // TODO: is there a better place to put this?
