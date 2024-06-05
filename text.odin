@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import m "core:math/linalg/glsl"
 import "core:math/bits"
+import "core:math"
 import "core:strings"
 
 import gl "vendor:OpenGL"
@@ -396,12 +397,13 @@ draw_text_batch :: proc(batch: ^GlyphInstanceList) {
 
 @(private = "file")
 get_closest_font_size :: proc(font_size: u32) -> u8 {
-    closest: u32 = bits.U32_MAX
+    diff: i32 = bits.I32_MAX
     closest_idx: u8 = 0
 
     #reverse for pixel_size, i in FONT_PIXEL_SIZES {
-        if abs(cast(u32)pixel_size - font_size) < closest {
-            closest = abs(cast(u32)pixel_size - font_size)
+        cur_diff := math.abs(cast(i32)pixel_size - cast(i32)font_size)
+        if cur_diff < diff {
+            diff = cur_diff
             closest_idx = cast(u8)i
         }
     }

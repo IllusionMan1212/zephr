@@ -71,6 +71,10 @@ load_texture :: proc(
     if !is_diffuse {
         internal_format = format
     }
+    min_filter := min_filter
+    if min_filter == gl.LINEAR_MIPMAP_LINEAR && !generate_mipmap {
+        min_filter = gl.LINEAR
+    }
 
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 
@@ -95,7 +99,9 @@ load_texture :: proc(
         data,
     )
 
-    gl.GenerateMipmap(gl.TEXTURE_2D)
+    if generate_mipmap {
+        gl.GenerateMipmap(gl.TEXTURE_2D)
+    }
 
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
 
@@ -148,6 +154,10 @@ load_texture_from_memory :: proc(
     if !is_diffuse {
         internal_format = format
     }
+    min_filter := min_filter
+    if min_filter == gl.LINEAR_MIPMAP_LINEAR && !generate_mipmap {
+        min_filter = gl.LINEAR
+    }
 
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 
@@ -172,7 +182,9 @@ load_texture_from_memory :: proc(
         data,
     )
 
-    gl.GenerateMipmap(gl.TEXTURE_2D)
+    if generate_mipmap {
+        gl.GenerateMipmap(gl.TEXTURE_2D)
+    }
 
     gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
 
