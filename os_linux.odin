@@ -1093,10 +1093,10 @@ keyboard_map_update :: proc() {
     }
 
     state: x11.XkbStateRec
-    x11.XkbGetUpdatedMap(l_os.x11_display, x11.XkbAllClientInfoMask, l_os.xkb)
+    x11.kbGetUpdatedMap(l_os.x11_display, x11.XkbAllClientInfoMask, l_os.xkb)
 
     group: u8 = 0
-    if x11.XkbGetState(l_os.x11_display, x11.XkbUseCoreKbd, &state) == .Success {
+    if x11.kbGetState(l_os.x11_display, x11.XkbUseCoreKbd, &state) == .Success {
         group = state.group
     }
 
@@ -1108,7 +1108,7 @@ keyboard_map_update :: proc() {
 
     // documentation here: https://www.x.org/releases/current/doc/libX11/XKB/xkblib.html
     // evdev keycodes are 8 less than x11 keycodes
-    x11.XkbGetKeySyms(l_os.x11_display, cast(u32)first_keycode, cast(u32)(last_keycode - first_keycode), l_os.xkb)
+    x11.kbGetKeySyms(l_os.x11_display, cast(u32)first_keycode, cast(u32)(last_keycode - first_keycode), l_os.xkb)
     cmap := l_os.xkb._map
     for x11keycode in 8 ..< last_keycode {
         sym_map := &cmap.key_sym_map[x11keycode]
@@ -1176,12 +1176,12 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
 
     {
         // loads the XMODIFIERS environment variable to see what IME to use
-        x11.XSetLocaleModifiers("")
-        l_os.xim = x11.XOpenIM(l_os.x11_display, nil, nil, nil)
+        x11.SetLocaleModifiers("")
+        l_os.xim = x11.OpenIM(l_os.x11_display, nil, nil, nil)
         if (l_os.xim == nil) {
             // fallback to internal input method
-            x11.XSetLocaleModifiers("@im=none")
-            l_os.xim = x11.XOpenIM(l_os.x11_display, nil, nil, nil)
+            x11.SetLocaleModifiers("@im=none")
+            l_os.xim = x11.OpenIM(l_os.x11_display, nil, nil, nil)
         }
 
         // HACK: this is a workaround to force xlib to send us a MappingNotify
@@ -1191,18 +1191,18 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
         x11.AutoRepeatOn(l_os.x11_display)
         major: i32 = 1
         minor: i32 = 0
-        success := x11.XkbQueryExtension(l_os.x11_display, nil, nil, nil, &major, &minor)
+        success := x11.kbQueryExtension(l_os.x11_display, nil, nil, nil, &major, &minor)
         log.assert(cast(bool)success, "XKB extension not available")
-        success = x11.XkbUseExtension(l_os.x11_display, &major, &minor)
+        success = x11.kbUseExtension(l_os.x11_display, &major, &minor)
         log.assert(cast(bool)success, "Failed to initialize XKB extension")
 
-        l_os.xkb = x11.XkbGetMap(l_os.x11_display, x11.XkbAllClientInfoMask, x11.XkbUseCoreKbd)
+        l_os.xkb = x11.kbGetMap(l_os.x11_display, x11.XkbAllClientInfoMask, x11.XkbUseCoreKbd)
 
         // this will remove KeyRelease events for held keys.
         repeat: b32
-        x11.XkbSetDetectableAutoRepeat(l_os.x11_display, true, &repeat)
+        x11.kbSetDetectableAutoRepeat(l_os.x11_display, true, &repeat)
 
-        x11.XkbSelectEvents(
+        x11.kbSelectEvents(
             l_os.x11_display,
             x11.XkbUseCoreKbd,
             {.MapNotify, .ActionMessage},
