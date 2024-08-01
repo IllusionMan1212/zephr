@@ -109,10 +109,6 @@ Bindings :: [GamepadAction]LinuxEvdevBinding
 OsCursor :: x11.Cursor
 
 @(private = "file")
-PropModeReplace :: 0
-@(private = "file")
-XA_ATOM :: x11.Atom(4)
-@(private = "file")
 XA_STRING :: x11.Atom(31)
 @(private = "file")
 XA_CARDINAL :: x11.Atom(6)
@@ -777,7 +773,7 @@ x11_assign_window_icon :: proc(icon_path: cstring, window_title: cstring) {
         net_wm_icon,
         XA_CARDINAL,
         32,
-        PropModeReplace,
+        x11.PropModeReplace,
         raw_data(data),
         target_size,
     )
@@ -944,9 +940,9 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         l_os.x11_display,
         l_os.x11_window,
         net_wm_window_type,
-        XA_ATOM,
+        x11.XA_ATOM,
         32,
-        PropModeReplace,
+        x11.PropModeReplace,
         &net_wm_window_type_normal,
         1,
     )
@@ -975,9 +971,9 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         l_os.x11_display,
         l_os.x11_window,
         l_os.xdnd.xdnd_aware,
-        XA_ATOM,
+        x11.XA_ATOM,
         32,
-        PropModeReplace,
+        x11.PropModeReplace,
         &l_os.xdnd.xdnd_version,
         1,
     )
@@ -1004,7 +1000,7 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
             net_wm_name,
             UTF8_STRING,
             8,
-            PropModeReplace,
+            x11.PropModeReplace,
             raw_data(string(window_title)),
             cast(i32)len(window_title),
         )
@@ -1014,7 +1010,7 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
             wm_class,
             XA_STRING,
             8,
-            PropModeReplace,
+            x11.PropModeReplace,
             raw_data(string(window_title)),
             cast(i32)len(window_title),
         )
@@ -1027,7 +1023,7 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
             net_wm_icon_name,
             UTF8_STRING,
             8,
-            PropModeReplace,
+            x11.PropModeReplace,
             raw_data(string(window_title)),
             cast(i32)len(window_title),
         )
@@ -1093,10 +1089,10 @@ keyboard_map_update :: proc() {
     }
 
     state: x11.XkbStateRec
-    x11.kbGetUpdatedMap(l_os.x11_display, x11.XkbAllClientInfoMask, l_os.xkb)
+    x11.XkbGetUpdatedMap(l_os.x11_display, x11.XkbAllClientInfoMask, l_os.xkb)
 
     group: u8 = 0
-    if x11.kbGetState(l_os.x11_display, x11.XkbUseCoreKbd, &state) == .Success {
+    if x11.XkbGetState(l_os.x11_display, x11.XkbUseCoreKbd, &state) == .Success {
         group = state.group
     }
 
@@ -1108,7 +1104,7 @@ keyboard_map_update :: proc() {
 
     // documentation here: https://www.x.org/releases/current/doc/libX11/XKB/xkblib.html
     // evdev keycodes are 8 less than x11 keycodes
-    x11.kbGetKeySyms(l_os.x11_display, cast(u32)first_keycode, cast(u32)(last_keycode - first_keycode), l_os.xkb)
+    x11.XkbGetKeySyms(l_os.x11_display, cast(u32)first_keycode, cast(u32)(last_keycode - first_keycode), l_os.xkb)
     cmap := l_os.xkb._map
     for x11keycode in 8 ..< last_keycode {
         sym_map := &cmap.key_sym_map[x11keycode]
@@ -1191,18 +1187,18 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
         x11.AutoRepeatOn(l_os.x11_display)
         major: i32 = 1
         minor: i32 = 0
-        success := x11.kbQueryExtension(l_os.x11_display, nil, nil, nil, &major, &minor)
+        success := x11.XkbQueryExtension(l_os.x11_display, nil, nil, nil, &major, &minor)
         log.assert(cast(bool)success, "XKB extension not available")
-        success = x11.kbUseExtension(l_os.x11_display, &major, &minor)
+        success = x11.XkbUseExtension(l_os.x11_display, &major, &minor)
         log.assert(cast(bool)success, "Failed to initialize XKB extension")
 
-        l_os.xkb = x11.kbGetMap(l_os.x11_display, x11.XkbAllClientInfoMask, x11.XkbUseCoreKbd)
+        l_os.xkb = x11.XkbGetMap(l_os.x11_display, x11.XkbAllClientInfoMask, x11.XkbUseCoreKbd)
 
         // this will remove KeyRelease events for held keys.
         repeat: b32
-        x11.kbSetDetectableAutoRepeat(l_os.x11_display, true, &repeat)
+        x11.XkbSetDetectableAutoRepeat(l_os.x11_display, true, &repeat)
 
-        x11.kbSelectEvents(
+        x11.XkbSelectEvents(
             l_os.x11_display,
             x11.XkbUseCoreKbd,
             {.MapNotify, .ActionMessage},
