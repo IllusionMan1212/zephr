@@ -552,6 +552,7 @@ logger: log.Logger
 
 init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, window_non_resizable: bool) {
     logger_init()
+    context.logger = logger
 
     // TODO: This font is currently used for the UI elements, but we should allow the user to specify
     //       their own font for the UI elements.
