@@ -496,7 +496,7 @@ Context :: struct {
     projection:                   m.mat4,
     shaders:                      [dynamic]^Shader,
     changed_shaders_queue:        queue.Queue(string),
-    clear_color: m.vec4,
+    clear_color:                  m.vec4,
 }
 
 @(private)
@@ -586,6 +586,8 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
 deinit :: proc() {
     backend_shutdown()
     delete(zephr_ctx.input_devices_map)
+    delete(zephr_ctx.keyboard_scancode_to_keycode)
+    delete(zephr_ctx.keyboard_keycode_to_scancode)
     queue.destroy(&zephr_ctx.event_queue)
     queue.destroy(&zephr_ctx.changed_shaders_queue)
     delete(zephr_ctx.ui.elements)
@@ -598,16 +600,6 @@ set_clear_color :: proc(color: m.vec4) {
 }
 
 should_quit :: proc() -> bool {
-    frame_init()
-
-    if zephr_ctx.virt_mouse.captured {
-        zephr_ctx.cursor = .INVISIBLE
-    } else {
-        zephr_ctx.cursor = .ARROW
-    }
-
-    //audio_update();
-
     return zephr_ctx.should_quit
 }
 
@@ -633,24 +625,7 @@ change_vsync :: proc(on: bool) {
     backend_change_vsync(on)
 }
 
-swap_buffers :: proc() {
-    update_shaders_if_changed()
-    defer free_all(context.temp_allocator)
-
-    if (zephr_ctx.ui.popup_open) {
-        draw_color_picker_popup(&zephr_ctx.ui.popup_parent_constraints)
-    }
-    zephr_ctx.ui.popup_open = false
-
-    if consume_mouse_events() {
-        zephr_ctx.ui.hovered_element = 0
-    }
-
-    backend_swapbuffers()
-    backend_set_cursor()
-}
-
-frame_init :: proc() {
+frame_start :: proc() {
     for id, &device in zephr_ctx.input_devices_map {
         if .MOUSE in device.features {
             device.mouse.rel_pos = m.vec2{0, 0}
@@ -692,7 +667,34 @@ frame_init :: proc() {
     bit_array.clear(&zephr_ctx.virt_keyboard.keycode_has_been_pressed_bitset)
     bit_array.clear(&zephr_ctx.virt_keyboard.keycode_has_been_released_bitset)
 
+    if zephr_ctx.virt_mouse.captured {
+        zephr_ctx.cursor = .INVISIBLE
+    } else {
+        zephr_ctx.cursor = .ARROW
+    }
+
+    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+    //audio_update();
+
     //os_backend_frame_init();
+}
+
+frame_end :: proc() {
+    defer free_all(context.temp_allocator)
+    update_shaders_if_changed()
+
+    if (zephr_ctx.ui.popup_open) {
+        draw_color_picker_popup(&zephr_ctx.ui.popup_parent_constraints)
+    }
+    zephr_ctx.ui.popup_open = false
+
+    if consume_mouse_events() {
+        zephr_ctx.ui.hovered_element = 0
+    }
+
+    backend_swapbuffers()
+    backend_set_cursor()
 }
 
 iter_events :: proc() -> ^Event {
