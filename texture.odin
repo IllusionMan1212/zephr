@@ -237,8 +237,6 @@ process_texture :: proc(
     gltf_file_path: string,
     textures_map: ^map[cstring]TextureId,
 ) -> Texture {
-    context.logger = logger
-
     texture := Texture {
         type = type,
         id   = 0,

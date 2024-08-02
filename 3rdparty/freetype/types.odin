@@ -10,6 +10,8 @@ import "core:c"
 
 FT_Error :: c.int
 @(private)
+FT_Byte :: c.uchar
+@(private)
 FT_Short :: c.short
 @(private)
 FT_UShort :: c.ushort

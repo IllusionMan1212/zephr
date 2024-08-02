@@ -88,9 +88,8 @@ change_msaa :: proc(by: int) {
 //    return sort(i)
 //}
 
+@(private)
 init_renderer :: proc(window_size: m.vec2) {
-    context.logger = logger
-
     editor_camera = DEFAULT_CAMERA
 
     l_mesh_shader, success := create_shader(create_resource_path("shaders/mesh.vert"), create_resource_path("shaders/mesh.frag"))
@@ -123,9 +122,16 @@ init_renderer :: proc(window_size: m.vec2) {
     init_color_pass(window_size)
 }
 
+@(private)
 resize_multisample_fb :: proc(width, height: i32) {
     gl.Viewport(0, 0, width, height)
     _msaa := math.pow2_f32(msaa)
+
+    gl.DeleteTextures(1, &color_texture)
+    gl.DeleteTextures(1, &depth_texture)
+
+    gl.GenTextures(1, &color_texture)
+    gl.GenTextures(1, &depth_texture)
 
     gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, color_texture)
     gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB, width, height, gl.FALSE)
@@ -134,6 +140,7 @@ resize_multisample_fb :: proc(width, height: i32) {
     gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.DEPTH24_STENCIL8, width, height, gl.FALSE)
 }
 
+@(private)
 init_color_pass :: proc(size: m.vec2) {
     _msaa := math.pow2_f32(msaa)
     {
@@ -211,8 +218,6 @@ draw_model :: proc(model: ^Model) {
 
 @(private = "file")
 draw_node :: proc(node: ^Node, materials: ^map[uintptr]Material) {
-    context.logger = logger
-
     joint_matrices: []m.mat4
     defer delete(joint_matrices)
 
@@ -276,8 +281,6 @@ draw_collision_shape :: proc() {
 
 @(private = "file")
 draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Material, joint_matrices: []m.mat4) {
-    context.logger = logger
-
     // TODO: calling set_int a shitton of times is apparently slow according to callgrind
     set_int(mesh_shader, "morphTargets", 0)
     set_int(mesh_shader, "morphTargetWeights", 1)
@@ -380,8 +383,6 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Materia
 }
 
 draw_lights :: proc(lights: []Light) {
-    context.logger = logger
-
     point_light_idx := 0
 
     for light in lights {
@@ -425,6 +426,8 @@ draw_lights :: proc(lights: []Light) {
 }
 
 color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
+    context.logger = logger
+
     gl.BindFramebuffer(gl.FRAMEBUFFER, multisample_fb)
     gl.Viewport(0, 0, cast(i32)zephr_ctx.window.size.x, cast(i32)zephr_ctx.window.size.y)
     gl.ClearColor(zephr_ctx.clear_color.r, zephr_ctx.clear_color.g, zephr_ctx.clear_color.b, zephr_ctx.clear_color.a)
