@@ -787,8 +787,6 @@ backend_get_screen_size :: proc() -> m.vec2 {
 
 @(private = "file")
 get_active_monitor_dims :: proc(root: x11.Window) -> m.vec4 {
-    context.logger = logger
-
     c_pos := get_cursor_pos(root)
 
     scr_resources := xrandr.XRRGetScreenResources(l_os.x11_display, root)
@@ -835,8 +833,6 @@ get_active_monitor_dims :: proc(root: x11.Window) -> m.vec4 {
 
 @(private = "file")
 x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
-    context.logger = logger
-
     screen_num := x11.DefaultScreen(l_os.x11_display)
 
     // Load up GL/GLX before creating the window to be able to use the FBConfig's visual info when creating the window.
@@ -872,6 +868,8 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
     num_fbc: i32
     fbc := glx.ChooseFBConfig(l_os.x11_display, screen_num, raw_data(visual_attributes), &num_fbc)
     visual_info := glx.GetVisualFromFBConfig(l_os.x11_display, fbc[0])
+    x11.Free(visual_info)
+    x11.Free(fbc)
 
     //odinfmt: disable
     context_attributes := []i32 {
@@ -1074,14 +1072,10 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
     gl.Enable(gl.BLEND)
     gl.Enable(gl.DEPTH_TEST)
     gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-
-    x11.Free(fbc)
 }
 
 @(private = "file")
 keyboard_map_update :: proc() {
-    context.logger = logger
-
     // reset the scancodes to map directly to the keycodes
     for sc in Scancode {
         zephr_ctx.keyboard_scancode_to_keycode[sc] = auto_cast sc
@@ -1148,6 +1142,7 @@ keyboard_keysym_to_keycode :: proc(key_sym: x11.KeySym) -> Keycode {
     }
 }
 
+@(private = "file")
 x11_error_handler :: proc "c" (display: ^x11.Display, event: ^x11.XErrorEvent) -> i32 {
     context = runtime.default_context()
     context.logger = logger
@@ -1161,6 +1156,8 @@ x11_error_handler :: proc "c" (display: ^x11.Display, event: ^x11.XErrorEvent) -
 }
 
 backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
+    context.logger = logger
+
     l_os.x11_display = x11.OpenDisplay(nil)
 
     x11.SetErrorHandler(x11_error_handler)
@@ -1259,8 +1256,6 @@ backend_change_vsync :: proc(on: bool) {
 
 @(private = "file", disabled = RELEASE_BUILD)
 watch_shaders :: proc() {
-    context.logger = logger
-
     wd := inotify.add_watch(l_os.inotify_fd, "engine/shaders", inotify.IN_MODIFY)
 
     if wd < 0 {
@@ -1314,7 +1309,6 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
     log.assert(err == nil, "Failed to init memory arena for input device")
     arena_allocator := virtual.arena_allocator(&arena)
 
-    context.logger = logger
     context.allocator = arena_allocator
 
     device_features: InputDeviceFeatures
@@ -1622,8 +1616,6 @@ udev_device_try_remove :: proc(dev: ^udev.udev_device) {
 
 @(private = "file")
 udev_has_event :: proc() -> bool {
-    context.logger = logger
-
     fd := udev.monitor_get_fd(l_os.udev_monitor)
 
     fds := []linux.Poll_Fd{linux.Poll_Fd{fd = fd, events = {.IN}}}
@@ -1648,8 +1640,6 @@ evdev_device_info :: proc(
     vendor_id: u16,
     product_id: u16,
 ) {
-    context.logger = logger
-
     ret := evdev.new_from_fd(fd, evdevice)
 
     if linux.Errno(-ret) != .NONE {
@@ -1707,7 +1697,6 @@ backend_swapbuffers :: proc() {
 }
 
 backend_get_os_events :: proc() {
-    context.logger = logger
     xev: x11.XEvent
 
     for udev_has_event() {
@@ -2397,8 +2386,6 @@ xdnd_enter :: proc(client_data_l: [5]int) {
 }
 
 xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
-    context.logger = logger
-
     actual_type: x11.Atom = x11.None
     actual_format: i32
     num_of_items, bytes_after_return: uint

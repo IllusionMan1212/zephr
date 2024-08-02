@@ -668,8 +668,6 @@ win32_keycode_to_zephr_keycode_map := []Keycode {
 // https://download.microsoft.com/download/1/6/1/161ba512-40e2-4cc9-843a-923143f3456c/translate.pdf
 @(private = "file")
 scan1_scancode_to_zephr_scancode_map :: proc(scancode: u8, is_extended: bool) -> Scancode {
-    context.logger = logger
-
     switch scancode {
         case 0:
             return .NULL

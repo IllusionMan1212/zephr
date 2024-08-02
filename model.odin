@@ -337,8 +337,6 @@ process_indices :: proc(
     byte_offset: uint,
     indices_out: []u32,
 ) {
-    context.logger = logger
-
     if buffer_view.stride != 0 {
         // TODO: support stride
         log.error("We don't support non zero stride for indices. Faces might not look correct")
@@ -463,8 +461,6 @@ process_mesh :: proc(
     Mesh,
     bool,
 ) {
-    context.logger = logger
-
     if primitive.indices == nil {
         log.error("No indices found")
         return Mesh{}, false
@@ -684,8 +680,6 @@ process_node :: proc(
     nodes_map: ^map[uintptr]^Node,
     allocator: ^mem.Allocator,
 ) -> ^Node {
-    context.logger = logger
-
     id := transmute(uintptr)node
     if id in nodes_map {
         return nodes_map[id]
@@ -841,8 +835,6 @@ new_mesh :: proc(
     aabb: AABB,
     allocator: ^mem.Allocator,
 ) -> Mesh {
-    context.logger = logger
-
     vao, vbo, ebo: u32
     morph_texture, morph_weights_texture, morph_weights_buf: u32
     joint_matrices_buf, joint_matrices_texture: u32

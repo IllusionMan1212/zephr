@@ -830,8 +830,6 @@ os_event_queue_input_device_connected :: proc(
     vendor_id: u16,
     product_id: u16,
 ) -> ^InputDevice {
-    context.logger = logger
-
     found_device, found := &zephr_ctx.input_devices_map[key]
     if (found) {
         if found_device.vendor_id == 0 {
@@ -896,8 +894,6 @@ get_first_input_device :: proc(features: InputDeviceFeatures) -> (u64, ^InputDev
 
 @(private)
 os_event_queue_input_device_disconnected :: proc(key: u64) {
-    context.logger = logger
-
     device := zephr_ctx.input_devices_map[key]
 
     e: Event
