@@ -868,8 +868,8 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
     num_fbc: i32
     fbc := glx.ChooseFBConfig(l_os.x11_display, screen_num, raw_data(visual_attributes), &num_fbc)
     visual_info := glx.GetVisualFromFBConfig(l_os.x11_display, fbc[0])
-    x11.Free(visual_info)
-    x11.Free(fbc)
+    defer x11.Free(visual_info)
+    defer x11.Free(fbc)
 
     //odinfmt: disable
     context_attributes := []i32 {
