@@ -134,7 +134,7 @@ resize_multisample_fb :: proc(width, height: i32) {
     gl.GenTextures(1, &depth_texture)
 
     gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, color_texture)
-    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB, width, height, gl.FALSE)
+    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB8, width, height, gl.FALSE)
 
     gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, depth_texture)
     gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.DEPTH24_STENCIL8, width, height, gl.FALSE)
@@ -142,7 +142,7 @@ resize_multisample_fb :: proc(width, height: i32) {
 
 @(private)
 init_color_pass :: proc(size: m.vec2) {
-    _msaa := math.pow2_f32(msaa)
+    _msaa := 1 << u32(msaa)
     {
         max_samples: i32
         gl.GetIntegerv(gl.MAX_SAMPLES, &max_samples)
@@ -157,7 +157,7 @@ init_color_pass :: proc(size: m.vec2) {
 
     // Textures for both the color and depth attachments because renderbuffers just refuse to work
     gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, color_texture)
-    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB, i32(size.x), i32(size.y), gl.FALSE)
+    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB8, i32(size.x), i32(size.y), gl.FALSE)
     gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D_MULTISAMPLE, color_texture, 0)
 
     // There's no need for stencil here but renderdoc crashes when loading a capture if it isn't there.

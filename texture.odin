@@ -47,24 +47,24 @@ load_texture :: proc(
     defer stb.image_free(data)
 
     format := gl.RGBA
-    internal_format := gl.RGBA
+    internal_format := gl.RGBA8
 
     switch (channels) {
         case 1:
             format = gl.RED
-            internal_format = gl.RED
+            internal_format = gl.R8
             break
         case 2:
             format = gl.RG
-            internal_format = gl.RG
+            internal_format = gl.RG8
             break
         case 3:
             format = gl.RGB
-            internal_format = gl.SRGB
+            internal_format = gl.SRGB8
             break
         case 4:
             format = gl.RGBA
-            internal_format = gl.SRGB_ALPHA
+            internal_format = gl.SRGB8_ALPHA8
             break
     }
 
@@ -130,24 +130,24 @@ load_texture_from_memory :: proc(
     defer stb.image_free(data)
 
     format := gl.RGBA
-    internal_format := gl.RGBA
+    internal_format := gl.RGBA8
 
     switch (channels) {
         case 1:
             format = gl.RED
-            internal_format = gl.RED
+            internal_format = gl.R8
             break
         case 2:
             format = gl.RG
-            internal_format = gl.RG
+            internal_format = gl.RG8
             break
         case 3:
             format = gl.RGB
-            internal_format = gl.SRGB
+            internal_format = gl.SRGB8
             break
         case 4:
             format = gl.RGBA
-            internal_format = gl.SRGB_ALPHA
+            internal_format = gl.SRGB8_ALPHA8
             break
     }
 

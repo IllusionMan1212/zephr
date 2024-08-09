@@ -197,7 +197,7 @@ init_freetype :: proc(font_path: cstring) -> i32 {
     gl.TexImage2D(
         gl.TEXTURE_2D,
         0,
-        gl.RED,
+        gl.R8,
         cast(i32)tex_width,
         cast(i32)tex_height,
         0,

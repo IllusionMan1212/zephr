@@ -1112,7 +1112,7 @@ keyboard_map_update :: proc() {
         keycode := keyboard_keysym_to_keycode(cast(x11.KeySym)sym)
 
         when ODIN_DEBUG {
-            log.debugf("scancode: %s -> key_sym: %s = 0x%x", scancode, x11.XKeysymToString(cast(x11.KeySym)sym), sym)
+            log.debugf("scancode: %s -> key_sym: %s = 0x%x", scancode, x11.KeysymToString(cast(x11.KeySym)sym), sym)
         }
 
         zephr_ctx.keyboard_scancode_to_keycode[scancode] = keycode
