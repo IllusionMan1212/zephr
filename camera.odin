@@ -28,6 +28,9 @@ DEFAULT_CAMERA :: Camera {
     proj_mat    = 1,
 }
 
+@(private)
+editor_camera: Camera = DEFAULT_CAMERA
+
 new_camera :: proc(pitch: f32 = 0, yaw: f32 = -90, fov: f32 = 45) -> Camera {
     front := m.vec3 {
         m.cos(m.radians(pitch)) * m.cos(m.radians(yaw)),
@@ -82,3 +85,8 @@ move_camera_view :: proc(camera: ^Camera, xoffset: f32, yoffset: f32) {
 
     camera.front = m.normalize(front)
 }
+
+get_editor_camera :: proc() -> ^Camera {
+    return &editor_camera
+}
+

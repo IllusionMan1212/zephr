@@ -85,7 +85,7 @@ process_sparse_accessor_vec2 :: proc(accessor: ^cgltf.accessor_sparse, data_out:
     values_byte_offset := accessor.values_byte_offset + accessor.values_buffer_view.offset
 
     sparse_values := intrinsics.ptr_offset(
-        transmute([^]f32)accessor.values_buffer_view.buffer.data,
+        cast([^]f32)accessor.values_buffer_view.buffer.data,
         values_byte_offset / size_of(f32),
     )
 
@@ -106,7 +106,7 @@ process_sparse_accessor_vec3 :: proc(accessor: ^cgltf.accessor_sparse, data_out:
     values_byte_offset := accessor.values_byte_offset + accessor.values_buffer_view.offset
 
     sparse_values := intrinsics.ptr_offset(
-        transmute([^]f32)accessor.values_buffer_view.buffer.data,
+        cast([^]f32)accessor.values_buffer_view.buffer.data,
         values_byte_offset / size_of(f32),
     )
 
@@ -128,7 +128,7 @@ process_sparse_accessor_vec4 :: proc(accessor: ^cgltf.accessor_sparse, data_out:
     values_byte_offset := accessor.values_byte_offset + accessor.values_buffer_view.offset
 
     sparse_values := intrinsics.ptr_offset(
-        transmute([^]f32)accessor.values_buffer_view.buffer.data,
+        cast([^]f32)accessor.values_buffer_view.buffer.data,
         values_byte_offset / size_of(f32),
     )
 
@@ -152,7 +152,7 @@ process_accessor_vec2 :: proc(accessor: ^cgltf.accessor, data_out: []f32) {
     if accessor.buffer_view != nil {
         byte_offset += accessor.buffer_view.offset
 
-        buf := intrinsics.ptr_offset(transmute([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
+        buf := intrinsics.ptr_offset(cast([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
         if accessor.buffer_view.stride == 0 {
             copy(data_out, buf[:accessor.count * 2])
         } else {
@@ -181,7 +181,7 @@ process_accessor_vec3 :: proc(accessor: ^cgltf.accessor, data_out: []f32) {
     if accessor.buffer_view != nil {
         byte_offset += accessor.buffer_view.offset
 
-        buf := intrinsics.ptr_offset(transmute([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
+        buf := intrinsics.ptr_offset(cast([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
         if accessor.buffer_view.stride == 0 {
             copy(data_out, buf[:accessor.count * 3])
         } else {
@@ -211,7 +211,7 @@ process_accessor_vec4 :: proc(accessor: ^cgltf.accessor, data_out: []f32) {
     if accessor.buffer_view != nil {
         byte_offset += accessor.buffer_view.offset
 
-        buf := intrinsics.ptr_offset(transmute([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
+        buf := intrinsics.ptr_offset(cast([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
         if accessor.buffer_view.stride == 0 {
             copy(data_out, buf[:accessor.count * 4])
         } else {
@@ -245,7 +245,7 @@ process_joints :: proc(accessor: ^cgltf.accessor, data_out: []u32) {
 
     #partial switch accessor.component_type {
         case .r_8u:
-            buf := intrinsics.ptr_offset(transmute([^]u8)accessor.buffer_view.buffer.data, byte_offset / size_of(u8))
+            buf := intrinsics.ptr_offset(cast([^]u8)accessor.buffer_view.buffer.data, byte_offset / size_of(u8))
 
             for i in 0 ..< accessor.count {
                 offset := accessor.buffer_view.stride == 0 ? i * 4 : i * (accessor.buffer_view.stride / size_of(u8))
@@ -255,7 +255,7 @@ process_joints :: proc(accessor: ^cgltf.accessor, data_out: []u32) {
                 data_out[i * 4 + 3] = cast(u32)buf[offset + 3]
             }
         case .r_16u:
-            buf := intrinsics.ptr_offset(transmute([^]u16)accessor.buffer_view.buffer.data, byte_offset / size_of(u16))
+            buf := intrinsics.ptr_offset(cast([^]u16)accessor.buffer_view.buffer.data, byte_offset / size_of(u16))
 
             for i in 0 ..< accessor.count {
                 offset := accessor.buffer_view.stride == 0 ? i * 4 : i * (accessor.buffer_view.stride / size_of(u16))
@@ -265,7 +265,7 @@ process_joints :: proc(accessor: ^cgltf.accessor, data_out: []u32) {
                 data_out[i * 4 + 3] = cast(u32)buf[offset + 3]
             }
         case .r_32u:
-            buf := intrinsics.ptr_offset(transmute([^]u32)accessor.buffer_view.buffer.data, byte_offset / size_of(u32))
+            buf := intrinsics.ptr_offset(cast([^]u32)accessor.buffer_view.buffer.data, byte_offset / size_of(u32))
 
             for i in 0 ..< accessor.count {
                 offset := accessor.buffer_view.stride == 0 ? i * 4 : i * (accessor.buffer_view.stride / size_of(u32))
@@ -281,7 +281,7 @@ process_joints :: proc(accessor: ^cgltf.accessor, data_out: []u32) {
 process_accessor_mat4 :: proc(accessor: ^cgltf.accessor, data_out: []m.mat4) {
     byte_offset := accessor.offset + accessor.buffer_view.offset
 
-    buf := intrinsics.ptr_offset(transmute([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
+    buf := intrinsics.ptr_offset(cast([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
     stride := accessor.stride / size_of(f32) // 16 floats, 64 bytes always ??
 
     for i in 0 ..< accessor.count {
@@ -314,7 +314,7 @@ process_accessor_mat4 :: proc(accessor: ^cgltf.accessor, data_out: []m.mat4) {
 process_accessor_scalar_float :: proc(accessor: ^cgltf.accessor, data_out: []f32) {
     byte_offset := accessor.offset + accessor.buffer_view.offset
 
-    buf := intrinsics.ptr_offset(transmute([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
+    buf := intrinsics.ptr_offset(cast([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
 
     if accessor.buffer_view.stride == 0 {
         copy(data_out, buf[:accessor.count])
@@ -346,7 +346,7 @@ process_indices :: proc(
         case .r_8u:
             start := byte_offset / size_of(u8)
             end := start + len(indices_out)
-            ptr_arr := (transmute([^]u8)buffer_view.buffer.data)[start:end]
+            ptr_arr := (cast([^]u8)buffer_view.buffer.data)[start:end]
 
             for i in 0 ..< len(ptr_arr) {
                 indices_out[i] = cast(u32)ptr_arr[i]
@@ -354,7 +354,7 @@ process_indices :: proc(
         case .r_16u:
             start := byte_offset / size_of(u16)
             end := start + len(indices_out)
-            ptr_arr := (transmute([^]u16)buffer_view.buffer.data)[start:end]
+            ptr_arr := (cast([^]u16)buffer_view.buffer.data)[start:end]
 
             for i in 0 ..< len(ptr_arr) {
                 indices_out[i] = cast(u32)ptr_arr[i]
@@ -362,7 +362,7 @@ process_indices :: proc(
         case .r_32u:
             start := byte_offset / size_of(u32)
             end := start + len(indices_out)
-            copy(indices_out, (transmute([^]u32)buffer_view.buffer.data)[start:end])
+            copy(indices_out, (cast([^]u32)buffer_view.buffer.data)[start:end])
         case:
             log.error("Unsupported index type")
     }
@@ -384,17 +384,17 @@ process_vertex_colors :: proc(accessor: ^cgltf.accessor, color_out: ^[]f32) {
     if accessor.type == .vec3 {
         #partial switch accessor.component_type {
             case .r_32f:
-                buf := intrinsics.ptr_offset(transmute([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
+                buf := intrinsics.ptr_offset(cast([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
                 stride := accessor.stride / size_of(f32)
 
                 for i in 0..<accessor.count {
-                    color_out[i * 4 + 0] = cast(f32)buf[i * stride + 0]
-                    color_out[i * 4 + 1] = cast(f32)buf[i * stride + 1]
-                    color_out[i * 4 + 2] = cast(f32)buf[i * stride + 2]
+                    color_out[i * 4 + 0] = buf[i * stride + 0]
+                    color_out[i * 4 + 1] = buf[i * stride + 1]
+                    color_out[i * 4 + 2] = buf[i * stride + 2]
                     color_out[i * 4 + 3] = 1.0
                 }
             case .r_8u:
-                buf := intrinsics.ptr_offset(transmute([^]u8)accessor.buffer_view.buffer.data, byte_offset / size_of(u8))
+                buf := intrinsics.ptr_offset(cast([^]u8)accessor.buffer_view.buffer.data, byte_offset / size_of(u8))
                 stride := accessor.stride / size_of(u8)
 
                 for i in 0..<accessor.count {
@@ -404,7 +404,7 @@ process_vertex_colors :: proc(accessor: ^cgltf.accessor, color_out: ^[]f32) {
                     color_out[i * 4 + 3] = 1.0
                 }
             case .r_16u:
-                buf := intrinsics.ptr_offset(transmute([^]u16)accessor.buffer_view.buffer.data, byte_offset / size_of(u16))
+                buf := intrinsics.ptr_offset(cast([^]u16)accessor.buffer_view.buffer.data, byte_offset / size_of(u16))
                 stride := accessor.stride / size_of(u16)
 
                 for i in 0..<accessor.count {
@@ -419,10 +419,10 @@ process_vertex_colors :: proc(accessor: ^cgltf.accessor, color_out: ^[]f32) {
     } else {
         #partial switch accessor.component_type {
             case .r_32f:
-                buf := intrinsics.ptr_offset(transmute([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
+                buf := intrinsics.ptr_offset(cast([^]f32)accessor.buffer_view.buffer.data, byte_offset / size_of(f32))
                 copy(color_out^, buf[:accessor.count * 4])
             case .r_8u:
-                buf := intrinsics.ptr_offset(transmute([^]u8)accessor.buffer_view.buffer.data, byte_offset / size_of(u8))
+                buf := intrinsics.ptr_offset(cast([^]u8)accessor.buffer_view.buffer.data, byte_offset / size_of(u8))
                 stride := accessor.stride / size_of(u8)
 
                 for i in 0..<accessor.count {
@@ -432,7 +432,7 @@ process_vertex_colors :: proc(accessor: ^cgltf.accessor, color_out: ^[]f32) {
                     color_out[i * 4 + 3] = cast(f32)buf[i * stride + 3] / 255.0
                 }
             case .r_16u:
-                buf := intrinsics.ptr_offset(transmute([^]u16)accessor.buffer_view.buffer.data, byte_offset / size_of(u16))
+                buf := intrinsics.ptr_offset(cast([^]u16)accessor.buffer_view.buffer.data, byte_offset / size_of(u16))
                 stride := accessor.stride / size_of(u16)
 
                 for i in 0..<accessor.count {
@@ -597,7 +597,7 @@ process_mesh :: proc(
     tex_width := math.ceil(math.sqrt(cast(f32)len(vertices)))
     single_texture_size := cast(int)math.pow(tex_width, 2) * 3 // 3 for vec3
 
-    for target, i in primitive.targets {
+    for target in primitive.targets {
         for attr in target.attributes {
             if attr.type == .position && !found_pos {
                 morph_attribute_count += 1

@@ -1215,7 +1215,13 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
         {
             l_os.udev_monitor = udev.monitor_new_from_netlink(l_os.udevice, "udev")
 
-            udev.monitor_filter_add_match_subsystem_devtype(l_os.udev_monitor, "input", nil)
+            // Monitor all hid devices that get plugged or unplugged, we don't monitor
+            // the input subsystem here because some devices get merged as the first hid ancestor
+            // and that gets used as part of the device id, so when a device gets disconnected
+            // we can find the same hid ancestor using udev.device_get_parent_with_subsystem_devtype()
+            // NOTE: The aforementioned procedure does returns a nil parent if the monitored subsystem is set to input
+            // (even if the syspath matches) for whatever reason.
+            udev.monitor_filter_add_match_subsystem_devtype(l_os.udev_monitor, "hid", nil)
             udev.monitor_enable_receiving(l_os.udev_monitor)
 
             fd := udev.monitor_get_fd(l_os.udev_monitor)
@@ -1224,6 +1230,18 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
         }
 
         enumerate := udev.enumerate_new(l_os.udevice)
+        // For our initialization enumerator we enumerate the input subsystem instead of the hid subsystem
+        // because some devices aren't listed under the hid subsystem (e.g laptop's keyboard)
+        // so this ensures we get as many input devices as possible while not running into issues when disconnecting
+        // devices.
+        // TODO: devices listed under /devices/virtual/ are still not (dis)connecting (when hot-plugged) properly.
+        // This mouse I have seems to be added as a regular hid device at first but then the hid device is removed
+        // and two virtual "input" devices are added under /devices/virtual/input/inputXXX/
+        // I currently have no way of handling that and the engine ends up thinking the mouse was quickly connected
+        // and disconnected.
+        // These same virtual devices have a problem of not finding the proper ancestor when disconnecting if they were
+        // added to the engine device map through the initialization enumeration.
+        // This is not a regression of the new code, it's been like this forever.
         udev.enumerate_add_match_subsystem(enumerate, "input")
         udev.enumerate_scan_devices(enumerate)
 
@@ -1490,8 +1508,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
         // are hid devices, this also makes linux behave closer to Windows because on Windows we only look at hid devices.
         parent := udev.device_get_parent_with_subsystem_devtype(dev, "hid", nil)
 
-        id_string := strings.clone_from_cstring(udev.device_get_sysname(parent if parent != nil else dev))
-        defer delete(id_string)
+        id_string := string(udev.device_get_sysname(parent if parent != nil else dev))
         id := fnv_hash(raw_data(id_string), cast(u64)len(id_string), FNV_HASH64_INIT)
 
         input_device := os_event_queue_input_device_connected(id, dev_name, device_features, vendor_id, product_id)
@@ -1591,13 +1608,15 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
 
 @(private = "file")
 udev_device_try_remove :: proc(dev: ^udev.udev_device) {
-    parent := udev.device_get_parent_with_subsystem_devtype(dev, "usb", "usb_device")
-    key := udev.device_get_devnum(parent if parent != nil else dev)
-    ok := key in zephr_ctx.input_devices_map
+    parent := udev.device_get_parent_with_subsystem_devtype(dev, "hid", nil)
+    id_string := string(udev.device_get_sysname(parent if parent != nil else dev))
+    id := fnv_hash(raw_data(id_string), cast(u64)len(id_string), FNV_HASH64_INIT)
+    ok := id in zephr_ctx.input_devices_map
+
     if (ok) {
-        device := zephr_ctx.input_devices_map[key]
+        device := zephr_ctx.input_devices_map[id]
         device_backend := linux_input_device(&device)
-        os_event_queue_input_device_disconnected(key)
+        os_event_queue_input_device_disconnected(id)
 
         virtual.arena_destroy(&device.arena)
         bit_array.destroy(&device.keyboard.keycode_is_pressed_bitset)
@@ -1668,7 +1687,7 @@ evdev_check_gyroscope_properties :: proc(device: ^evdev.libevdev) -> bool {
 }
 
 backend_shutdown :: proc() {
-    for id, &device in zephr_ctx.input_devices_map {
+    for _, &device in zephr_ctx.input_devices_map {
         input_device_backend := linux_input_device(&device)
         evdev.free(input_device_backend.mouse_evdev)
         evdev.free(input_device_backend.gamepad_evdev)
@@ -1708,7 +1727,25 @@ backend_get_os_events :: proc() {
         action := udev.device_get_action(dev)
 
         if (action == "bind" || action == "add") {
-            udev_device_try_add(dev)
+            enumerate := udev.enumerate_new(l_os.udevice)
+
+            udev.enumerate_add_match_parent(enumerate, dev)
+            udev.enumerate_add_match_subsystem(enumerate, "input")
+            udev.enumerate_scan_devices(enumerate)
+
+            first_device := udev.enumerate_get_list_entry(enumerate)
+
+            list_entry: ^udev.udev_list_entry
+            for list_entry = first_device; list_entry != nil; list_entry = udev.list_entry_get_next(list_entry) {
+                syspath := udev.list_entry_get_name(list_entry)
+                child := udev.device_new_from_syspath(l_os.udevice, syspath)
+
+                udev_device_try_add(child)
+
+                udev.device_unref(child)
+            }
+
+            udev.enumerate_unref(enumerate)
         } else if (action == "unbind" || action == "remove") {
             udev_device_try_remove(dev)
         }
@@ -2301,8 +2338,8 @@ backend_grab_cursor :: proc() {
     enable_raw_mouse_input()
     cursor_pos := get_cursor_pos(l_os.x11_window)
 
-    zephr_ctx.virt_mouse.pos_before_capture = {cast(f32)cursor_pos.x, cast(f32)cursor_pos.y}
-    zephr_ctx.virt_mouse.virtual_pos = {cast(f32)cursor_pos.x, cast(f32)cursor_pos.y}
+    zephr_ctx.virt_mouse.pos_before_capture = cursor_pos
+    zephr_ctx.virt_mouse.virtual_pos = cursor_pos
     x11.GrabPointer(
         l_os.x11_display,
         l_os.x11_window,
@@ -2410,7 +2447,7 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
         defer x11.Free(data)
         defer x11.DeleteProperty(l_os.x11_display, l_os.x11_window, l_os.xdnd.XDND_DATA)
 
-        bytes := transmute([^]u8)data
+        bytes := cast([^]u8)data
 
         // if CR is present, we replace it with a null terminator
         for i in 0 ..< num_of_items {

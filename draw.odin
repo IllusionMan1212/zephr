@@ -28,8 +28,6 @@ mesh_shader: ^Shader
 @(private = "file")
 missing_texture: TextureId
 @(private = "file")
-editor_camera: Camera
-@(private = "file")
 multisample_fb: u32
 @(private = "file")
 depth_texture: TextureId
@@ -90,8 +88,6 @@ change_msaa :: proc(by: int) {
 
 @(private)
 init_renderer :: proc(window_size: m.vec2) {
-    editor_camera = DEFAULT_CAMERA
-
     l_mesh_shader, success := create_shader(create_resource_path("shaders/mesh.vert"), create_resource_path("shaders/mesh.frag"))
 
     mesh_shader = l_mesh_shader
@@ -471,11 +467,6 @@ color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
     gl.BlitFramebuffer(0, 0, size_x, size_y, 0, 0, size_x, size_y, gl.COLOR_BUFFER_BIT, gl.NEAREST)
 
     gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-}
-
-// TODO: is there a better place to put this?
-get_editor_camera :: proc() -> ^Camera {
-    return &editor_camera
 }
 
 // MUST be called after drawing and before swapping buffers, otherwise you only get the clear color

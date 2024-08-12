@@ -25,7 +25,7 @@ Texture :: struct {
 
 TextureId :: u32
 
-load_texture :: proc(
+load_texture_from_path :: proc(
     path: string,
     is_diffuse: bool,
     generate_mipmap := true,
@@ -122,7 +122,7 @@ load_texture_from_memory :: proc(
 
     texture_id: TextureId
     width, height, channels: i32
-    data := stb.load_from_memory(transmute([^]byte)tex_data, tex_data_len, &width, &height, &channels, 0)
+    data := stb.load_from_memory(cast([^]byte)tex_data, tex_data_len, &width, &height, &channels, 0)
     if data == nil {
         log.error("Failed to load embedded texture")
         return 0
@@ -229,6 +229,8 @@ load_cubemap :: proc(faces_paths: [6]string) -> TextureId {
     return cubemap_tex_id
 }
 
+load_texture :: proc{load_texture_from_path, load_texture_from_memory, load_cubemap}
+
 // TODO: multithread this for faster model loading
 @(private)
 process_texture :: proc(
@@ -278,11 +280,11 @@ process_texture :: proc(
 
             textures_map[tex.image_.uri] = texture.id
         } else {
-            data := mem.ptr_offset(transmute([^]byte)tex.image_.buffer_view.buffer.data, tex.image_.buffer_view.offset)
+            data := mem.ptr_offset(cast([^]byte)tex.image_.buffer_view.buffer.data, tex.image_.buffer_view.offset)
             data_len := tex.image_.buffer_view.size
 
             if sampler != nil {
-                texture.id = load_texture_from_memory(
+                texture.id = load_texture(
                     data,
                     cast(i32)data_len,
                     type == .DIFFUSE || type == .EMISSIVE,
@@ -293,7 +295,7 @@ process_texture :: proc(
                     sampler.mag_filter != 0 ? sampler.mag_filter : gl.LINEAR,
                 )
             } else {
-                texture.id = load_texture_from_memory(data, cast(i32)data_len, type == .DIFFUSE || type == .EMISSIVE)
+                texture.id = load_texture(data, cast(i32)data_len, type == .DIFFUSE || type == .EMISSIVE)
             }
         }
     }
