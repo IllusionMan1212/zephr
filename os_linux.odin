@@ -1299,8 +1299,8 @@ backend_gamepad_rumble :: proc(
     effect.u.rumble.weak_magnitude = weak_motor
     effect.u.rumble.strong_magnitude = strong_motor
     gamepad_fd := evdev.get_fd(device_backend.gamepad_evdev)
-    errno := linux.ioctl(cast(linux.Fd)gamepad_fd, EVIOCSFF(), &effect)
-    if errno != .NONE {
+    errno := linux.ioctl(cast(linux.Fd)gamepad_fd, EVIOCSFF(), cast(uintptr)&effect)
+    if linux.Errno(-errno) != .NONE {
         log.errorf("Failed to prepare rumble for gamepad: %s. Errno: %s", device.name, errno)
         return
     }
@@ -1564,8 +1564,8 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
                 effect.type = FF_RUMBLE
                 effect.id = -1
                 gamepad_fd := evdev.get_fd(gamepad_evdev)
-                errno := linux.ioctl(cast(linux.Fd)gamepad_fd, EVIOCSFF(), &effect)
-                if errno == .NONE {
+                errno := linux.ioctl(cast(linux.Fd)gamepad_fd, EVIOCSFF(), cast(uintptr)&effect)
+                if linux.Errno(-errno) == .NONE {
                     input_device.gamepad.supports_rumble = true
                     input_device_backend.gamepad_rumble_id = effect.id
                 } else {

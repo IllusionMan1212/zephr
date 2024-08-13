@@ -120,7 +120,7 @@ FF_RAMP :: 0x57
 FF_EFFECT_MIN :: FF_RUMBLE
 FF_EFFECT_MAX :: FF_RAMP
 
-_IOC_WRITE: u64 : 1
+_IOC_WRITE: u32 : 1
 
 _IOC_NRBITS :: 8
 _IOC_TYPEBITS :: 8
@@ -132,19 +132,19 @@ _IOC_SIZESHIFT :: (_IOC_TYPESHIFT + _IOC_TYPEBITS) // (0 + 8) + 8 = 16
 _IOC_DIRSHIFT :: (_IOC_SIZESHIFT + _IOC_SIZEBITS) // 16 + 14 = 30
 
 
-_IOC :: proc(dir: u64, type: rune, nr: u64, size: u64) -> u64 {
+_IOC :: proc(dir: u32, type: rune, nr: u32, size: u32) -> u32 {
     return(
         ((dir) << _IOC_DIRSHIFT) |
-        ((cast(u64)type) << _IOC_TYPESHIFT) |
+        ((cast(u32)type) << _IOC_TYPESHIFT) |
         ((nr) << _IOC_NRSHIFT) |
         ((size) << _IOC_SIZESHIFT) \
     )
 }
 
-_IOW :: proc(type: rune, nr: u64, size: u64) -> u64 {
+_IOW :: proc(type: rune, nr: u32, size: u32) -> u32 {
     return _IOC(_IOC_WRITE, type, nr, size)
 }
 
-EVIOCSFF :: proc() -> u64 {
+EVIOCSFF :: proc() -> u32 {
     return _IOW('E', 0x80, size_of(evdev.ff_effect)) /* send a force effect to a force feedback device */
 }
