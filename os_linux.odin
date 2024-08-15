@@ -24,10 +24,6 @@ import "3rdparty/evdev"
 import "3rdparty/glx"
 import "3rdparty/inotify"
 import "3rdparty/udev"
-import "3rdparty/xcursor"
-import "3rdparty/xfixes"
-import "3rdparty/xinput2"
-import "3rdparty/xrandr"
 
 // TODO: support controller-specific stuff like haptics and adaptive triggers on DualSense
 // TODO: support controller audio devices (DS4, DualSense, Xbox Series)
@@ -789,20 +785,20 @@ backend_get_screen_size :: proc() -> m.vec2 {
 get_active_monitor_dims :: proc(root: x11.Window) -> m.vec4 {
     c_pos := get_cursor_pos(root)
 
-    scr_resources := xrandr.XRRGetScreenResources(l_os.x11_display, root)
+    scr_resources := x11.XRRGetScreenResources(l_os.x11_display, root)
     log.assert(scr_resources != nil, "Failed to get X11 screen resources")
-    defer xrandr.XRRFreeScreenResources(scr_resources)
+    defer x11.XRRFreeScreenResources(scr_resources)
 
     dims: m.vec4
 
     for i in 0 ..< scr_resources.noutput {
-        output_info := xrandr.XRRGetOutputInfo(l_os.x11_display, scr_resources, scr_resources.outputs[i])
+        output_info := x11.XRRGetOutputInfo(l_os.x11_display, scr_resources, scr_resources.outputs[i])
         if output_info.connection == .RR_Connected {
             if output_info.crtc == 0 { // ??? idk lol gets rid of a crtc error and the displays work fine anyway
-                xrandr.XRRFreeOutputInfo(output_info)
+                x11.XRRFreeOutputInfo(output_info)
                 continue
             }
-            crtc_info := xrandr.XRRGetCrtcInfo(l_os.x11_display, scr_resources, output_info.crtc)
+            crtc_info := x11.XRRGetCrtcInfo(l_os.x11_display, scr_resources, output_info.crtc)
             if crtc_info != nil {
                 if cast(i32)c_pos.x >= crtc_info.x &&
                    cast(i32)c_pos.x <= cast(i32)crtc_info.width + crtc_info.x &&
@@ -818,10 +814,10 @@ get_active_monitor_dims :: proc(root: x11.Window) -> m.vec4 {
                 } else {
                     log.infof("Found Monitor %d with Resolution %dx%d", i, crtc_info.width, crtc_info.height)
                 }
-                xrandr.XRRFreeCrtcInfo(crtc_info)
+                x11.XRRFreeCrtcInfo(crtc_info)
             }
         }
-        xrandr.XRRFreeOutputInfo(output_info)
+        x11.XRRFreeOutputInfo(output_info)
     }
 
     if dims == {0, 0, 0, 0} {
@@ -2224,17 +2220,17 @@ backend_get_os_events :: proc() {
             if zephr_ctx.virt_mouse.captured &&
                xev.xcookie.extension == l_os.xinput_opcode &&
                x11.GetEventData(l_os.x11_display, &xev.xcookie) &&
-               xev.xcookie.evtype == cast(i32)xinput2.EventType.RawMotion {
-                re := cast(^xinput2.RawEvent)xev.xcookie.data
+               xev.xcookie.evtype == cast(i32)x11.XIEventType.RawMotion {
+                re := cast(^x11.XIRawEvent)xev.xcookie.data
                 if re.valuators.mask_len > 0 {
                     values := re.raw_values
                     rel_pos := m.vec2{}
-                    if xinput2.MaskIsSet(re.valuators.mask, 0) {
+                    if x11.XIMaskIsSet(re.valuators.mask, 0) {
                         zephr_ctx.virt_mouse.virtual_pos.x += cast(f32)values[0]
                         rel_pos.x = cast(f32)values[0]
                     }
 
-                    if xinput2.MaskIsSet(re.valuators.mask, 1) {
+                    if x11.XIMaskIsSet(re.valuators.mask, 1) {
                         zephr_ctx.virt_mouse.virtual_pos.y += cast(f32)values[1]
                         rel_pos.y = cast(f32)values[1]
                     }
@@ -2274,7 +2270,7 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.VRESIZE] = x11.CreateFontCursor(l_os.x11_display, .XC_sb_v_double_arrow)
 
     // non-standard cursors
-    zephr_ctx.cursors[.DISABLED] = xcursor.LibraryLoadCursor(l_os.x11_display, "crossed_circle")
+    zephr_ctx.cursors[.DISABLED] = x11.cursorLibraryLoadCursor(l_os.x11_display, "crossed_circle")
 }
 
 @(private = "file")
@@ -2289,36 +2285,36 @@ enable_raw_mouse_input :: proc() {
 
     major: i32 = 2
     minor: i32 = 0
-    if xinput2.QueryVersion(l_os.x11_display, &major, &minor) == .BadRequest {
+    if x11.XIQueryVersion(l_os.x11_display, &major, &minor) == .BadRequest {
         log.error("XInput2 not available")
         return
     }
 
-    mask_len :: ((cast(i32)xinput2.EventType.RawMotion >> 3) + 1)
+    mask_len :: ((cast(i32)x11.XIEventType.RawMotion >> 3) + 1)
     mask: [mask_len]u8
 
-    em := xinput2.EventMask {
-        deviceid = xinput2.AllMasterDevices,
+    em := x11.XIEventMask {
+        deviceid = x11.XIAllMasterDevices,
         mask_len = mask_len,
         mask     = raw_data(mask[:]),
     }
 
-    xinput2.SetMask(em.mask, .RawMotion)
+    x11.XISetMask(em.mask, .RawMotion)
     // This ONLY works with the root window
-    xinput2.SelectEvents(l_os.x11_display, x11.DefaultRootWindow(l_os.x11_display), &em, 1)
+    x11.XISelectEvents(l_os.x11_display, x11.DefaultRootWindow(l_os.x11_display), &em, 1)
 }
 
 @(private = "file")
 disable_raw_mouse_input :: proc() {
     mask: [1]u8
 
-    em := xinput2.EventMask {
-        deviceid = xinput2.AllMasterDevices,
+    em := x11.XIEventMask {
+        deviceid = x11.XIAllMasterDevices,
         mask_len = 1,
         mask     = raw_data(mask[:]),
     }
 
-    xinput2.SelectEvents(l_os.x11_display, x11.DefaultRootWindow(l_os.x11_display), &em, 1)
+    x11.XISelectEvents(l_os.x11_display, x11.DefaultRootWindow(l_os.x11_display), &em, 1)
 }
 
 @(private = "file")
@@ -2351,7 +2347,7 @@ backend_grab_cursor :: proc() {
         x11.None,
         x11.CurrentTime,
     )
-    xfixes.HideCursor(l_os.x11_display, l_os.x11_window)
+    x11.HideCursor(l_os.x11_display, l_os.x11_window)
 }
 
 backend_release_cursor :: proc() {
@@ -2368,7 +2364,7 @@ backend_release_cursor :: proc() {
         cast(i32)zephr_ctx.virt_mouse.pos_before_capture.y,
     )
     x11.UngrabPointer(l_os.x11_display, x11.CurrentTime)
-    xfixes.ShowCursor(l_os.x11_display, l_os.x11_window)
+    x11.ShowCursor(l_os.x11_display, l_os.x11_window)
 }
 
 @(private = "file")
