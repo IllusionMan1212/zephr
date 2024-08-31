@@ -5,6 +5,8 @@ import "core:math"
 import m "core:math/linalg/glsl"
 import "core:time"
 
+import "logger"
+
 import "vendor:cgltf"
 
 @(private)
@@ -237,7 +239,7 @@ get_current_animation_value :: proc(anim: ^Animation, track: ^AnimationTrack) ->
 }
 
 advance_animation :: proc(anim: ^Animation) #no_bounds_check {
-    context.logger = logger
+    context.logger = logger.logger
 
     for &track, t in anim.tracks {
         // TODO: this is some BS that I wrote to quickly get something that resembles root motion.

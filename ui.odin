@@ -92,15 +92,10 @@ DEFAULT_UI_CONSTRAINTS :: UiConstraints {
 }
 
 @(private)
-ui_init :: proc(font_path: string) {
-    context.logger = logger
-
-    res := init_fonts(font_path)
+ui_init :: proc(font: []byte) {
+    res := init_fonts(font)
     if (res == -1) {
         log.fatal("Failed to initialize the freetype library")
-        os.exit(1)
-    } else if (res == -2) {
-        log.fatalf("Failed to load font file: \"%s\"", font_path)
         os.exit(1)
     } else if (res != 0) {
         os.exit(1)

@@ -10,6 +10,8 @@ import gl "vendor:OpenGL"
 import "vendor:cgltf"
 import stb "vendor:stb/image"
 
+import "logger"
+
 TextureType :: enum {
     DIFFUSE,
     SPECULAR,
@@ -34,7 +36,7 @@ load_texture_from_path :: proc(
     min_filter: i32 = gl.LINEAR_MIPMAP_LINEAR,
     mag_filter: i32 = gl.LINEAR,
 ) -> TextureId {
-    context.logger = logger
+    context.logger = logger.logger
 
     texture_id: TextureId
     width, height, channels: i32
@@ -118,7 +120,7 @@ load_texture_from_memory :: proc(
     min_filter: i32 = gl.LINEAR_MIPMAP_LINEAR,
     mag_filter: i32 = gl.LINEAR,
 ) -> TextureId {
-    context.logger = logger
+    context.logger = logger.logger
 
     texture_id: TextureId
     width, height, channels: i32

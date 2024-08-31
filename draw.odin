@@ -12,6 +12,8 @@ import "core:time"
 import gl "vendor:OpenGL"
 import "vendor:stb/image"
 
+import "logger"
+
 // We do 2^0, 2^2, 2^3, 2^4 to get 1, 4, 8, 16 for the corresponding MSAA samples
 MSAA_SAMPLES :: enum i32 {
     NONE,
@@ -427,7 +429,7 @@ draw_lights :: proc(lights: []Light) {
 }
 
 color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
-    context.logger = logger
+    context.logger = logger.logger
 
     gl.BindFramebuffer(gl.FRAMEBUFFER, multisample_fb)
     gl.Viewport(0, 0, cast(i32)zephr_ctx.window.size.x, cast(i32)zephr_ctx.window.size.y)

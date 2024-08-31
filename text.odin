@@ -72,16 +72,15 @@ font_instance_vbo: u32
 /*   FT_Done_MM_Var(ft, mm); */
 /* } */
 
-init_freetype :: proc(font_path: cstring) -> i32 {
-    context.logger = logger
-
+@(private = "file")
+init_freetype :: proc(font: []byte) -> i32 {
     ft: FT.Library
     if (FT.Init_FreeType(&ft) != 0) {
         return -1
     }
 
     face: FT.Face
-    err := FT.New_Face(ft, font_path, 0, &face)
+    err := FT.New_Memory_Face(ft, raw_data(font), i64(len(font)), 0, &face)
     if (err != 0) {
         log.errorf("FT.New_Face returned: %d", err)
         return -2
@@ -221,12 +220,11 @@ init_freetype :: proc(font_path: cstring) -> i32 {
     return 0
 }
 
-init_fonts :: proc(font_path: string) -> i32 {
-    context.logger = logger
+@(private)
+init_fonts :: proc(font: []byte) -> i32 {
     font_vbo, font_ebo: u32
 
-    font_path_c_str := strings.clone_to_cstring(font_path, context.temp_allocator)
-    res := init_freetype(font_path_c_str)
+    res := init_freetype(font)
     if (res != 0) {
         return res
     }
