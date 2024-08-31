@@ -6,6 +6,7 @@ import m "core:math/linalg/glsl"
 import "core:math"
 import "core:slice"
 import "core:strings"
+import "core:path/filepath"
 import "core:time"
 
 import gl "vendor:OpenGL"
@@ -62,6 +63,10 @@ change_msaa :: proc(by: int) {
     }
 
     msaa = MSAA_SAMPLES(msaa_int)
+}
+
+set_msaa :: proc(sampling: MSAA_SAMPLES) {
+    msaa = sampling
 }
 
 // FIXME: I think we're doing something wrong when applying the transformation hierarchy
@@ -470,7 +475,7 @@ color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
 }
 
 // MUST be called after drawing and before swapping buffers, otherwise you only get the clear color
-save_default_framebuffer_to_image :: proc(filename: string = "") -> bool {
+save_default_framebuffer_to_image :: proc(dir: string = ".", filename: string = "") -> bool {
     filename := filename
     w := i32(zephr_ctx.window.size.x)
     h := i32(zephr_ctx.window.size.y)
@@ -490,7 +495,8 @@ save_default_framebuffer_to_image :: proc(filename: string = "") -> bool {
     gl.ReadPixels(0, 0, w, h, gl.RGB, gl.UNSIGNED_BYTE, raw_data(pixels))
     gl.PixelStorei(gl.PACK_ALIGNMENT, 4)
 
-    cstr := strings.clone_to_cstring(filename, context.temp_allocator)
+    final_path := filepath.join({dir, filename})
+    cstr := strings.clone_to_cstring(final_path, context.temp_allocator)
     image.flip_vertically_on_write(true)
     return image.write_png(cstr, w, h, 3, raw_data(pixels), w * 3) != 0
 }
