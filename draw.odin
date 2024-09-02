@@ -128,12 +128,6 @@ resize_multisample_fb :: proc(width, height: i32) {
     gl.Viewport(0, 0, width, height)
     _msaa := math.pow2_f32(msaa)
 
-    gl.DeleteTextures(1, &color_texture)
-    gl.DeleteTextures(1, &depth_texture)
-
-    gl.GenTextures(1, &color_texture)
-    gl.GenTextures(1, &depth_texture)
-
     gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, color_texture)
     gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB8, width, height, gl.FALSE)
 
