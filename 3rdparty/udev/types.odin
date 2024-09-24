@@ -1,3 +1,4 @@
+#+build linux
 package udev
 
 udev :: struct {}

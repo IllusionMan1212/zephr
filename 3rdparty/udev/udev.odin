@@ -1,3 +1,4 @@
+#+build linux
 package udev
 
 import "core:sys/linux"

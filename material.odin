@@ -1,4 +1,4 @@
-// +private
+#+private
 package zephr
 
 import m "core:math/linalg/glsl"
