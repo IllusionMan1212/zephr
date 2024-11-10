@@ -1238,6 +1238,7 @@ window_proc :: proc "stdcall" (
             resize_multisample_fb(i32(width), i32(height))
 
             e: Event
+            e.type = .WINDOW_RESIZED
             e.window.width = cast(u32)width
             e.window.height = cast(u32)height
 
