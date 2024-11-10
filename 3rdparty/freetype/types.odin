@@ -18,8 +18,7 @@ FT_UShort :: c.ushort
 @(private)
 FT_Int :: c.int
 UInt :: c.uint
-@(private)
-FT_Long :: c.long
+Long :: c.long
 ULong :: c.ulong
 @(private)
 FT_String :: c.char
@@ -89,10 +88,10 @@ LoadFlags :: enum {
     FT_LOAD_TARGET_LCD_V        = (int(FT_Render_Mode_.LCD_V) & 15) << 16,
 }
 
-FaceFlags :: bit_set[FaceFlagsBits;FT_Long]
+FaceFlags :: bit_set[FaceFlagsBits;Long]
 
 @(private)
-FaceFlagsBits :: enum FT_Long {
+FaceFlagsBits :: enum Long {
     SCALABLE          =  0,
     FIXED_SIZES       =  1,
     FIXED_WIDTH       =  2,
@@ -369,11 +368,11 @@ FT_ListRec :: struct {
 
 @(private)
 FT_FaceRec_ :: struct {
-    num_faces:           FT_Long,
-    face_index:          FT_Long,
+    num_faces:           Long,
+    face_index:          Long,
     face_flags:          FaceFlags,
-    style_flags:         FT_Long,
-    num_glyphs:          FT_Long,
+    style_flags:         Long,
+    num_glyphs:          Long,
     family_name:         ^FT_String,
     style_name:          ^FT_String,
     num_fixed_sizes:     FT_Int,

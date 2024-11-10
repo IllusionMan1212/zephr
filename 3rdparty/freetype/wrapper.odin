@@ -8,8 +8,8 @@ when ODIN_OS == .Windows {foreign import freetype "libs/freetype.lib"}
 @(link_prefix = "FT_")
 foreign freetype {
     Init_FreeType :: proc(lib: ^Library) -> FT_Error ---
-    New_Face :: proc(lib: Library, file_pathname: cstring, face_index: FT_Long, face: ^Face) -> FT_Error ---
-    New_Memory_Face :: proc(lib: Library, file_base: [^]FT_Byte, file_size: FT_Long, face_index: FT_Long, face: ^Face) -> FT_Error ---
+    New_Face :: proc(lib: Library, file_pathname: cstring, face_index: Long, face: ^Face) -> FT_Error ---
+    New_Memory_Face :: proc(lib: Library, file_base: [^]FT_Byte, file_size: Long, face_index: Long, face: ^Face) -> FT_Error ---
     Set_Pixel_Sizes :: proc(face: Face, pixel_width: UInt, pixel_height: UInt) -> FT_Error ---
     Set_Charmap :: proc(face: Face, charmap: FT_CharMap) -> FT_Error ---
     Select_Charmap :: proc(face: Face, encoding: FT_Encoding) -> FT_Error ---
