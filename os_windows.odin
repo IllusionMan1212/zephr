@@ -2249,7 +2249,7 @@ backend_swapbuffers :: proc() {
 }
 
 backend_set_cursor :: proc() {
-    // No-op. We handle this in WM_SETCURSOR and only when the cursor is inside the client area (i.e. not on the borders)
+    win32.SetCursor(zephr_ctx.cursors[zephr_ctx.cursor])
 }
 
 backend_init_cursors :: proc() {

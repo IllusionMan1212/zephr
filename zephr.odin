@@ -18,7 +18,6 @@ import gl "vendor:OpenGL"
 RELEASE_BUILD :: #config(RELEASE_BUILD, false)
 
 Cursor :: enum {
-    INVISIBLE,
     ARROW,
     IBEAM,
     CROSSHAIR,
@@ -26,6 +25,7 @@ Cursor :: enum {
     HRESIZE,
     VRESIZE,
     DISABLED,
+    INVISIBLE,
 }
 
 EventType :: enum {
@@ -660,12 +660,6 @@ frame_start :: proc() {
     bit_array.clear(&zephr_ctx.virt_keyboard.keycode_has_been_pressed_bitset)
     bit_array.clear(&zephr_ctx.virt_keyboard.keycode_has_been_released_bitset)
 
-    if zephr_ctx.virt_mouse.captured {
-        set_cursor(.INVISIBLE)
-    } else {
-        set_cursor(.ARROW)
-    }
-
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
     //audio_update();
@@ -687,7 +681,10 @@ frame_end :: proc() {
     }
 
     backend_swapbuffers()
-    backend_set_cursor()
+    if zephr_ctx.ui.hovered_element == 0 && zephr_ctx.cursor != .ARROW && !zephr_ctx.virt_mouse.captured {
+        zephr_ctx.cursor = .ARROW
+        backend_set_cursor()
+    }
 }
 
 iter_events :: proc() -> ^Event {
