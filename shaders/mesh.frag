@@ -1,6 +1,7 @@
 #version 330 core
 
 in vec3 fragPos;
+in vec4 fragPosLightSpace;
 in vec3 fragNormal;
 in vec2 fragTexCoords;
 in mat3 TBN;
@@ -72,6 +73,61 @@ uniform bool doubleSided;
 uniform bool unlit;
 uniform float alphaCutoff;
 uniform int alphaMode;
+uniform sampler2DShadow shadowMap;
+
+vec2 poissonDisk[4] = vec2[](
+  vec2( -0.94201624, -0.39906216 ),
+  vec2( 0.94558609, -0.76890725 ),
+  vec2( -0.094184101, -0.92938870 ),
+  vec2( 0.34495938, 0.29387760 )
+);
+
+float shadowCalculation(vec4 fragPosLightSpace, float bias) {
+  float shadow = 0.0;
+
+  // perform perspective divide
+  vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+  // transform to [0,1] range
+  projCoords = projCoords * 0.5 + 0.5;
+
+  if (projCoords.z > 1.0) {
+    return 0.0;
+  }
+
+  projCoords.z -= bias;
+
+  // No anti-aliasing
+  {
+    shadow = texture(shadowMap, projCoords, bias);
+    //float currentDepth = projCoords.z;
+
+    //shadow += currentDepth - bias > pcfDepth ? 0.8 : 0.0;
+  }
+
+  // PCF
+  //float offset = 1.0 / textureSize(shadowMap, 0).x;
+  //int samples = 2;
+
+  //// get current depth fragment from light's perspective
+  //float currentDepth = projCoords.z;
+
+  //for (int x = -samples; x <= samples; x++) {
+  //  for (int y = -samples; y <= samples; y++) {
+  //    // get closest depth value from light's perspective for the fragment and its neighbors
+  //    shadow += texture(shadowMap, projCoords + vec3(x, y, 0.0) * offset, bias);
+
+  //    // check whether current frag pos is in shadow
+  //    //shadow += currentDepth - bias > pcfDepth ? 0.8 : 0.0;
+  //  }
+  //}
+
+  //shadow /= (2 * samples + 1) * (2 * samples + 1);
+
+  // Soften the shadows by clamping to 0.9
+  shadow = clamp(shadow, 0.0, 0.9);
+
+  return shadow;
+}
 
 // This calculates the ratio between specular/reflected and diffuse/refracted light
 vec3 fresnelSchlick(float cosTheta, vec3 F0) {
@@ -113,6 +169,8 @@ float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
 vec3 CalculateDirLight(vec3 albedo, float metallic, float roughness, DirLight light, vec3 normal, vec3 viewDir) {
   vec3 lightDir = normalize(-light.direction);
 
+  float bias = max(0.034 * (1.0 - dot(normal, lightDir)), 0.0125);
+  float shadow = shadowCalculation(fragPosLightSpace, bias);
   vec3 halfwayDir = normalize(lightDir + viewDir);
   vec3 radiance = light.diffuse;
 
@@ -135,6 +193,7 @@ vec3 CalculateDirLight(vec3 albedo, float metallic, float roughness, DirLight li
 
   float NdotL = max(dot(normal, lightDir), 0.0);
   vec3 Lo = (kD * albedo / PI + specular) * radiance * NdotL;
+  Lo = Lo * (1.0 - shadow);
 
   vec3 ambient = vec3(0.03) * albedo;
   vec3 color = ambient + Lo;
@@ -213,6 +272,15 @@ void main() {
       result += material.emissive;
     }
 
+    vec3 norm = normalize(fragNormal);
+
+    // Also apply shadows to unlit objects using a static bias to counter shadow_map.frag's 0.020 BIAS
+    vec3 lightDir = normalize(-dirLight.direction);
+
+    float bias = max(0.034 * (1.0 - dot(norm, lightDir)), 0.046);
+
+    float shadow = shadowCalculation(fragPosLightSpace, bias);
+    result *= (1.0 - shadow);
     fragColor = vec4(pow(result, vec3(1.0 / GAMMA)), baseColor.a);
 
     return;

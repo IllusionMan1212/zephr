@@ -9,6 +9,7 @@ layout (location = 5) in vec4 weight;
 layout (location = 6) in vec4 color;
 
 out vec3 fragPos;
+out vec4 fragPosLightSpace;
 out vec3 fragNormal;
 out vec2 fragTexCoords;
 out vec4 vertColor;
@@ -17,6 +18,7 @@ out mat3 TBN;
 uniform mediump sampler2DArray morphTargets;
 uniform mediump samplerBuffer morphTargetWeights;
 uniform mediump samplerBuffer jointMatrices;
+uniform sampler2DShadow shadowMap;
 uniform mat4 model;
 uniform mat4 projectionView;
 uniform bool useMorphing;
@@ -24,6 +26,7 @@ uniform bool useSkinning;
 uniform int morphTargetNormalsOffset;
 uniform int morphTargetTangentsOffset;
 uniform int morphTargetsCount;
+uniform mat4 lightSpaceMatrix;
 
 mat4 getSkinMat() {
     int xIdx = int(joint.x) * 4;
@@ -104,6 +107,12 @@ void main() {
     gl_Position = projectionView * modelMat * vec4(pos, 1.0f);
     fragNormal = mat3(transpose(inverse(modelMat))) * norm;
     fragPos = vec3(modelMat * vec4(pos, 1.0));
+    fragPosLightSpace = lightSpaceMatrix * vec4(fragPos, 1.0);
+    //vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
+    //vec4 quant = lightSpaceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+    //quant.xy -= mod(fragPosLightSpace.xy, texelSize);
+    //fragPosLightSpace.xy += quant.xy;
+    //fragPosLightSpace.xy -= mod(fragPosLightSpace.xy, texelSize);
     fragTexCoords = texCoords;
     vertColor = color;
 

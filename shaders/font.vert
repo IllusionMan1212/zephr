@@ -10,11 +10,11 @@ layout (location = 5) in mat4 model; // this takes locations 5,6,7,8
 
 out vec2 v_TexCoords;
 out vec4 textColor;
-uniform mat4 projection;
+uniform mat4 projectionView;
 
 void main() {
   vec2 pos = vec2((vertex.x) * offset.z, (vertex.y) * offset.w);
-  gl_Position = projection * model * vec4(pos + offset.xy, 0.0, 1.0);
+  gl_Position = projectionView * model * vec4(pos + offset.xy, 0.0, 1.0);
 
   if (gl_VertexID == 0) {
     v_TexCoords = tex_coords1.xy;

@@ -358,7 +358,7 @@ calculate_text_size :: proc(text: string, font_size: u32) -> m.vec2 {
 }
 
 draw_text :: proc(text: string, font_size: u32, constraints: UiConstraints, color: Color, alignment: Alignment) {
-    glyph_instance_list := get_glyph_instance_list_from_text(text, font_size, constraints, color, alignment)
+    glyph_instance_list := get_glyph_instance_list_from_text(text, font_size, constraints, color, alignment, zephr_ctx.projection)
     defer delete(glyph_instance_list)
 
     gl.ActiveTexture(gl.TEXTURE0)
@@ -411,12 +411,14 @@ get_closest_font_size :: proc(font_size: u32) -> u8 {
     return closest_idx
 }
 
+@(private = "file")
 get_glyph_instance_list_from_text :: proc(
     text: string,
     font_size: u32,
     constraints: UiConstraints,
     color: Color,
     alignment: Alignment,
+    projection_view_mat: m.mat4,
 ) -> GlyphInstanceList {
     constraints := constraints
     use_shader(font_shader)
@@ -427,7 +429,7 @@ get_glyph_instance_list_from_text :: proc(
         cast(f32)color.a / 255,
     }
 
-    set_mat4f(font_shader, "projection", zephr_ctx.projection)
+    set_mat4f(font_shader, "projectionView", projection_view_mat)
 
     rect: Rect
 
@@ -502,6 +504,108 @@ get_glyph_instance_list_from_text :: proc(
     return glyph_instance_list
 }
 
+@(private = "file")
+get_glyph_instance_list_from_text_world :: proc(
+    text: string,
+    font_size: u32,
+    color: Color,
+    projection_view_mat: m.mat4,
+    model: m.mat4,
+) -> GlyphInstanceList {
+    use_shader(font_shader)
+    text_color := m.vec4 {
+        cast(f32)color.r / 255,
+        cast(f32)color.g / 255,
+        cast(f32)color.b / 255,
+        cast(f32)color.a / 255,
+    }
+
+    set_mat4f(font_shader, "projectionView", projection_view_mat)
+
+    rect: Rect
+    rect.size = {1, 1}
+
+    //apply_constraints(&{0, 0, 1, 1}, &rect.pos, &rect.size)
+
+    closest_font_size := get_closest_font_size(font_size)
+    window_size := zephr_ctx.window.size
+
+    text_size := calculate_text_size(text, cast(u32)FONT_PIXEL_SIZES[closest_font_size])
+    font_scale := cast(f32)font_size / cast(f32)FONT_PIXEL_SIZES[closest_font_size] * rect.size.x
+
+    //apply_alignment(alignment, &constraints, m.vec2{text_size.x * font_scale, text_size.y * font_scale}, &rect.pos)
+
+    l_model := m.identity(m.mat4)
+    //l_model = m.mat4Translate({}) * l_model
+    l_model = m.mat4Scale(m.vec3{font_scale, -font_scale, font_scale})
+    l_model = m.mat4Translate(m.vec3{-text_size.x * font_scale / 2, -text_size.y * font_scale / 2, 0}) * l_model
+    l_model = model * l_model
+    //l_model = m.mat4Translate(m.vec3{text_size.x / 2, text_size.y / 2, 0}) * l_model
+    //l_model = l_model * model
+    ////model = m.mat4Scale(m.vec3{constraints.scale.x, constraints.scale.y, 1}) * model
+    //l_model = m.mat4Translate(m.vec3{text_size.x * font_scale / 2, text_size.y * font_scale / 2, 0}) * l_model
+    //l_model = m.mat4Scale(m.vec3{font_scale, -font_scale, font_scale}) * l_model
+
+
+    //// rotate around the center point of the text
+    //model = m.mat4Translate(m.vec3{-text_size.x * font_scale / 2, -text_size.y * font_scale / 2, 0}) * model
+    //model = m.mat4Rotate(m.vec3{0, 0, 1}, m.radians(constraints.rotation)) * model
+    //model = m.mat4Translate(m.vec3{text_size.x * font_scale / 2, text_size.y * font_scale / 2, 0}) * model
+
+    //model = m.mat4Translate(m.vec3{rect.pos.x, rect.pos.y, 0}) * model
+
+    max_bearing_h: f32 = 0
+    for i in 0 ..< len(text) {
+        ch := zephr_ctx.font.glyphs[text[i]][closest_font_size]
+        max_bearing_h = max(max_bearing_h, ch.bearing.y)
+    }
+
+    first_char_bearing_w := zephr_ctx.font.glyphs[text[0]][closest_font_size].bearing.x
+
+    glyph_instance_list: GlyphInstanceList
+    reserve(&glyph_instance_list, 16)
+
+    // we use the original text and character sizes in the loop and then we just
+    // scale up or down the model matrix to get the desired font size.
+    // this way everything works out fine and we get to transform the text using the
+    // model matrix
+    c := 0
+    x: u32 = 0
+    y: f32 = 0
+    for c != len(text) {
+        ch := zephr_ctx.font.glyphs[text[c]][closest_font_size]
+        // subtract the bearing width of the first character to remove the extra space
+        // at the start of the text and move every char to the left by that width
+        xpos := (cast(f32)x + (ch.bearing.x - first_char_bearing_w))
+        ypos := y + (text_size.y - ch.bearing.y - (text_size.y - max_bearing_h))
+
+        if (text[c] == '\n') {
+            x = 0
+            y += max_bearing_h + ((LINE_HEIGHT_PERCENT * cast(f32)FONT_PIXEL_SIZES[closest_font_size]) * LINE_HEIGHT)
+            c += 1
+            continue
+        }
+
+        // Flip Y because we set our 2d ortho 0,0 as top left
+        //ch.tex_coords[0], ch.tex_coords[3] = ch.tex_coords[3], ch.tex_coords[0]
+        //ch.tex_coords[1], ch.tex_coords[2] = ch.tex_coords[2], ch.tex_coords[1]
+
+        instance := GlyphInstance {
+            pos            = m.vec4{xpos, ypos, ch.size.x, ch.size.y},
+            tex_coords     = ch.tex_coords,
+            color          = text_color,
+            model          = l_model,
+        }
+
+        append(&glyph_instance_list, instance)
+
+        x += (ch.advance >> 6)
+        c += 1
+    }
+
+    return glyph_instance_list
+}
+
 add_text_instance :: proc(
     batch: ^GlyphInstanceList,
     text: string,
@@ -510,8 +614,30 @@ add_text_instance :: proc(
     color: Color,
     alignment: Alignment,
 ) {
-    glyph_instance_list := get_glyph_instance_list_from_text(text, font_size, constraints, color, alignment)
+    glyph_instance_list := get_glyph_instance_list_from_text(text, font_size, constraints, color, alignment, zephr_ctx.projection)
     defer delete(glyph_instance_list)
 
     append(batch, ..glyph_instance_list[:])
+}
+
+draw_text_world :: proc(text: string, font_size: u32, model: m.mat4, color: Color, camera: ^Camera) {
+    glyph_instance_list := get_glyph_instance_list_from_text_world(text, font_size, color, camera.proj_mat * camera.view_mat, model)
+    defer delete(glyph_instance_list)
+
+    gl.ActiveTexture(gl.TEXTURE0)
+    gl.BindTexture(gl.TEXTURE_2D, zephr_ctx.font.atlas_tex_id)
+    gl.BindVertexArray(font_vao)
+
+    gl.BindBuffer(gl.ARRAY_BUFFER, font_instance_vbo)
+    gl.BufferData(
+        gl.ARRAY_BUFFER,
+        size_of(GlyphInstance) * len(glyph_instance_list),
+        raw_data(glyph_instance_list),
+        gl.DYNAMIC_DRAW,
+    )
+
+    gl.DrawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_INT, nil, cast(i32)len(glyph_instance_list))
+
+    gl.BindVertexArray(0)
+    gl.BindTexture(gl.TEXTURE_2D, 0)
 }
