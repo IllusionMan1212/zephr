@@ -669,9 +669,9 @@ frame_start :: proc() {
     bit_array.clear(&zephr_ctx.virt_keyboard.keycode_has_been_released_bitset)
 
     if zephr_ctx.virt_mouse.captured {
-        zephr_ctx.cursor = .INVISIBLE
+        set_cursor(.INVISIBLE)
     } else {
-        zephr_ctx.cursor = .ARROW
+        set_cursor(.ARROW)
     }
 
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -857,7 +857,7 @@ os_event_queue_input_device_connected :: proc(
     }
 
     log.infof(
-        "input device connected: name: %s, vendor_id: 0x%x, product_id: 0x%x, features: 0x%x",
+        "input device connected: name: %s, vendor_id: 0x%x, product_id: 0x%x, features: %v",
         name,
         vendor_id,
         product_id,

@@ -22,7 +22,6 @@ import gl "vendor:OpenGL"
 // TODO: Moving a window that was created on a 1080 monitor to a 768 monitor cuts off the viewport from the top
 // and possibly other sides. Fix that
 // TODO: watch the shaders directory for hot-reloading
-// BUG: setting the cursor every frame messes with the cursor for resizing when on the edge of the window
 // TODO: handle start window in fullscreen
 //       currently the way to "start" a window in fullscreen is to just create a regular window
 //       and immediately fullscreen it. This works fine but there's a moment where you can see the regular-sized window.
@@ -1191,6 +1190,12 @@ window_proc :: proc "stdcall" (
             e: Event
             e.type = .WINDOW_CLOSED
             queue.push(&zephr_ctx.event_queue, e)
+        case win32.WM_SETCURSOR:
+            if win32.LOWORD(lparam) == win32.HTCLIENT {
+                win32.SetCursor(zephr_ctx.cursors[zephr_ctx.cursor])
+                return 1;
+            }
+            return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
         case win32.WM_DROPFILES:
             hdrop := cast(win32.HDROP)wparam
 
@@ -1475,7 +1480,8 @@ window_proc :: proc "stdcall" (
                                 //0xE02A, 0xE0AA, 0xE036, 0xE0B6: generated in addition of Numpad Divide and one or both Shift keys are pressed
                                 //When holding a key down, the pre/postfix (0xE02A) is not repeated!
                                 case 0xE11D:
-                                    input_device_backend.found_e11d = true;return 0
+                                    input_device_backend.found_e11d = true
+                                    return 0
                                 case 0xE02A:
                                     return 0
                                 case 0xE0AA:
@@ -2243,7 +2249,7 @@ backend_swapbuffers :: proc() {
 }
 
 backend_set_cursor :: proc() {
-    win32.SetCursor(zephr_ctx.cursors[zephr_ctx.cursor])
+    // No-op. We handle this in WM_SETCURSOR and only when the cursor is inside the client area (i.e. not on the borders)
 }
 
 backend_init_cursors :: proc() {
@@ -2338,7 +2344,7 @@ backend_grab_cursor :: proc() {
     win32.GetCursorPos(&pos)
     zephr_ctx.virt_mouse.pos_before_capture = {cast(f32)pos.x, cast(f32)pos.y}
     zephr_ctx.virt_mouse.virtual_pos = {cast(f32)pos.x, cast(f32)pos.y}
-    zephr_ctx.cursor = .INVISIBLE
+    set_cursor(.INVISIBLE)
     win32.SetCursor(w_os.invisible_cursor)
     win32.SetCapture(w_os.hwnd)
 }
