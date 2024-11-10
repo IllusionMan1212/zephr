@@ -33,7 +33,7 @@ Entity :: struct {
 }
 
 CollisionShape :: union {
-    AABB,
+    OBB,
     //Sphere,
     //Capsule,
     //Cylinder,

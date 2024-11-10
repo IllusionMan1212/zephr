@@ -119,7 +119,7 @@ init_renderer :: proc(window_size: m.vec2) {
     log.debugf("Max texture size: %d", max_tex_size)
     log.debugf("Max texture layers: %d", max_tex_arr_size)
 
-    init_aabb()
+    init_obb()
     init_color_pass(window_size)
 }
 
@@ -240,24 +240,24 @@ draw_node :: proc(node: ^Node, materials: ^map[uintptr]Material) {
 }
 
 @(private = "file", disabled = RELEASE_BUILD)
-draw_aabb :: proc(aabb: AABB, transform: m.mat4) {
+draw_obb :: proc(obb: OBB, transform: m.mat4) {
     set_mat4f(mesh_shader, "model", transform)
     set_bool(mesh_shader, "useSkinning", false)
 
     vertices := []m.vec3{
-        aabb.min,
-        {aabb.max.x, aabb.min.y, aabb.min.z},
-        {aabb.max.x, aabb.max.y, aabb.min.z},
-        {aabb.min.x, aabb.max.y, aabb.min.z},
-        {aabb.min.x, aabb.min.y, aabb.max.z},
-        {aabb.max.x, aabb.min.y, aabb.max.z},
-        aabb.max,
-        {aabb.min.x, aabb.max.y, aabb.max.z},
+        obb.min,
+        {obb.max.x, obb.min.y, obb.min.z},
+        {obb.max.x, obb.max.y, obb.min.z},
+        {obb.min.x, obb.max.y, obb.min.z},
+        {obb.min.x, obb.min.y, obb.max.z},
+        {obb.max.x, obb.min.y, obb.max.z},
+        obb.max,
+        {obb.min.x, obb.max.y, obb.max.z},
     }
 
     gl.LineWidth(4)
-    gl.BindVertexArray(aabb_vao)
-    gl.BindBuffer(gl.ARRAY_BUFFER, aabb_vbo)
+    gl.BindVertexArray(obb_vao)
+    gl.BindBuffer(gl.ARRAY_BUFFER, obb_vbo)
     gl.BufferSubData(gl.ARRAY_BUFFER, 0, size_of(m.vec3) * len(vertices), raw_data(vertices))
     gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
@@ -453,7 +453,7 @@ color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
 
         apply_transform_hierarchy(&entity.model, model_mat)
         draw_model(&entity.model)
-        //draw_aabb(entity.model.aabb, entity.model.nodes[0].world_transform)
+        //draw_obb(entity.model.obb, entity.model.nodes[0].world_transform)
         //draw_collision_shape()
     }
 

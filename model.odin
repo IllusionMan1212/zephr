@@ -42,7 +42,7 @@ Mesh :: struct {
     ebo:                   u32,
     morph_weights_buf:     u32,
     morph_weights_tex:     TextureId,
-    aabb: AABB,
+    obb: OBB,
 }
 
 Node :: struct {
@@ -68,7 +68,7 @@ Model :: struct {
     arena:            virtual.Arena,
     animations:       []Animation,
     active_animation: ^Animation,
-    aabb: AABB,
+    obb: OBB,
 }
 
 node_name_idx: ^int
@@ -493,8 +493,8 @@ process_mesh :: proc(
     defer delete(weights)
     colors: []f32
     defer delete(colors)
-    has_aabb := false
-    mesh_aabb := AABB{
+    has_obb := false
+    mesh_obb := OBB{
         min = {math.INF_F32, math.INF_F32, math.INF_F32},
         max = {math.NEG_INF_F32, math.NEG_INF_F32, math.NEG_INF_F32},
     }
@@ -507,9 +507,9 @@ process_mesh :: proc(
             case .position:
                 positions = make([]f32, accessor.count * 3)
                 if accessor.has_min && accessor.has_max {
-                    mesh_aabb.min = m.min(mesh_aabb.min, m.vec3{accessor.min[0], accessor.min[1], accessor.min[2]})
-                    mesh_aabb.max = m.max(mesh_aabb.max, m.vec3{accessor.max[0], accessor.max[1], accessor.max[2]})
-                    has_aabb = true
+                    mesh_obb.min = m.min(mesh_obb.min, m.vec3{accessor.min[0], accessor.min[1], accessor.min[2]})
+                    mesh_obb.max = m.max(mesh_obb.max, m.vec3{accessor.max[0], accessor.max[1], accessor.max[2]})
+                    has_obb = true
                 }
                 process_accessor_vec3(accessor, positions)
             case .normal:
@@ -570,9 +570,9 @@ process_mesh :: proc(
             ? m.vec4{colors[i * 4], colors[i * 4 + 1], colors[i * 4 + 2], colors[i * 4 + 3]} \
             : m.vec4{0, 0, 0, 0}
 
-        if !has_aabb {
-            mesh_aabb.min = m.min(mesh_aabb.min, pos)
-            mesh_aabb.max = m.max(mesh_aabb.max, pos)
+        if !has_obb {
+            mesh_obb.min = m.min(mesh_obb.min, pos)
+            mesh_obb.max = m.max(mesh_obb.max, pos)
         }
 
         append(
@@ -663,7 +663,7 @@ process_mesh :: proc(
             morph_attribute_count,
             morph_normals_offset,
             morph_tangents_offset,
-            mesh_aabb,
+            mesh_obb,
             allocator,
         ),
         true
@@ -832,7 +832,7 @@ new_mesh :: proc(
     morph_attribute_count: int,
     morph_normals_offset: int,
     morph_tangents_offset: int,
-    aabb: AABB,
+    obb: OBB,
     allocator: ^mem.Allocator,
 ) -> Mesh {
     vao, vbo, ebo: u32
@@ -966,7 +966,7 @@ new_mesh :: proc(
             ebo,
             morph_weights_buf,
             morph_weights_texture,
-            aabb,
+            obb,
         } \
     )
 }
@@ -1090,7 +1090,7 @@ load_gltf_model :: proc(
     materials := make(map[uintptr]Material, allocator = arena_allocator)
     textures_map := make(map[cstring]TextureId)
     defer delete(textures_map)
-    aabb := AABB{
+    obb := OBB{
         min = {math.INF_F32, math.INF_F32, math.INF_F32},
         max = {math.NEG_INF_F32, math.NEG_INF_F32, math.NEG_INF_F32},
     }
@@ -1176,18 +1176,18 @@ load_gltf_model :: proc(
 
     log.debugf("Loading model took: %s", time.diff(start, time.now()))
 
-    create_model_aabb(nodes, &aabb)
+    create_model_obb(nodes, &obb)
 
     model.nodes = nodes
     model.materials = materials
     model.animations = animations
-    model.aabb = aabb
+    model.obb = obb
 
     return model^, true
 }
 
-create_model_aabb :: proc(nodes: []^Node, aabb: ^AABB) {
-    calc_transform_and_aabb :: proc(node: ^Node, aabb: ^AABB, parent_world_transform: m.mat4) {
+create_model_obb :: proc(nodes: []^Node, obb: ^OBB) {
+    calc_transform_and_obb :: proc(node: ^Node, obb: ^OBB, parent_world_transform: m.mat4) {
         transform: m.mat4
         if node.parent != nil {
             transform = parent_world_transform * node_local_transform(node)
@@ -1197,18 +1197,18 @@ create_model_aabb :: proc(nodes: []^Node, aabb: ^AABB) {
 
         for mesh in node.meshes {
             for vert in mesh.vertices {
-                aabb.min = m.min(aabb.min, vert.position + m.vec3{transform[3][0], transform[3][1], transform[3][2]})
-                aabb.max = m.max(aabb.max, vert.position + m.vec3{transform[3][0], transform[3][1], transform[3][2]})
+                obb.min = m.min(obb.min, vert.position + m.vec3{transform[3][0], transform[3][1], transform[3][2]})
+                obb.max = m.max(obb.max, vert.position + m.vec3{transform[3][0], transform[3][1], transform[3][2]})
             }
         }
 
         for child in node.children {
-            calc_transform_and_aabb(child, aabb, transform)
+            calc_transform_and_obb(child, obb, transform)
         }
     }
 
     for node in nodes {
-        calc_transform_and_aabb(node, aabb, m.identity(m.mat4))
+        calc_transform_and_obb(node, obb, m.identity(m.mat4))
     }
 }
 
