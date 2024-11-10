@@ -7,6 +7,8 @@ import "core:path/filepath"
 import "core:os"
 import "core:strings"
 
+import "logger"
+
 import gl "vendor:OpenGL"
 
 Shader :: struct {
@@ -70,7 +72,7 @@ create_shader_with_geometry :: proc(vs_path, fs_path, geom_path: string) -> (sha
 
 @(private, disabled = RELEASE_BUILD)
 update_shaders_if_changed :: proc() {
-    context.logger = logger
+    context.logger = logger.logger
 
     if queue.len(zephr_ctx.changed_shaders_queue) == 0 {
         return
