@@ -6,9 +6,11 @@ import "core:fmt"
 import "core:log"
 import m "core:math/linalg/glsl"
 import "core:mem/virtual"
-import "core:os"
 import "core:path/filepath"
 import "core:time"
+
+import "ui"
+import "logger"
 
 import gl "vendor:OpenGL"
 
@@ -517,14 +519,7 @@ when ODIN_OS == .Linux {
 } else when ODIN_OS == .Windows {
     OS_INPUT_DEVICE_BACKEND_SIZE :: 120
 }
-
-when ODIN_DEBUG {
-    @(private)
-    TerminalLoggerOpts :: log.Default_Console_Logger_Opts
-} else {
-    @(private)
-    TerminalLoggerOpts :: log.Options{.Level, .Terminal_Color, .Short_File_Path, .Line, .Date, .Time}
-}
+DEFAULT_FONT_PATH :: #config(DEFAULT_FONT_PATH, "res/fonts/Rubik/Rubik-VariableFont_wght.ttf")
 
 COLOR_BLACK :: Color{0, 0, 0, 255}
 COLOR_WHITE :: Color{255, 255, 255, 255}
@@ -543,17 +538,17 @@ engine_rel_path := filepath.dir(#file)
 @(private)
 zephr_ctx: Context
 @(private)
-logger: log.Logger
-
+engine_font :: #load(DEFAULT_FONT_PATH)
 
 init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, window_non_resizable: bool) {
-    logger_init()
-    context.logger = logger
+    logger.init()
+    context.logger = logger.logger
 
     // TODO: This font is currently used for the UI elements, but we should allow the user to specify
     //       their own font for the UI elements.
     //       In the future, this font should only be used for the engine's editor.
-    engine_font_path := create_resource_path("res/fonts/Rubik/Rubik-VariableFont_wght.ttf")
+    //engine_font_path := create_resource_path("res/fonts/Rubik/Rubik-VariableFont_wght.ttf")
+    //defer delete(engine_font_path)
 
     //ok := audio_init();
     //log.assert(ok, "Failed to initialize audio");
@@ -573,12 +568,17 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     zephr_ctx.clear_color = {0.2, 0.2, 0.2, 1}
 
     init_renderer(window_size)
-    ui_init(engine_font_path)
+    ui.init()
+    ui_init(engine_font)
 
     backend_init_cursors()
 
     zephr_ctx.screen_size = backend_get_screen_size()
     time.stopwatch_start(&zephr_ctx.timer)
+}
+
+get_projection :: #force_inline proc() -> m.mat4 {
+    return zephr_ctx.projection
 }
 
 deinit :: proc() {
@@ -589,6 +589,7 @@ deinit :: proc() {
     queue.destroy(&zephr_ctx.event_queue)
     queue.destroy(&zephr_ctx.changed_shaders_queue)
     delete(zephr_ctx.ui.elements)
+    ui.shutdown()
     delete(zephr_ctx.shaders)
 
     free(font_shader)
@@ -707,7 +708,7 @@ frame_end :: proc() {
 }
 
 iter_events :: proc() -> ^Event {
-    context.logger = logger
+    context.logger = logger.logger
 
     if queue.len(zephr_ctx.event_queue) < queue.cap(zephr_ctx.event_queue) {
         backend_get_os_events()
