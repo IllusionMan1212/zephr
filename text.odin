@@ -80,7 +80,7 @@ init_freetype :: proc(font: []byte) -> i32 {
     }
 
     face: FT.Face
-    err := FT.New_Memory_Face(ft, raw_data(font), i64(len(font)), 0, &face)
+    err := FT.New_Memory_Face(ft, raw_data(font), FT.Long(len(font)), 0, &face)
     if (err != 0) {
         log.errorf("FT.New_Face returned: %d", err)
         return -2
