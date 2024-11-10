@@ -19,6 +19,8 @@ import "core:time"
 
 import gl "vendor:OpenGL"
 
+import "logger"
+
 // TODO: Moving a window that was created on a 1080 monitor to a 768 monitor cuts off the viewport from the top
 // and possibly other sides. Fix that
 // TODO: watch the shaders directory for hot-reloading
@@ -1181,7 +1183,7 @@ window_proc :: proc "stdcall" (
     lparam: win32.LPARAM,
 ) -> win32.LRESULT {
     context = runtime.default_context()
-    context.logger = logger
+    context.logger = logger.logger
 
     result: win32.LRESULT
 
@@ -2100,7 +2102,7 @@ window_proc :: proc "stdcall" (
 }
 
 backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
-    context.logger = logger
+    context.logger = logger.logger
 
     queue.init(&w_os.events)
 
@@ -2382,7 +2384,7 @@ backend_get_screen_size :: proc() -> m.vec2 {
 }
 
 backend_toggle_fullscreen :: proc(fullscreen: bool) {
-    context.logger = logger
+    context.logger = logger.logger
     // TODO: handle multiple monitors
 
     if fullscreen {
