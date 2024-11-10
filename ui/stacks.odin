@@ -1,4 +1,4 @@
-//+private
+#+private
 package zephr_ui
 
 ParentNode :: struct {
