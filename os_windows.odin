@@ -1190,6 +1190,20 @@ window_proc :: proc "stdcall" (
             e: Event
             e.type = .WINDOW_CLOSED
             queue.push(&zephr_ctx.event_queue, e)
+        case win32.WM_ACTIVATEAPP:
+            activated := cast(bool)wparam
+
+            e: Event
+            if activated {
+                e.type = .WINDOW_GAINED_FOCUS
+                queue.push(&zephr_ctx.event_queue, e)
+            } else {
+                e.type = .WINDOW_LOST_FOCUS
+                queue.push(&zephr_ctx.event_queue, e)
+            }
+            zephr_ctx.window.visible = activated
+
+            return 1
         case win32.WM_SETCURSOR:
             if win32.LOWORD(lparam) == win32.HTCLIENT {
                 win32.SetCursor(zephr_ctx.cursors[zephr_ctx.cursor])

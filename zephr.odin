@@ -54,6 +54,8 @@ EventType :: enum {
     VIRT_KEY_RELEASED,
     FILE_DROP,
     WINDOW_RESIZED,
+    WINDOW_LOST_FOCUS,
+    WINDOW_GAINED_FOCUS,
     WINDOW_CLOSED,
 }
 
@@ -465,6 +467,7 @@ Window :: struct {
     pre_fullscreen_size: m.vec2,
     is_fullscreen:       bool,
     non_resizable:       bool,
+    visible: bool,
 }
 
 Keyboard :: struct {
@@ -564,6 +567,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     zephr_ctx.virt_mouse.pos = m.vec2{-1, -1}
     zephr_ctx.window.size = window_size
     zephr_ctx.window.non_resizable = window_non_resizable
+    zephr_ctx.window.visible = true
     zephr_ctx.projection = orthographic_projection_2d(0, window_size.x, window_size.y, 0)
     zephr_ctx.clear_color = {0.2, 0.2, 0.2, 1}
 
