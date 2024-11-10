@@ -12,6 +12,9 @@ import "core:time"
 
 import "shared:android"
 
+import "ui"
+import "logger"
+
 import gl "vendor:OpenGL"
 
 // TODO: In the future stop drawing and processing things in the engine when the window is not focused
@@ -553,14 +556,6 @@ when ODIN_OS == .Linux {
     OS_INPUT_DEVICE_BACKEND_SIZE :: 120
 }
 
-when ODIN_DEBUG {
-    @(private)
-    TerminalLoggerOpts :: log.Default_Console_Logger_Opts
-} else {
-    @(private)
-    TerminalLoggerOpts :: log.Options{.Level, .Terminal_Color, .Short_File_Path, .Line, .Date, .Time}
-}
-
 COLOR_BLACK :: Color{0, 0, 0, 255}
 COLOR_WHITE :: Color{255, 255, 255, 255}
 COLOR_RED :: Color{255, 0, 0, 255}
@@ -584,13 +579,10 @@ DEFAULT_ENGINE_FONT :: #load(DEFAULT_FONT_PATH)
 
 @(private)
 zephr_ctx: Context
-@(private)
-logger: log.Logger
-
 
 init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, window_non_resizable: bool) {
-    logger_init()
-    context.logger = logger
+    logger.init()
+    context.logger = logger.logger
 
     // TODO: This is used as a quick hack so we don't reset the global shaders and have no way of #load-ing them again.
     // Find a way to get rid of this.
@@ -619,12 +611,17 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     zephr_ctx.clear_color = {0.2, 0.2, 0.2, 1}
 
     init_renderer(window_size)
+    ui.init()
     ui_init(DEFAULT_ENGINE_FONT)
 
     backend_init_cursors()
 
     zephr_ctx.screen_size = backend_get_screen_size()
     time.stopwatch_start(&zephr_ctx.timer)
+}
+
+get_projection :: #force_inline proc() -> m.mat4 {
+    return zephr_ctx.projection
 }
 
 deinit :: proc() {
@@ -635,6 +632,7 @@ deinit :: proc() {
     queue.destroy(&zephr_ctx.event_queue)
     queue.destroy(&zephr_ctx.changed_shaders_queue)
     delete(zephr_ctx.ui.elements)
+    ui.shutdown()
     delete(zephr_ctx.shaders)
 
     free(font_shader)
@@ -760,7 +758,7 @@ frame_end :: proc() {
 }
 
 iter_events :: proc() -> ^Event {
-    context.logger = logger
+    context.logger = logger.logger
 
     if queue.len(zephr_ctx.event_queue) < queue.cap(zephr_ctx.event_queue) {
         backend_get_os_events()
@@ -1326,35 +1324,6 @@ os_event_queue_drag_and_drop_file :: proc(paths: []string) {
 //
 //
 /////////////////////////////
-
-@(private)
-logger_init :: proc() {
-    // NOTE: This guard is needed so we don't reopen the log file on activity recreation in android.
-    if zephr_ctx.logger_fd != os.Handle(0) {
-        return
-    }
-
-    when ODIN_PLATFORM_SUBTARGET == .Android {
-        log_file, err := os.open(create_appdata_path("zephr.log", context.temp_allocator), os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o664)
-        if err != os.ERROR_NONE {
-            android.__android_log_print(.ERROR, "zephr", "[ERROR] Failed to open log file. Logs will not be written. Error code: %d", err)
-            return
-        }
-        zephr_ctx.logger_fd = log_file
-    } else {
-        log_file, err := os.open("zephr.log", os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o664)
-        if err != os.ERROR_NONE {
-            fmt.eprintln("[ERROR] Failed to open log file. Logs will not be written. Error code: %d", err)
-            return
-        }
-        zephr_ctx.logger_fd = log_file
-    }
-
-    file_logger := log.create_file_logger(log_file)
-    term_logger := log.create_console_logger(opt = TerminalLoggerOpts)
-
-    logger = log.create_multi_logger(file_logger, term_logger)
-}
 
 get_asset :: proc(path: string) -> Asset {
     return backend_get_asset(path)

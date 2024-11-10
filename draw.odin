@@ -12,15 +12,17 @@ import "core:time"
 import gl "vendor:OpenGL"
 import "vendor:stb/image"
 
+import "logger"
+
 // We do 2^0, 2^2, 2^3, 2^4 to get 1, 4, 8, 16 for the corresponding MSAA samples
-MSAA_SAMPLES :: enum i32 {
+MSAASamples :: enum i32 {
     NONE,
     MSAA_4 = 2,
     MSAA_8,
     MSAA_16,
 }
 
-ANTIALIASING :: enum {
+Antialiasing :: enum {
     MSAA,
 }
 
@@ -34,7 +36,7 @@ depth_texture: TextureId
 @(private = "file")
 color_texture: TextureId
 @(private = "file")
-msaa := MSAA_SAMPLES.MSAA_4
+msaa := MSAASamples.MSAA_4
 
 change_msaa :: proc(by: int) {
     msaa_int := int(msaa)
@@ -47,24 +49,24 @@ change_msaa :: proc(by: int) {
     msaa_int += by
 
     if msaa_int == 1 {
-        msaa = MSAA_SAMPLES(msaa_int + by)
+        msaa = MSAASamples(msaa_int + by)
         return
     }
 
-    if msaa_int < int(MSAA_SAMPLES.NONE) {
+    if msaa_int < int(MSAASamples.NONE) {
         msaa = .MSAA_16
         return
     }
 
-    if msaa_int > int(MSAA_SAMPLES.MSAA_16) {
+    if msaa_int > int(MSAASamples.MSAA_16) {
         msaa = .NONE
         return
     }
 
-    msaa = MSAA_SAMPLES(msaa_int)
+    msaa = MSAASamples(msaa_int)
 }
 
-set_msaa :: proc(sampling: MSAA_SAMPLES) {
+set_msaa :: proc(sampling: MSAASamples) {
     msaa = sampling
 }
 
@@ -444,7 +446,7 @@ draw_lights :: proc(lights: []Light) {
 }
 
 color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
-    context.logger = logger
+    context.logger = logger.logger
 
     gl.BindFramebuffer(gl.FRAMEBUFFER, multisample_fb)
     gl.Viewport(0, 0, cast(i32)zephr_ctx.window.size.x, cast(i32)zephr_ctx.window.size.y)

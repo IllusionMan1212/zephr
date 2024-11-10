@@ -11,6 +11,8 @@ import gl "vendor:OpenGL"
 
 import FT "3rdparty/freetype"
 
+import "logger"
+
 Glyph :: [6]Character
 
 #assert(size_of(Character) == 52)
@@ -72,8 +74,9 @@ font_instance_vbo: u32
 /*   FT_Done_MM_Var(ft, mm); */
 /* } */
 
+@(private = "file")
 init_freetype :: proc(font_data: []byte) -> i32 {
-    context.logger = logger
+    context.logger = logger.logger
 
     ft: FT.Library
     if (FT.Init_FreeType(&ft) != 0) {
@@ -221,8 +224,9 @@ init_freetype :: proc(font_data: []byte) -> i32 {
     return 0
 }
 
+@(private)
 init_fonts :: proc(font_data: []byte) -> i32 {
-    context.logger = logger
+    context.logger = logger.logger
     font_vbo, font_ebo: u32
 
     res := init_freetype(font_data)
