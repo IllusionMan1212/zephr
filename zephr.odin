@@ -500,14 +500,6 @@ Context :: struct {
 }
 
 @(private)
-FNV_HASH32_INIT: u32 : 0x811c9dc5
-@(private = "file")
-FNV_HASH32_PRIME :: 0x01000193
-@(private)
-FNV_HASH64_INIT: u64 : 0xcbf29ce484222325
-@(private = "file")
-FNV_HASH64_PRIME :: 0x00000100000001B3
-@(private)
 INIT_UI_STACK_SIZE :: 256
 @(private)
 EVENT_QUEUE_INIT_CAP :: 128
@@ -1242,70 +1234,6 @@ os_event_queue_drag_and_drop_file :: proc(paths: []string) {
 //
 /////////////////////////////
 
-
-@(private = "file")
-fnv_hash32 :: proc(data: []byte, size: u64, hash: u32) -> u32 {
-    hash := hash
-
-    for i in 0 ..< size {
-        hash ~= cast(u32)data[i]
-        hash *= FNV_HASH32_PRIME
-    }
-
-    return hash
-}
-
-@(private = "file")
-fnv_hash32_multipointer :: proc(data: [^]byte, size: u64, hash: u32) -> u32 {
-    hash := hash
-
-    for i in 0 ..< size {
-        hash ~= cast(u32)data[i]
-        hash *= FNV_HASH32_PRIME
-    }
-
-    return hash
-}
-
-@(private = "file")
-fnv_hash64 :: proc(data: []byte, size: u64, hash: u64) -> u64 {
-    hash := hash
-
-    for i in 0 ..< size {
-        hash ~= cast(u64)data[i]
-        hash *= FNV_HASH64_PRIME
-    }
-
-    return hash
-}
-
-@(private = "file")
-fnv_hash64_multipointer :: proc(data: [^]byte, size: u64, hash: u64) -> u64 {
-    hash := hash
-
-    for i in 0 ..< size {
-        hash ~= cast(u64)data[i]
-        hash *= FNV_HASH64_PRIME
-    }
-
-    return hash
-}
-
-fnv_hash :: proc{fnv_hash32, fnv_hash32_multipointer, fnv_hash64, fnv_hash64_multipointer}
-
-@(private)
-logger_init :: proc() {
-    log_file, err := os.open("zephr.log", os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
-    if err != os.ERROR_NONE {
-        fmt.eprintln("[ERROR] Failed to open log file. Logs will not be written")
-        return
-    }
-
-    file_logger := log.create_file_logger(log_file)
-    term_logger := log.create_console_logger(opt = TerminalLoggerOpts)
-
-    logger = log.create_multi_logger(file_logger, term_logger)
-}
 
 @(private)
 relative_path :: proc(path: string) -> string {

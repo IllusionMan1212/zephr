@@ -3,6 +3,7 @@ package zephr
 import "core:log"
 import m "core:math/linalg/glsl"
 import "core:mem"
+import "core:hash"
 import "core:os"
 
 import gl "vendor:OpenGL"
@@ -499,9 +500,9 @@ draw_button :: proc(
     line_bytes := mem.byte_slice(&line, size_of(line))
     id := id
     id_bytes := mem.byte_slice(&id, size_of(id))
-    hash := fnv_hash(id_bytes, size_of(id), FNV_HASH32_INIT)
-    hash = fnv_hash(transmute([]byte)caller.file_path, cast(u64)len(caller.file_path), hash)
-    hash = fnv_hash(line_bytes, size_of(caller.line), hash)
+    id_hash := hash.fnv32a(id_bytes)
+    id_hash = hash.fnv32a(transmute([]byte)caller.file_path, id_hash)
+    id_hash = hash.fnv32a(line_bytes, id_hash)
 
     style := style
     rect: Rect = ---
@@ -509,17 +510,17 @@ draw_button :: proc(
     apply_constraints(constraints, &rect.pos, &rect.size)
     apply_alignment(style.align, constraints, rect.size, &rect.pos)
 
-    is_hovered := zephr_ctx.ui.hovered_element == hash
-    is_held := zephr_ctx.ui.active_element == hash
+    is_hovered := zephr_ctx.ui.hovered_element == id_hash
+    is_held := zephr_ctx.ui.active_element == id_hash
     left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
     left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
     clicked := false
 
     if (zephr_ctx.ui.active_element == 0) {
         if (is_hovered && left_mouse_pressed) {
-            zephr_ctx.ui.active_element = hash
+            zephr_ctx.ui.active_element = id_hash
         }
-    } else if (zephr_ctx.ui.active_element == hash) {
+    } else if (zephr_ctx.ui.active_element == id_hash) {
         if (left_mouse_released) {
             zephr_ctx.ui.active_element = 0
 
@@ -566,7 +567,7 @@ draw_button :: proc(
     }
 
     element := UiElement {
-        id   = hash,
+        id   = id_hash,
         rect = rect,
     }
 
@@ -593,9 +594,9 @@ draw_icon_button :: proc(
     line_bytes := mem.byte_slice(&line, size_of(line))
     id := id
     id_bytes := mem.byte_slice(&id, size_of(id))
-    hash := fnv_hash(id_bytes, size_of(id), FNV_HASH32_INIT)
-    hash = fnv_hash(transmute([]byte)caller.file_path, cast(u64)len(caller.file_path), hash)
-    hash = fnv_hash(line_bytes, size_of(caller.line), hash)
+    id_hash := hash.fnv32a(id_bytes)
+    id_hash = hash.fnv32a(transmute([]byte)caller.file_path, id_hash)
+    id_hash = hash.fnv32a(line_bytes, id_hash)
 
     style := style
     rect: Rect = ---
@@ -603,17 +604,17 @@ draw_icon_button :: proc(
     apply_constraints(constraints, &rect.pos, &rect.size)
     apply_alignment(style.align, constraints, rect.size, &rect.pos)
 
-    is_hovered := zephr_ctx.ui.hovered_element == hash
-    is_held := zephr_ctx.ui.active_element == hash
+    is_hovered := zephr_ctx.ui.hovered_element == id_hash
+    is_held := zephr_ctx.ui.active_element == id_hash
     left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
     left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
     clicked := false
 
     if (zephr_ctx.ui.active_element == 0) {
         if (is_hovered && left_mouse_pressed) {
-            zephr_ctx.ui.active_element = hash
+            zephr_ctx.ui.active_element = id_hash
         }
-    } else if (zephr_ctx.ui.active_element == hash) {
+    } else if (zephr_ctx.ui.active_element == id_hash) {
         if (left_mouse_released) {
             zephr_ctx.ui.active_element = 0
 
@@ -658,7 +659,7 @@ draw_icon_button :: proc(
     draw_texture(&icon_constraints, icon_tex_id, tex_style)
 
     element := UiElement {
-        id   = hash,
+        id   = id_hash,
         rect = rect,
     }
 
@@ -680,8 +681,8 @@ draw_color_picker_slider :: proc(constraints: ^UiConstraints, align: Alignment, 
 
     line := caller.line
     line_bytes := mem.byte_slice(&line, size_of(line))
-    hash := fnv_hash(transmute([]byte)caller.file_path, cast(u64)len(caller.file_path), FNV_HASH32_INIT)
-    hash = fnv_hash(line_bytes, size_of(caller.line), hash)
+    id_hash := hash.fnv32a(transmute([]byte)caller.file_path)
+    id_hash = hash.fnv32a(line_bytes, id_hash)
 
     use_shader(color_chooser_shader)
 
@@ -697,16 +698,16 @@ draw_color_picker_slider :: proc(constraints: ^UiConstraints, align: Alignment, 
     constraints.x = rect.pos.x
     constraints.y = rect.pos.y
 
-    is_hovered := zephr_ctx.ui.hovered_element == hash
+    is_hovered := zephr_ctx.ui.hovered_element == id_hash
     left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
     left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
 
     if (zephr_ctx.ui.active_element == 0) {
         if (is_hovered && left_mouse_pressed) {
-            zephr_ctx.ui.active_element = hash
+            zephr_ctx.ui.active_element = id_hash
             dragging = true
         }
-    } else if (zephr_ctx.ui.active_element == hash) {
+    } else if (zephr_ctx.ui.active_element == id_hash) {
         if (left_mouse_released) {
             zephr_ctx.ui.active_element = 0
             dragging = false
@@ -767,7 +768,7 @@ draw_color_picker_slider :: proc(constraints: ^UiConstraints, align: Alignment, 
     draw_triangle(&triangle_con, tri_style)
 
     element := UiElement {
-        id   = hash,
+        id   = id_hash,
         rect = rect,
     }
 
@@ -790,8 +791,8 @@ draw_color_picker_canvas :: proc(
 
     line := caller.line
     line_bytes := mem.byte_slice(&line, size_of(line))
-    hash := fnv_hash(transmute([]byte)caller.file_path, cast(u64)len(caller.file_path), FNV_HASH32_INIT)
-    hash = fnv_hash(line_bytes, size_of(caller.line), hash)
+    id_hash := hash.fnv32a(transmute([]byte)caller.file_path)
+    id_hash = hash.fnv32a(line_bytes, id_hash)
 
     use_shader(color_chooser_shader)
 
@@ -808,16 +809,16 @@ draw_color_picker_canvas :: proc(
     constraints.x = rect.pos.x
     constraints.y = rect.pos.y
 
-    is_hovered := zephr_ctx.ui.hovered_element == hash
+    is_hovered := zephr_ctx.ui.hovered_element == id_hash
     left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
     left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
 
     if (zephr_ctx.ui.active_element == 0) {
         if (is_hovered && left_mouse_pressed) {
-            zephr_ctx.ui.active_element = hash
+            zephr_ctx.ui.active_element = id_hash
             dragging = true
         }
-    } else if (zephr_ctx.ui.active_element == hash) {
+    } else if (zephr_ctx.ui.active_element == id_hash) {
         if (left_mouse_released) {
             zephr_ctx.ui.active_element = 0
             dragging = false
@@ -894,7 +895,7 @@ draw_color_picker_canvas :: proc(
     draw_triangle(&triangle_con, tri_style)
 
     element := UiElement {
-        id   = hash,
+        id   = id_hash,
         rect = rect,
     }
 
@@ -907,7 +908,7 @@ draw_color_picker_canvas :: proc(
 draw_color_picker_popup :: proc(picker_button_con: ^UiConstraints) {
     id := 023467
     id_bytes := mem.byte_slice(&id, size_of(id))
-    hash := fnv_hash(id_bytes, size_of(id), zephr_ctx.ui.popup_parent_hash)
+    id_hash := hash.fnv32a(id_bytes, zephr_ctx.ui.popup_parent_hash)
     popup_con := DEFAULT_UI_CONSTRAINTS
     set_parent_constraint(&popup_con, picker_button_con)
     set_x_constraint(&popup_con, 0, .FIXED)
@@ -924,7 +925,7 @@ draw_color_picker_popup :: proc(picker_button_con: ^UiConstraints) {
     rect := Rect{{popup_con.x, popup_con.y}, {popup_con.width, popup_con.height}}
 
     element := UiElement {
-        id   = hash,
+        id   = id_hash,
         rect = rect,
     }
 
@@ -986,9 +987,9 @@ draw_color_picker :: proc(
     line_bytes := mem.byte_slice(&line, size_of(line))
     id := id
     id_bytes := mem.byte_slice(&id, size_of(id))
-    hash := fnv_hash(id_bytes, size_of(id), FNV_HASH32_INIT)
-    hash = fnv_hash(transmute([]byte)caller.file_path, cast(u64)len(caller.file_path), hash)
-    hash = fnv_hash(line_bytes, size_of(line), hash)
+    id_hash := hash.fnv32a(id_bytes)
+    id_hash = hash.fnv32a(transmute([]byte)caller.file_path, id_hash)
+    id_hash = hash.fnv32a(line_bytes, id_hash)
 
     rect: Rect = ---
     display_color := color^
@@ -998,17 +999,17 @@ draw_color_picker :: proc(
     apply_constraints(&con, &rect.pos, &rect.size)
     apply_alignment(align, &con, rect.size, &rect.pos)
 
-    is_held := zephr_ctx.ui.active_element == hash
-    is_hovered := zephr_ctx.ui.hovered_element == hash
+    is_held := zephr_ctx.ui.active_element == id_hash
+    is_hovered := zephr_ctx.ui.hovered_element == id_hash
     left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
     left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
     clicked := false
 
     if (zephr_ctx.ui.active_element == 0) {
         if (is_hovered && left_mouse_pressed) {
-            zephr_ctx.ui.active_element = hash
+            zephr_ctx.ui.active_element = id_hash
         }
-    } else if (zephr_ctx.ui.active_element == hash) {
+    } else if (zephr_ctx.ui.active_element == id_hash) {
         if (left_mouse_released) {
             zephr_ctx.ui.active_element = 0
 
@@ -1047,17 +1048,17 @@ draw_color_picker :: proc(
         zephr_ctx.ui.popup_open = true
         zephr_ctx.ui.popup_parent_constraints = con
         zephr_ctx.ui.popup_revert_color = color
-        zephr_ctx.ui.popup_parent_hash = hash
+        zephr_ctx.ui.popup_parent_hash = id_hash
     }
 
-    if (zephr_ctx.ui.popup_parent_hash == hash) {
+    if (zephr_ctx.ui.popup_parent_hash == id_hash) {
         zephr_ctx.ui.popup_open = true
         zephr_ctx.ui.popup_parent_constraints = con
     }
 
     element := UiElement {
         rect = rect,
-        id   = hash,
+        id   = id_hash,
     }
 
     append(&zephr_ctx.ui.elements, element)
