@@ -153,6 +153,8 @@ interpolate_weights :: proc(track: ^AnimationTrack, t, td: f32, weights_len: int
     weights_len:(track.prev_keyframe * weights_len) +
     (weights_len * 2)]
 
+    log.debug("Weights interpolation found on model. Make sure it's working correctly")
+
     val := make([]f32, weights_len)
 
     switch track.interpolation {
@@ -402,7 +404,7 @@ resume_animation :: proc(anim: ^Animation) {
 }
 
 play_animation_with_name :: proc(model: ^Model, name: string) {
-    log.assert(len(model.animations) > 0, "Tried playing animation on model with no animations")
+    log.assertf(len(model.animations) > 0, "Tried playing animation on model with no animations: %v", model.nodes[0].name)
 
     if model.active_animation != nil {
         time.stopwatch_reset(&model.active_animation.timer)
@@ -416,7 +418,7 @@ play_animation_with_name :: proc(model: ^Model, name: string) {
         }
     }
 
-    log.errorf("Animation with name \"%s\" not found on model %s", name, model.nodes[0].name)
+    log.errorf("Animation with name \"%s\" not found on model \"%s\"", name, model.nodes[0].name)
 }
 
 reset_animation :: proc(anim: ^Animation) {
