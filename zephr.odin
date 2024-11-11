@@ -1235,6 +1235,17 @@ os_event_queue_drag_and_drop_file :: proc(paths: []string) {
 //
 /////////////////////////////
 
+@(private)
+logger_init :: proc() {
+    log_file, err := os.open("zephr.log", os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
+    if err != os.ERROR_NONE {
+        fmt.eprintln("[ERROR] Failed to open log file. Logs will not be written")
+        return
+    }
+    file_logger := log.create_file_logger(log_file)
+    term_logger := log.create_console_logger(opt = TerminalLoggerOpts)
+    logger = log.create_multi_logger(file_logger, term_logger)
+}
 
 @(private)
 relative_path :: proc(path: string) -> string {
