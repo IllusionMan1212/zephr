@@ -1506,7 +1506,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
         parent := udev.device_get_parent_with_subsystem_devtype(dev, "hid", nil)
 
         id_string := string(udev.device_get_sysname(parent if parent != nil else dev))
-        id := hash.fnv64a(raw_data(id_string))
+        id := hash.fnv64a(transmute([]u8)id_string)
 
         input_device := os_event_queue_input_device_connected(id, dev_name, device_features, vendor_id, product_id)
 
@@ -1607,7 +1607,7 @@ udev_device_try_add :: proc(dev: ^udev.udev_device) {
 udev_device_try_remove :: proc(dev: ^udev.udev_device) {
     parent := udev.device_get_parent_with_subsystem_devtype(dev, "hid", nil)
     id_string := string(udev.device_get_sysname(parent if parent != nil else dev))
-    id := hash.fnv64a(raw_data(id_string))
+    id := hash.fnv64a(transmute([]u8)id_string)
     ok := id in zephr_ctx.input_devices_map
 
     if (ok) {
