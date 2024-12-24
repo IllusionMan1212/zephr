@@ -79,6 +79,9 @@ XdndState :: struct {
     xdnd_enter:      x11.Atom,
     xdnd_leave:      x11.Atom,
     xdnd_drop:       x11.Atom,
+    xdnd_status:     x11.Atom,
+    xdnd_finished:   x11.Atom,
+    xdnd_position:   x11.Atom,
     xdnd_selection:  x11.Atom,
     XDND_DATA:       x11.Atom,
     xdnd_type_list:  x11.Atom,
@@ -946,10 +949,13 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
     l_os.xdnd.xdnd_enter = x11.InternAtom(l_os.x11_display, "XdndEnter", false)
     l_os.xdnd.xdnd_leave = x11.InternAtom(l_os.x11_display, "XdndLeave", false)
     l_os.xdnd.xdnd_drop = x11.InternAtom(l_os.x11_display, "XdndDrop", false)
+    l_os.xdnd.xdnd_status = x11.InternAtom(l_os.x11_display, "XdndStatus", false)
+    l_os.xdnd.xdnd_finished = x11.InternAtom(l_os.x11_display, "XdndFinished", false)
+    l_os.xdnd.xdnd_position = x11.InternAtom(l_os.x11_display, "XdndPosition", false)
     l_os.xdnd.xdnd_selection = x11.InternAtom(l_os.x11_display, "XdndSelection", false)
     l_os.xdnd.XDND_DATA = x11.InternAtom(l_os.x11_display, "XDND_DATA", false)
     l_os.xdnd.xdnd_type_list = x11.InternAtom(l_os.x11_display, "XdndTypeList", false)
-    l_os.xdnd.supported_types = [?]x11.Atom {
+    l_os.xdnd.supported_types = {
         x11.InternAtom(l_os.x11_display, "text/plain", false),
         x11.InternAtom(l_os.x11_display, "text/plain;charset=utf-8", false),
         x11.InternAtom(l_os.x11_display, "text/uri-list", false),
@@ -2111,6 +2117,30 @@ backend_get_os_events :: proc() {
                 queue.push(&zephr_ctx.event_queue, e)
             } else if xev.xclient.message_type == l_os.xdnd.xdnd_enter {
                 xdnd_enter(xev.xclient.data.l)
+            } else if xev.xclient.message_type == l_os.xdnd.xdnd_position {
+                event: x11.XEvent
+                event.xclient.type = .ClientMessage
+                event.xclient.display = l_os.x11_display
+                event.xclient.window = l_os.xdnd.transient.source_window
+                event.xclient.message_type = l_os.xdnd.xdnd_status
+                event.xclient.format = 32
+                event.xclient.data.l[0] = cast(int)l_os.x11_window
+                // Bit 0 is set if we accept the drop
+                // Bit 1 is set if we want XdndPosition messages while the mouse moves inside the rectangle in data.l[2,3]
+                // Other bits are reserved (As of Version 5)
+                event.xclient.data.l[1] = 0b00000000000000000000000000000001
+                // Rectangle coords of the target window
+                event.xclient.data.l[2] = 0
+                event.xclient.data.l[3] = 0
+                // Contains the action accepted by the target.
+                // This is normally only allowed to be either the action specified in the XdndPosition message, XdndActionCopy, or XdndActionPrivate.
+                // None should be sent if the drop will not be accepted.
+                event.xclient.data.l[4] = cast(int)x11.InternAtom(l_os.x11_display, "XdndActionCopy", false)
+                // returns zero if the conversion to wire protocol format failed and returns nonzero otherwise.
+                // XSendEvent can generate BadValue and BadWindow errors
+                if x11.SendEvent(l_os.x11_display, l_os.xdnd.transient.source_window, false, {}, &event) == x11.Status(0) {
+                    log.error("Failed to reply to XdndPosition with XdndStatus")
+                }
             } else if xev.xclient.message_type == l_os.xdnd.xdnd_leave {
                 // clear xdnd's transient state
                 l_os.xdnd.transient = {}
@@ -2127,6 +2157,24 @@ backend_get_os_events :: proc() {
                     l_os.x11_window,
                     cast(x11.Time)xev.xclient.data.l[2],
                 )
+
+                event: x11.XEvent
+                event.xclient.type = .ClientMessage
+                event.xclient.message_type = l_os.xdnd.xdnd_finished
+                event.xclient.format = 32
+                event.xclient.window = l_os.xdnd.transient.source_window
+                event.xclient.data.l[0] = cast(int)l_os.x11_window
+                // Bit 0 is set if we accepted the drop
+                // Other bits are reserved (As of Version 5)
+                event.xclient.data.l[1] = 0b00000000000000000000000000000001
+                // Contains the action performed by the target.
+                // None should be sent if we rejected the drop.
+                event.xclient.data.l[2] = cast(int)x11.InternAtom(l_os.x11_display, "XdndActionCopy", false)
+                // Status return type is not exactly correct.
+                // Status 0 is Success but SendEvent returns it when it fails.
+                if x11.SendEvent(l_os.x11_display, l_os.xdnd.transient.source_window, false, {}, &event) == x11.Status(0) {
+                    log.error("Failed to reply to XdndDrop with XdndFinished")
+                }
             }
         } else if xev.type == .KeyPress || xev.type == .KeyRelease {
             // TODO:
@@ -2370,6 +2418,13 @@ backend_release_cursor :: proc() {
 
 @(private = "file")
 xdnd_enter :: proc(client_data_l: [5]int) {
+    version := client_data_l[1] >> 24
+
+    if version > 5 {
+        log.warn("Received XdndEnter with a protocol version larger than 5. Ignoring event.")
+        return
+    }
+
     if client_data_l[1] & 0x1 == 1 {
         // More than three data types
         l_os.xdnd.transient.exchange_started = true
