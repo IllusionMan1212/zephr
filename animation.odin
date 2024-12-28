@@ -22,6 +22,7 @@ Animation :: struct {
     name:        string,
     tracks:      []AnimationTrack,
     max_time:    f32,
+    speed:       f32,
     timer:       time.Stopwatch,
     root_motion: bool,
 }
@@ -266,7 +267,7 @@ advance_animation :: proc(anim: ^Animation) #no_bounds_check {
             continue
         }
 
-        tc := cast(f32)time.duration_seconds(time.stopwatch_duration(anim.timer))
+        tc := cast(f32)time.duration_seconds(time.stopwatch_duration(anim.timer)) * anim.speed
         // TODO: if loop_animation {
         //if tc > anim.max_time {
         //    time.stopwatch_reset(&anim.timer)

@@ -1013,6 +1013,14 @@ process_material :: proc(
     emissive_tex := material.emissive_texture
     metallic_roughness_tex := material.pbr_metallic_roughness.metallic_roughness_texture
 
+    // TODO: texture transformations
+    // These can be applied by multiplying the texcoords with a 3x3 matrix that contains the rotation, scale, and translation (offset)
+    // the texcoords have to be cast to a vec3 with the 3rd component set to 1 and then multiplied with the mat3
+    // all in the vertex shader.
+
+    log.debug("Tex has transform:", material.pbr_metallic_roughness.base_color_texture.has_transform)
+    log.debug("Tex transform:", material.pbr_metallic_roughness.base_color_texture.transform)
+
     if diffuse_tex.texture != nil {
         append(&textures, process_texture(diffuse_tex.texture, .DIFFUSE, model_path, textures_map))
     }
@@ -1129,6 +1137,7 @@ load_gltf_model :: proc(
 
         animation := Animation {
             name   = name,
+            speed  = 1.0,
             tracks = make([]AnimationTrack, len(anim.channels), arena_allocator),
             timer  = time.Stopwatch{},
         }
