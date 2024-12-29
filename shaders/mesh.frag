@@ -203,6 +203,7 @@ void main() {
   } else if (alphaMode == ALPHAMODE_OPAQUE) {
     baseColor.a = 1.0;
   }
+  // TODO: implement ALPHAMODE_BLEND
 
   if (unlit) {
     vec3 result = baseColor.rgb;

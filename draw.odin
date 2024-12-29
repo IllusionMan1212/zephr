@@ -231,7 +231,7 @@ draw_node :: proc(node: ^Node, materials: ^map[uintptr]Material) {
 
     for mesh in node.meshes {
         draw_mesh(mesh, node.world_transform, materials, joint_matrices)
-        //draw_aabb(mesh.aabb, node.world_transform)
+        //draw_obb(mesh.obb, node.world_transform)
     }
 
     for child in node.children {
