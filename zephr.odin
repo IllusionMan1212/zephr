@@ -486,6 +486,7 @@ Context :: struct {
     should_quit:                  bool,
     screen_size:                  m.vec2,
     window:                       Window,
+    timer:                        time.Stopwatch,
     font:                         Font,
     virt_mouse:                   Mouse,
     virt_keyboard:                Keyboard,
@@ -577,7 +578,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     backend_init_cursors()
 
     zephr_ctx.screen_size = backend_get_screen_size()
-    start_internal_timer()
+    time.stopwatch_start(&zephr_ctx.timer)
 }
 
 deinit :: proc() {
@@ -590,6 +591,10 @@ deinit :: proc() {
     delete(zephr_ctx.ui.elements)
     delete(zephr_ctx.shaders)
     //audio_close()
+}
+
+get_time :: proc() -> time.Duration {
+    return time.stopwatch_duration(zephr_ctx.timer)
 }
 
 set_clear_color :: proc(color: m.vec4) {
