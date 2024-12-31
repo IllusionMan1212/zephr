@@ -15,6 +15,7 @@ import "core:os"
 import "core:hash"
 import "core:strings"
 import "core:sys/linux"
+import "core:sys/posix"
 import "core:time"
 
 import gl "vendor:OpenGL"
@@ -1208,8 +1209,26 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
         keyboard_map_update()
     }
 
-    {
-        // TODO: check if user is part of 'input' group which is needed to read raw input events
+    group_querying:{
+        length := posix.getgroups(0, nil)
+        if length == -1 {
+            log.error("Failed to get size of groups the user is part of.")
+            break group_querying
+        }
+        groups := make([]posix.gid_t, length) or_else panic("Failed to allocate memory")
+        if posix.getgroups(length, raw_data(groups)) != length {
+            log.errorf("'getgroups' error: %v", posix.strerror(posix.errno()))
+            break group_querying
+        }
+
+        for group in groups {
+            grp := posix.getgrgid(group)
+            if grp.gr_name == "input" {
+                break group_querying
+            }
+        }
+
+        log.error("User is not part of the 'input' group. Gamepads may not work.")
     }
 
     {
