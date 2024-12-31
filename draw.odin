@@ -72,24 +72,16 @@ set_msaa :: proc(sampling: MSAA_SAMPLES) {
 // FIXME: I think we're doing something wrong when applying the transformation hierarchy
 // and that causes the rotations to be "flipped" for entities. But I'm not 100% sure yet tbh
 
-//@(private = "file")
-//sort_by_transparency :: proc(i, j: Node) -> bool {
-//    sort :: proc(node: Node) -> bool {
-//        for mesh in node.meshes {
-//            if mesh.material.alpha_mode == .blend {
-//                return false
-//            }
-//        }
-//
-//        for child in node.children {
-//            return sort(child)
-//        }
-//
-//        return true
-//    }
-//
-//    return sort(i)
-//}
+sort_meshes_by_transparency :: proc(i, j: Mesh) -> bool {
+    context.logger = logger
+    materials := (cast(^map[uintptr]Material)context.user_ptr)^
+
+    if materials[i.material_id].alpha_mode == .blend {
+        return false
+    }
+
+    return true
+}
 
 @(private)
 init_renderer :: proc(window_size: m.vec2) {
@@ -433,11 +425,38 @@ color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
     set_mat4f(mesh_shader, "projectionView", camera.proj_mat * camera.view_mat)
     set_bool(mesh_shader, "useTextures", false)
 
+    // TODO: This tries to sort the nodes by their meshes and then sorts the children by the alphamode.
+    // But this doesn't sort the parent nodes based on their children's meshes' alphamode.
+    // A more complete solution is needed and we need simplified test files for edge cases.
+    sort_nodes :: proc(i, j: ^Node) -> bool {
+        materials := (cast(^map[uintptr]Material)context.user_ptr)^
+        // TODO: Is this needed??
+        slice.sort_by(i.meshes, sort_meshes_by_transparency)
+        slice.sort_by(j.meshes, sort_meshes_by_transparency)
+
+        slice.sort_by(i.children, sort_nodes)
+        slice.sort_by(j.children, sort_nodes)
+
+        for mesh in i.meshes {
+            if materials[mesh.material_id].alpha_mode == .blend {
+                return false
+            }
+        }
+
+        return true
+    }
+
     // sort meshes by transparency for proper alpha blending
     // TODO: also sort by distance for transparent meshes
     // TODO: also sort ALL models first
     if len(entities) > 0 {
-        //slice.sort_by(models[0].nodes[:], sort_by_transparency)
+        // NOTE: we override the user_ptr here to pass materials to the sorting procedure
+        context.user_ptr = &entities[0].model.materials
+
+        slice.sort_by(entities[0].model.nodes, sort_nodes)
+
+        // TODO: sorting by distance should be taken into consideration too
+        // when/if we have multiple transparent/translucent objects we want to render accurately.
         //slice.sort_by(game.models[0].nodes[:], sort_by_distance)
     }
 
