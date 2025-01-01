@@ -30,7 +30,7 @@ Mesh :: struct {
     vertices:              [dynamic]Vertex `fmt:"-"`,
     indices:               []u32 `fmt:"-"`,
     parent:                ^Node `fmt:"-"`,
-    material_id:           uintptr,
+    material:              ^Material,
     weights:               []f32 `fmt:"-"`,
     morph_targets_tex:     TextureId `fmt:"-"`,
     morph_normals_offset:  int `fmt:"-"`,
@@ -64,7 +64,6 @@ Node :: struct {
 
 Model :: struct {
     nodes:            []^Node,
-    materials:        map[uintptr]Material,
     arena:            virtual.Arena,
     animations:       []Animation,
     active_animation: ^Animation,
@@ -449,8 +448,8 @@ process_vertex_colors :: proc(accessor: ^cgltf.accessor, color_out: ^[]f32) {
 
 @(private = "file")
 process_mesh :: proc(
-    primitive: ^cgltf.primitive,
-    materials: ^map[uintptr]Material,
+    primitive: cgltf.primitive,
+    materials: ^map[uintptr]^Material,
     model_path: string,
     parent: ^Node,
     textures: ^map[cstring]TextureId,
@@ -467,16 +466,19 @@ process_mesh :: proc(
     }
 
     vertices := make([dynamic]Vertex, 0, 256, allocator^)
-    material_id: uintptr = 0
+    material := DEFAULT_MATERIAL
 
     primitive_type := primitive.type
     if primitive.type != .triangles {
         log.warn("Got a primitive that isn't triangles")
     }
     if primitive.material != nil {
-        material_id = transmute(uintptr)primitive.material
+        material_id := transmute(uintptr)primitive.material
         if !(material_id in materials) {
-            materials[material_id] = process_material(primitive.material, model_path, textures, allocator)
+            material = process_material(primitive.material, model_path, textures, allocator)
+            materials[material_id] = material
+        } else {
+            material = materials[material_id]
         }
     }
     positions: []f32
@@ -658,7 +660,7 @@ process_mesh :: proc(
             vertices,
             indices,
             parent,
-            material_id,
+            material,
             weights_len,
             joints_len,
             morph_targets,
@@ -675,10 +677,10 @@ process_mesh :: proc(
 process_node :: proc(
     node: ^cgltf.node,
     parent: ^Node,
-    materials: ^map[uintptr]Material,
+    materials: ^map[uintptr]^Material,
     model_path: string,
     textures: ^map[cstring]TextureId,
-    bones: ^map[uintptr]bool,
+    bones: ^map[uintptr]struct{},
     nodes_map: ^map[uintptr]^Node,
     allocator: ^mem.Allocator,
 ) -> ^Node {
@@ -777,7 +779,7 @@ process_node :: proc(
         // we consider primitives to be different meshes
         for idx in 0 ..< len(node.mesh.primitives) {
             mesh, ok := process_mesh(
-                &node.mesh.primitives[idx],
+                node.mesh.primitives[idx],
                 materials,
                 model_path,
                 new_node,
@@ -827,7 +829,7 @@ new_mesh :: proc(
     vertices: [dynamic]Vertex,
     indices: []u32,
     parent: ^Node,
-    material_id: uintptr,
+    material: ^Material,
     weights_len: int,
     joints_len: int,
     morph_targets: []f32,
@@ -956,7 +958,7 @@ new_mesh :: proc(
             vertices,
             indices,
             parent,
-            material_id,
+            material,
             make([]f32, weights_len, allocator^),
             morph_texture,
             morph_normals_offset,
@@ -979,7 +981,7 @@ process_material :: proc(
     model_path: string,
     textures_map: ^map[cstring]TextureId,
     allocator: ^mem.Allocator,
-) -> Material {
+) -> ^Material {
     textures := make([dynamic]Texture, 0, 8, allocator^)
 
     name := strings.clone_from_cstring(material.name, allocator^)
@@ -1042,22 +1044,21 @@ process_material :: proc(
         )
     }
 
-    return(
-        Material {
-            name,
-            diffuse,
-            specular,
-            emissive,
-            shininess,
-            metallic,
-            roughness,
-            textures,
-            cast(bool)material.double_sided,
-            cast(bool)material.unlit,
-            material.alpha_mode,
-            material.alpha_cutoff,
-        } \
-    )
+    mat := new(Material, allocator^)
+    mat.name = name
+    mat.diffuse = diffuse
+    mat.specular = specular
+    mat.emissive = emissive
+    mat.shininess = shininess
+    mat.metallic = metallic
+    mat.roughness = roughness
+    mat.textures = textures
+    mat.double_sided = cast(bool)material.double_sided
+    mat.unlit = cast(bool)material.unlit
+    mat.alpha_mode = material.alpha_mode
+    mat.alpha_cutoff = material.alpha_cutoff
+
+    return mat
 }
 
 load_gltf_model :: proc(
@@ -1095,25 +1096,20 @@ load_gltf_model :: proc(
     arena_allocator := virtual.arena_allocator(&model.arena)
 
     nodes := make([]^Node, len(data.scene.nodes), arena_allocator)
-    nodes_map := make(map[uintptr]^Node)
-    defer delete(nodes_map)
-    materials := make(map[uintptr]Material, allocator = arena_allocator)
-    textures_map := make(map[cstring]TextureId)
-    defer delete(textures_map)
+    nodes_map := make(map[uintptr]^Node, context.temp_allocator)
+    materials := make(map[uintptr]^Material, context.temp_allocator)
+    textures_map := make(map[cstring]TextureId, context.temp_allocator)
     obb := OBB{
         min = {math.INF_F32, math.INF_F32, math.INF_F32},
         max = {math.NEG_INF_F32, math.NEG_INF_F32, math.NEG_INF_F32},
     }
 
-    materials[0] = DEFAULT_MATERIAL
-
-    bones := make(map[uintptr]bool)
-    defer delete(bones)
+    bones := make(map[uintptr]struct{}, context.temp_allocator)
 
     for skin in data.skins {
         for joint in skin.joints {
             node_id := transmute(uintptr)joint
-            bones[node_id] = true
+            bones[node_id] = {}
         }
     }
 
@@ -1190,7 +1186,6 @@ load_gltf_model :: proc(
     create_model_obb(nodes, &obb)
 
     model.nodes = nodes
-    model.materials = materials
     model.animations = animations
     model.obb = obb
 

@@ -590,6 +590,16 @@ deinit :: proc() {
     queue.destroy(&zephr_ctx.changed_shaders_queue)
     delete(zephr_ctx.ui.elements)
     delete(zephr_ctx.shaders)
+
+    free(font_shader)
+    free(ui_shader)
+    free(mesh_shader)
+    free(color_chooser_shader)
+    loggers := (cast(^log.Multi_Logger_Data)logger.data).loggers
+    for _logger in loggers {
+        log.destroy_file_logger(_logger)
+    }
+    log.destroy_multi_logger(logger)
     //audio_close()
 }
 
@@ -1250,11 +1260,6 @@ logger_init :: proc() {
     file_logger := log.create_file_logger(log_file)
     term_logger := log.create_console_logger(opt = TerminalLoggerOpts)
     logger = log.create_multi_logger(file_logger, term_logger)
-}
-
-@(private)
-relative_path :: proc(path: string) -> string {
-    return filepath.join([]string{engine_rel_path, path})
 }
 
 @(private)

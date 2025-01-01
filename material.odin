@@ -19,7 +19,7 @@ Material :: struct {
     alpha_cutoff: f32,
 }
 
-DEFAULT_MATERIAL :: Material {
+DEFAULT_MATERIAL := &Material {
     name         = "default_material",
     diffuse      = m.vec4{1.0, 0.5, 0.2, 1.0},
     specular     = m.vec3{0.2, 0.2, 0.2},

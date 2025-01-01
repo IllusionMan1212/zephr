@@ -24,7 +24,6 @@ ANTIALIASING :: enum {
     MSAA,
 }
 
-@(private = "file")
 mesh_shader: ^Shader
 @(private = "file")
 missing_texture: TextureId
@@ -73,10 +72,7 @@ set_msaa :: proc(sampling: MSAA_SAMPLES) {
 // and that causes the rotations to be "flipped" for entities. But I'm not 100% sure yet tbh
 
 sort_meshes_by_transparency :: proc(i, j: Mesh) -> bool {
-    context.logger = logger
-    materials := (cast(^map[uintptr]Material)context.user_ptr)^
-
-    if materials[i.material_id].alpha_mode == .blend {
+    if i.material.alpha_mode == .blend {
         return false
     }
 
@@ -199,12 +195,12 @@ draw_model :: proc(model: ^Model) {
     }
 
     for node in &model.nodes {
-        draw_node(node, &model.materials)
+        draw_node(node)
     }
 }
 
 @(private = "file")
-draw_node :: proc(node: ^Node, materials: ^map[uintptr]Material) {
+draw_node :: proc(node: ^Node) {
     joint_matrices: []m.mat4
     defer delete(joint_matrices)
 
@@ -238,12 +234,12 @@ draw_node :: proc(node: ^Node, materials: ^map[uintptr]Material) {
     }
 
     for mesh in node.meshes {
-        draw_mesh(mesh, node.world_transform, materials, joint_matrices)
+        draw_mesh(mesh, node.world_transform, joint_matrices)
         //draw_obb(mesh.obb, node.world_transform)
     }
 
     for child in node.children {
-        draw_node(child, materials)
+        draw_node(child)
     }
 }
 
@@ -283,7 +279,7 @@ draw_collision_shape :: proc() {
 }
 
 @(private = "file")
-draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Material, joint_matrices: []m.mat4) {
+draw_mesh :: proc(mesh: Mesh, transform: m.mat4, joint_matrices: []m.mat4) {
     // TODO: calling set_int a shitton of times is apparently slow according to callgrind
     set_int(mesh_shader, "morphTargets", 0)
     set_int(mesh_shader, "morphTargetWeights", 1)
@@ -312,7 +308,7 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4, materials: ^map[uintptr]Materia
         set_bool(mesh_shader, "useMorphing", false)
     }
 
-    material := &materials[mesh.material_id]
+    material := mesh.material
 
     if material.double_sided {
         gl.Disable(gl.CULL_FACE)
@@ -445,7 +441,6 @@ color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
     // But this doesn't sort the parent nodes based on their children's meshes' alphamode.
     // A more complete solution is needed and we need simplified test files for edge cases.
     sort_nodes :: proc(i, j: ^Node) -> bool {
-        materials := (cast(^map[uintptr]Material)context.user_ptr)^
         // TODO: Is this needed??
         slice.sort_by(i.meshes, sort_meshes_by_transparency)
         slice.sort_by(j.meshes, sort_meshes_by_transparency)
@@ -454,7 +449,7 @@ color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
         slice.sort_by(j.children, sort_nodes)
 
         for mesh in i.meshes {
-            if materials[mesh.material_id].alpha_mode == .blend {
+            if mesh.material.alpha_mode == .blend {
                 return false
             }
         }
@@ -466,9 +461,6 @@ color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
     // TODO: also sort by distance for transparent meshes
     // TODO: also sort ALL models first
     if len(entities) > 0 {
-        // NOTE: we override the user_ptr here to pass materials to the sorting procedure
-        context.user_ptr = &entities[0].model.materials
-
         slice.sort_by(entities[0].model.nodes, sort_nodes)
 
         // TODO: sorting by distance should be taken into consideration too
@@ -524,7 +516,7 @@ save_default_framebuffer_to_image :: proc(dir: string = ".", filename: string = 
     gl.ReadPixels(0, 0, w, h, gl.RGB, gl.UNSIGNED_BYTE, raw_data(pixels))
     gl.PixelStorei(gl.PACK_ALIGNMENT, 4)
 
-    final_path := filepath.join({dir, filename})
+    final_path := filepath.join({dir, filename}, context.temp_allocator)
     cstr := strings.clone_to_cstring(final_path, context.temp_allocator)
     image.flip_vertically_on_write(true)
     return image.write_png(cstr, w, h, 3, raw_data(pixels), w * 3) != 0

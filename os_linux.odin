@@ -1215,7 +1215,7 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
             log.error("Failed to get size of groups the user is part of.")
             break group_querying
         }
-        groups := make([]posix.gid_t, length) or_else panic("Failed to allocate memory")
+        groups := make([]posix.gid_t, length, context.temp_allocator) or_else panic("Failed to allocate memory")
         if posix.getgroups(length, raw_data(groups)) != length {
             log.errorf("'getgroups' error: %v", posix.strerror(posix.errno()))
             break group_querying
