@@ -549,6 +549,8 @@ process_mesh :: proc(
     // Instead of a different shader or pipeline we can use preprocessor directives to remove
     // any attribute that is not used for the specific mesh. This requires that we implement some sort of
     // runtime shader modification stuff or something.
+    // OR. We can preprocess the shaders and output multiple different versions 
+    // and compile those at runtime and then use them according to what the mesh requires.
     for i in 0 ..< len(positions) / 3 {
         pos := m.vec3{positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]}
         tex_coords := len(texcoords) != 0 ? m.vec2{texcoords[i * 2], texcoords[i * 2 + 1]} : m.vec2{0, 0}

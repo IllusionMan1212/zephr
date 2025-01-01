@@ -203,7 +203,6 @@ void main() {
   } else if (alphaMode == ALPHAMODE_OPAQUE) {
     baseColor.a = 1.0;
   }
-  // TODO: implement ALPHAMODE_BLEND
 
   if (unlit) {
     vec3 result = baseColor.rgb;
@@ -236,7 +235,9 @@ void main() {
     roughness *= metallic_roughness.g;
   }
 
-  // GLTF 2.0 spec says the normal MUST be flipped if the mesh is double sided
+  // GLTF 2.0 spec says the normal MUST be flipped if the mesh is double sided and backface culling is disabled.
+  // 3.9.5. Double Sided
+  // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#double-sided
   if (doubleSided && gl_FrontFacing == false) {
     norm = -norm;
   }

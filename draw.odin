@@ -221,6 +221,22 @@ draw_node :: proc(node: ^Node, materials: ^map[uintptr]Material) {
         }
     }
 
+    // GLTF 2.0: When a mesh primitive uses any triangle-based topology (i.e., triangles, triangle strip, or triangle fan),
+    // the determinant of the node’s global transform defines the winding order of that primitive.
+    // If the determinant is a positive value, the winding order triangle faces is counterclockwise;
+    // in the opposite case, the winding order is clockwise
+    // 3.7.4. Instantiation.
+    // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#instantiation
+    //
+    // TODO: This assumes that the primitive is of a triangle type.
+    // We currently don't support anything other than triangles, change this when process_mesh() in model.odin
+    // can handle other types.
+    if m.determinant(node.world_transform) > 0 {
+        gl.FrontFace(gl.CCW)
+    } else {
+        gl.FrontFace(gl.CW)
+    }
+
     for mesh in node.meshes {
         draw_mesh(mesh, node.world_transform, materials, joint_matrices)
         //draw_obb(mesh.obb, node.world_transform)
