@@ -469,9 +469,7 @@ process_mesh :: proc(
     material := DEFAULT_MATERIAL
 
     primitive_type := primitive.type
-    if primitive.type != .triangles {
-        log.warn("Got a primitive that isn't triangles")
-    }
+
     if primitive.material != nil {
         material_id := transmute(uintptr)primitive.material
         if !(material_id in materials) {
@@ -773,11 +771,19 @@ process_node :: proc(
         }
     }
 
-    meshes: []Mesh
+    meshes: [dynamic]Mesh
     if node.mesh != nil {
-        meshes = make([]Mesh, len(node.mesh.primitives), allocator^)
         // we consider primitives to be different meshes
+        // TODO: Storing the weights on each mesh is inefficient. The weights should be per node
+        // and each mesh in the node can access the weights by referencing its parent.
+        // I think??? we apparently also store the weights on the vertices. I'm so confused.
         for idx in 0 ..< len(node.mesh.primitives) {
+            if node.mesh.primitives[idx].type != .triangles {
+                // TODO: support other primitives
+                log.warn("Unsupported primitive type:", node.mesh.primitives[idx].type)
+                continue
+            }
+
             mesh, ok := process_mesh(
                 node.mesh.primitives[idx],
                 materials,
@@ -790,7 +796,7 @@ process_node :: proc(
             )
             if ok {
                 copy(mesh.weights, node.mesh.weights)
-                meshes[idx] = mesh
+                append(&meshes, mesh)
             }
         }
     }
@@ -808,7 +814,7 @@ process_node :: proc(
     new_node.is_bone = is_bone
     new_node.joints = joints
     new_node.skeleton = skeleton
-    new_node.meshes = meshes
+    new_node.meshes = meshes[:]
     new_node.transform = transform
     new_node.has_transform = cast(bool)node.has_matrix
     new_node.world_transform = m.identity(m.mat4)
