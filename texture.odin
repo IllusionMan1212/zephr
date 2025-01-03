@@ -5,10 +5,12 @@ import "core:mem"
 import "core:net"
 import "core:path/filepath"
 import "core:strings"
+import "core:slice"
+import "core:image/png"
+import "core:image"
 
 import gl "vendor:OpenGL"
 import "vendor:cgltf"
-import stb "vendor:stb/image"
 
 TextureType :: enum {
     DIFFUSE,
@@ -37,19 +39,17 @@ load_texture_from_path :: proc(
     context.logger = logger
 
     texture_id: TextureId
-    width, height, channels: i32
-    path_c_str := strings.clone_to_cstring(path, context.temp_allocator)
-    data := stb.load(path_c_str, &width, &height, &channels, 0)
-    if data == nil {
-        log.errorf("Failed to load texture: \"%s\"", path)
+    img, err := image.load_from_file(path)
+    if err != nil {
+        log.errorf("Failed to load texture: \"%s\" %v", path, err)
         return 0
     }
-    defer stb.image_free(data)
+    defer image.destroy(img)
 
     format := gl.RGBA
     internal_format := gl.RGBA8
 
-    switch (channels) {
+    switch (img.channels) {
         case 1:
             format = gl.RED
             internal_format = gl.R8
@@ -91,12 +91,12 @@ load_texture_from_path :: proc(
         gl.TEXTURE_2D,
         0,
         cast(i32)internal_format,
-        width,
-        height,
+        cast(i32)img.width,
+        cast(i32)img.height,
         0,
         cast(u32)format,
         gl.UNSIGNED_BYTE,
-        data,
+        raw_data(img.pixels.buf),
     )
 
     if generate_mipmap {
@@ -121,18 +121,17 @@ load_texture_from_memory :: proc(
     context.logger = logger
 
     texture_id: TextureId
-    width, height, channels: i32
-    data := stb.load_from_memory(cast([^]byte)tex_data, tex_data_len, &width, &height, &channels, 0)
-    if data == nil {
-        log.error("Failed to load embedded texture")
+    img, err := image.load_from_bytes(slice.bytes_from_ptr(tex_data, cast(int)tex_data_len))
+    if err != nil {
+        log.error("Failed to load embedded texture:", err)
         return 0
     }
-    defer stb.image_free(data)
+    defer image.destroy(img)
 
     format := gl.RGBA
     internal_format := gl.RGBA8
 
-    switch (channels) {
+    switch (img.channels) {
         case 1:
             format = gl.RED
             internal_format = gl.R8
@@ -174,12 +173,12 @@ load_texture_from_memory :: proc(
         gl.TEXTURE_2D,
         0,
         cast(i32)internal_format,
-        width,
-        height,
+        cast(i32)img.width,
+        cast(i32)img.height,
         0,
         cast(u32)format,
         gl.UNSIGNED_BYTE,
-        data,
+        raw_data(img.pixels.buf),
     )
 
     if generate_mipmap {
@@ -193,30 +192,28 @@ load_texture_from_memory :: proc(
 
 load_cubemap :: proc(faces_paths: [6]string) -> TextureId {
     cubemap_tex_id: TextureId
-    width, height, nr_channels: i32
 
     gl.GenTextures(1, &cubemap_tex_id)
     gl.BindTexture(gl.TEXTURE_CUBE_MAP, cubemap_tex_id)
 
     for face, i in faces_paths {
-        face_c_str := strings.clone_to_cstring(face, context.temp_allocator)
-        data := stb.load(face_c_str, &width, &height, &nr_channels, 0)
-        if data == nil {
+        img, err := image.load_from_file(face)
+        if err != nil {
             log.errorf("Failed to load cubemap texture: \"%s\"", face)
             return 0
         }
-        defer stb.image_free(data)
+        defer image.destroy(img)
 
         gl.TexImage2D(
             gl.TEXTURE_CUBE_MAP_POSITIVE_X + cast(u32)i,
             0,
             gl.RGB,
-            width,
-            height,
+            cast(i32)img.width,
+            cast(i32)img.height,
             0,
             gl.RGB,
             gl.UNSIGNED_BYTE,
-            data,
+            raw_data(img.pixels.buf),
         )
     }
 
