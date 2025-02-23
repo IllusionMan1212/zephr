@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 #+build linux
 #+private
 package zephr
