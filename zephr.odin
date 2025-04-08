@@ -52,6 +52,9 @@ EventType :: enum {
     VIRT_MOUSE_MOVED,
     VIRT_KEY_PRESSED,
     VIRT_KEY_RELEASED,
+    VIRT_TOUCHSCREEN_PRESSED,
+    VIRT_TOUCHSCREEN_RELEASED,
+    VIRT_TOUCHSCREEN_MOVED,
     FILE_DROP,
     WINDOW_RESIZED,
     WINDOW_LOST_FOCUS,
@@ -440,6 +443,19 @@ Event :: struct {
             device_id:  u64, // 0 for virtual mouse
             scroll_rel: m.vec2,
         },
+        touchscreen_action: struct {
+            device_id: u64, // 0 for virtual touchscreen
+            using pos: m.vec2,
+            finger_index: u8,
+            finger_count: u8,
+        },
+        touchscreen_moved: struct {
+            device_id: u64, // 0 for virtual touchscreen
+            using pos: m.vec2,
+            rel_pos:   m.vec2,
+            finger_index: u8,
+            finger_count: u8,
+        },
         file_drop:       struct {
             paths: []string,
         },
@@ -482,6 +498,15 @@ Keyboard :: struct {
     keycode_has_been_released_bitset:  bit_array.Bit_Array,
 }
 
+Touchscreen :: struct {
+    using pos: m.vec2,
+    rel_pos: m.vec2,
+    is_pressed: bool,
+    has_been_pressed: bool,
+    has_been_released: bool,
+    finger_count: u8,
+}
+
 Context :: struct {
     should_quit:                  bool,
     screen_size:                  m.vec2,
@@ -490,6 +515,7 @@ Context :: struct {
     font:                         Font,
     virt_mouse:                   Mouse,
     virt_keyboard:                Keyboard,
+    virt_touchscreen:             Touchscreen,
     keyboard_scancode_to_keycode: map[Scancode]Keycode,
     keyboard_keycode_to_scancode: map[Keycode]Scancode,
     cursor:                       Cursor,
@@ -624,7 +650,7 @@ consume_mouse_events :: proc() -> bool {
     defer clear(&zephr_ctx.ui.elements)
 
     #reverse for e in zephr_ctx.ui.elements {
-        if (inside_rect(e.rect, zephr_ctx.virt_mouse.pos)) {
+        if (inside_rect(e.rect, zephr_ctx.virt_mouse.pos) || (inside_rect(e.rect, zephr_ctx.virt_touchscreen.pos) && zephr_ctx.virt_touchscreen.is_pressed)) {
             zephr_ctx.ui.hovered_element = e.id
             return false
         }
@@ -679,6 +705,11 @@ frame_start :: proc() {
     bit_array.clear(&zephr_ctx.virt_keyboard.keycode_has_been_pressed_bitset)
     bit_array.clear(&zephr_ctx.virt_keyboard.keycode_has_been_released_bitset)
 
+    zephr_ctx.virt_touchscreen.has_been_pressed = false
+    zephr_ctx.virt_touchscreen.has_been_released = false
+    zephr_ctx.virt_touchscreen.rel_pos = m.vec2{}
+
+    gl.ClearColor(zephr_ctx.clear_color.r, zephr_ctx.clear_color.g, zephr_ctx.clear_color.b, zephr_ctx.clear_color.a)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
     //audio_update();
@@ -801,7 +832,9 @@ gamepad_rumble :: proc(
     duration: time.Duration,
     delay: time.Duration = 0,
 ) {
-    if !device.gamepad.supports_rumble do return
+    if !device.gamepad.supports_rumble {
+        return
+    }
 
     backend_gamepad_rumble(device, weak_motor, strong_motor, duration, delay)
 }
@@ -842,7 +875,7 @@ os_event_queue_input_device_connected :: proc(
     product_id: u16,
 ) -> ^InputDevice {
     found_device, found := &zephr_ctx.input_devices_map[key]
-    if (found) {
+    if found {
         if found_device.vendor_id == 0 {
             found_device.vendor_id = vendor_id
         }
@@ -932,20 +965,20 @@ os_event_queue_input_device_disconnected :: proc(key: u64) {
 os_event_queue_raw_gamepad_action :: proc(key: u64, action: GamepadAction, value_unorm: f32, deadzone_unorm: f32) {
     value_unorm := value_unorm
 
-    if (action == .NONE) {
+    if action == .NONE {
         return
     }
 
     device := input_device_get_checked(key, {.GAMEPAD})
-    if (value_unorm < deadzone_unorm) {     // TODO: user configurable deadzone, different for each stick and trigger
+    if value_unorm < deadzone_unorm {     // TODO: user configurable deadzone, different for each stick and trigger
         value_unorm = 0
     }
 
-    if (device.gamepad.action_value_unorms[action] == value_unorm) {
+    if device.gamepad.action_value_unorms[action] == value_unorm {
         return
     }
 
-    if (value_unorm > 0) {
+    if value_unorm > 0 {
         device.gamepad.action_is_pressed_bitset |= {action}
         device.gamepad.action_has_been_pressed_bitset |= {action}
     } else {
@@ -1104,6 +1137,27 @@ os_event_queue_virt_mouse_scroll :: proc(scroll_rel: m.vec2) {
     e.type = .VIRT_MOUSE_SCROLL
     e.mouse_scroll.device_id = 0
     e.mouse_scroll.scroll_rel = scroll_rel
+
+    queue.push(&zephr_ctx.event_queue, e)
+}
+
+@(private)
+os_event_queue_virt_touchscreen_tap :: proc(finger_idx, finger_count: u8, pos: m.vec2, is_pressed: bool) {
+    e: Event
+    e.type = is_pressed ? .VIRT_TOUCHSCREEN_PRESSED : .VIRT_TOUCHSCREEN_RELEASED
+    e.touchscreen_action.device_id = 0
+    e.touchscreen_action.finger_index = finger_idx
+    e.touchscreen_action.finger_count = finger_count
+    e.touchscreen_action.pos = pos
+    zephr_ctx.virt_touchscreen.pos = pos
+
+    if is_pressed {
+        zephr_ctx.virt_touchscreen.is_pressed = true
+        zephr_ctx.virt_touchscreen.has_been_pressed = true
+    } else {
+        zephr_ctx.virt_touchscreen.is_pressed = false
+        zephr_ctx.virt_touchscreen.has_been_released = true
+    }
 
     queue.push(&zephr_ctx.event_queue, e)
 }

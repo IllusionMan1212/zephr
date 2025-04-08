@@ -512,8 +512,8 @@ draw_button :: proc(
 
     is_hovered := zephr_ctx.ui.hovered_element == id_hash
     is_held := zephr_ctx.ui.active_element == id_hash
-    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
-    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
+    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset || zephr_ctx.virt_touchscreen.is_pressed
+    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset || zephr_ctx.virt_touchscreen.has_been_released
     clicked := false
 
     if (zephr_ctx.ui.active_element == 0) {
@@ -606,8 +606,8 @@ draw_icon_button :: proc(
 
     is_hovered := zephr_ctx.ui.hovered_element == id_hash
     is_held := zephr_ctx.ui.active_element == id_hash
-    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
-    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
+    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset || zephr_ctx.virt_touchscreen.is_pressed
+    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset || zephr_ctx.virt_touchscreen.has_been_released
     clicked := false
 
     if (zephr_ctx.ui.active_element == 0) {
@@ -699,8 +699,13 @@ draw_color_picker_slider :: proc(constraints: ^UiConstraints, align: Alignment, 
     constraints.y = rect.pos.y
 
     is_hovered := zephr_ctx.ui.hovered_element == id_hash
-    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
-    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
+    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset || zephr_ctx.virt_touchscreen.is_pressed
+    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset || zephr_ctx.virt_touchscreen.has_been_released
+
+    click_pos := zephr_ctx.virt_mouse.pos
+    if zephr_ctx.virt_touchscreen.is_pressed {
+        click_pos = zephr_ctx.virt_touchscreen.pos
+    }
 
     if (zephr_ctx.ui.active_element == 0) {
         if (is_hovered && left_mouse_pressed) {
@@ -715,7 +720,7 @@ draw_color_picker_slider :: proc(constraints: ^UiConstraints, align: Alignment, 
     }
 
     if (dragging) {
-        slider_selection = clamp((zephr_ctx.virt_mouse.pos.y - constraints.y) / constraints.height, 0, 1)
+        slider_selection = clamp((click_pos.y - constraints.y) / constraints.height, 0, 1)
     }
 
     model := m.identity(m.mat4)
@@ -810,8 +815,13 @@ draw_color_picker_canvas :: proc(
     constraints.y = rect.pos.y
 
     is_hovered := zephr_ctx.ui.hovered_element == id_hash
-    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
-    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
+    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset || zephr_ctx.virt_touchscreen.is_pressed
+    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset || zephr_ctx.virt_touchscreen.has_been_released
+
+    click_pos := zephr_ctx.virt_mouse.pos
+    if zephr_ctx.virt_touchscreen.is_pressed {
+        click_pos = zephr_ctx.virt_touchscreen.pos
+    }
 
     if (zephr_ctx.ui.active_element == 0) {
         if (is_hovered && left_mouse_pressed) {
@@ -826,8 +836,8 @@ draw_color_picker_canvas :: proc(
     }
 
     if (dragging) {
-        x := (zephr_ctx.virt_mouse.pos.x - constraints.x) / constraints.width
-        y := (zephr_ctx.virt_mouse.pos.y - constraints.y) / constraints.height
+        x := (click_pos.x - constraints.x) / constraints.width
+        y := (click_pos.y - constraints.y) / constraints.height
 
         canvas_pos.x = clamp(x, 0, 1)
         canvas_pos.y = clamp(y, 0, 1)
@@ -1001,8 +1011,8 @@ draw_color_picker :: proc(
 
     is_held := zephr_ctx.ui.active_element == id_hash
     is_hovered := zephr_ctx.ui.hovered_element == id_hash
-    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset
-    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset
+    left_mouse_pressed := .LEFT in zephr_ctx.virt_mouse.button_has_been_pressed_bitset || zephr_ctx.virt_touchscreen.is_pressed
+    left_mouse_released := .LEFT in zephr_ctx.virt_mouse.button_has_been_released_bitset || zephr_ctx.virt_touchscreen.has_been_released
     clicked := false
 
     if (zephr_ctx.ui.active_element == 0) {
