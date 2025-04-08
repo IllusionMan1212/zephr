@@ -108,9 +108,8 @@ load_texture_from_path :: proc(
     return texture_id
 }
 
-load_texture_from_memory :: proc(
-    tex_data: rawptr,
-    tex_data_len: i32,
+load_texture_from_image :: proc(
+    img: ^image.Image,
     is_diffuse: bool,
     generate_mipmap := true,
     wrap_s: i32 = gl.REPEAT,
@@ -118,15 +117,7 @@ load_texture_from_memory :: proc(
     min_filter: i32 = gl.LINEAR_MIPMAP_LINEAR,
     mag_filter: i32 = gl.LINEAR,
 ) -> TextureId {
-    context.logger = logger
-
     texture_id: TextureId
-    img, err := image.load_from_bytes(slice.bytes_from_ptr(tex_data, cast(int)tex_data_len))
-    if err != nil {
-        log.error("Failed to load embedded texture:", err)
-        return 0
-    }
-    defer image.destroy(img)
 
     format := gl.RGBA
     internal_format := gl.RGBA8
@@ -190,6 +181,49 @@ load_texture_from_memory :: proc(
     return texture_id
 }
 
+load_texture_from_memory_len :: proc(
+    tex_data: rawptr,
+    tex_data_len: i32,
+    is_diffuse: bool,
+    generate_mipmap := true,
+    wrap_s: i32 = gl.REPEAT,
+    wrap_t: i32 = gl.REPEAT,
+    min_filter: i32 = gl.LINEAR_MIPMAP_LINEAR,
+    mag_filter: i32 = gl.LINEAR,
+) -> TextureId {
+    context.logger = logger
+
+    img, err := image.load_from_bytes(slice.bytes_from_ptr(tex_data, cast(int)tex_data_len))
+    if err != nil {
+        log.error("Failed to load embedded texture:", err)
+        return 0
+    }
+    defer image.destroy(img)
+
+    return load_texture_from_image(img, is_diffuse, generate_mipmap, wrap_s, wrap_t, min_filter, mag_filter)
+}
+
+load_texture_from_memory :: proc(
+    tex_data: []byte,
+    is_diffuse: bool,
+    generate_mipmap := true,
+    wrap_s: i32 = gl.REPEAT,
+    wrap_t: i32 = gl.REPEAT,
+    min_filter: i32 = gl.LINEAR_MIPMAP_LINEAR,
+    mag_filter: i32 = gl.LINEAR,
+) -> TextureId {
+    context.logger = logger
+
+    img, err := image.load_from_bytes(tex_data)
+    if err != nil {
+        log.error("Failed to load embedded texture:", err)
+        return 0
+    }
+    defer image.destroy(img)
+
+    return load_texture_from_image(img, is_diffuse, generate_mipmap, wrap_s, wrap_t, min_filter, mag_filter)
+}
+
 load_cubemap :: proc(faces_paths: [6]string) -> TextureId {
     cubemap_tex_id: TextureId
 
@@ -226,7 +260,7 @@ load_cubemap :: proc(faces_paths: [6]string) -> TextureId {
     return cubemap_tex_id
 }
 
-load_texture :: proc{load_texture_from_path, load_texture_from_memory, load_cubemap}
+load_texture :: proc{load_texture_from_path, load_texture_from_memory, load_texture_from_memory_len, load_cubemap}
 
 // TODO: multithread this for faster model loading
 @(private)
