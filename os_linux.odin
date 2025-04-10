@@ -28,6 +28,7 @@ import "3rdparty/glx"
 import "3rdparty/inotify"
 import "3rdparty/udev"
 
+when ODIN_PLATFORM_SUBTARGET != .Android {
 // TODO: support controller-specific stuff like haptics and adaptive triggers on DualSense
 // TODO: support controller audio devices (DS4, DualSense, Xbox Series)
 // TODO: support changing controller LEDs through evdev (maybe not lol cuz idk how this would work in Windows, I think
@@ -2549,4 +2550,6 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
 
         return nil
     }
+}
+
 }

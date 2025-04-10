@@ -2,7 +2,18 @@
 // @INCOMPLETE
 package freetype
 
-when ODIN_OS == .Linux {foreign import freetype "system:freetype"}
+when ODIN_OS == .Linux {
+    when ODIN_PLATFORM_SUBTARGET == .Android {
+        foreign import freetype {
+            "libs/libfreetype_android_aarch64.a",
+            "libs/libpng16_android_aarch64.a",
+            "system:z",
+        }
+    } else {
+        foreign import freetype "system:freetype"
+    }
+}
+
 when ODIN_OS == .Windows {foreign import freetype "libs/freetype.lib"}
 
 @(link_prefix = "FT_")
