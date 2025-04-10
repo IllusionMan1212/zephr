@@ -32,7 +32,7 @@ Font :: struct {
 
 GlyphInstance :: struct #packed {
     pos:            m.vec4,
-    tex_coords: [4]m.vec2,
+    tex_coords:     [4]m.vec2,
     color:          m.vec4,
     model:          m.mat4,
 }
@@ -72,7 +72,7 @@ font_instance_vbo: u32
 /*   FT_Done_MM_Var(ft, mm); */
 /* } */
 
-init_freetype :: proc(font_path: cstring) -> i32 {
+init_freetype :: proc(font_data: []byte) -> i32 {
     context.logger = logger
 
     ft: FT.Library
@@ -81,7 +81,7 @@ init_freetype :: proc(font_path: cstring) -> i32 {
     }
 
     face: FT.Face
-    err := FT.New_Face(ft, font_path, 0, &face)
+    err := FT.New_Memory_Face(ft, raw_data(font_data), i64(len(font_data)), 0, &face)
     if (err != 0) {
         log.errorf("FT.New_Face returned: %d", err)
         return -2
@@ -221,17 +221,16 @@ init_freetype :: proc(font_path: cstring) -> i32 {
     return 0
 }
 
-init_fonts :: proc(font_path: string) -> i32 {
+init_fonts :: proc(font_data: []byte) -> i32 {
     context.logger = logger
     font_vbo, font_ebo: u32
 
-    font_path_c_str := strings.clone_to_cstring(font_path, context.temp_allocator)
-    res := init_freetype(font_path_c_str)
+    res := init_freetype(font_data)
     if (res != 0) {
         return res
     }
 
-    l_font_shader, success := create_shader(create_resource_path("shaders/font.vert"), create_resource_path("shaders/font.frag"))
+    l_font_shader, success := create_shader({g_shaders[.FONT_VERT], g_shaders[.FONT_FRAG]})
 
     if (!success) {
         log.fatal("Failed to create font shader")

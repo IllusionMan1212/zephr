@@ -224,6 +224,18 @@ load_texture_from_memory :: proc(
     return load_texture_from_image(img, is_diffuse, generate_mipmap, wrap_s, wrap_t, min_filter, mag_filter)
 }
 
+load_texture_from_asset :: proc(
+    asset: Asset,
+    is_diffuse: bool,
+    generate_mipmap := true,
+    wrap_s: i32 = gl.REPEAT,
+    wrap_t: i32 = gl.REPEAT,
+    min_filter: i32 = gl.LINEAR_MIPMAP_LINEAR,
+    mag_filter: i32 = gl.LINEAR,
+) -> TextureId {
+    return load_texture_from_memory(asset.data, is_diffuse, generate_mipmap, wrap_s, wrap_t, min_filter, mag_filter)
+}
+
 load_cubemap :: proc(faces_paths: [6]string) -> TextureId {
     cubemap_tex_id: TextureId
 
@@ -260,7 +272,7 @@ load_cubemap :: proc(faces_paths: [6]string) -> TextureId {
     return cubemap_tex_id
 }
 
-load_texture :: proc{load_texture_from_path, load_texture_from_memory, load_texture_from_memory_len, load_cubemap}
+load_texture :: proc{load_texture_from_asset, load_texture_from_path, load_texture_from_memory, load_texture_from_memory_len, load_cubemap}
 
 // TODO: multithread this for faster model loading
 @(private)

@@ -1,5 +1,5 @@
 #+feature dynamic-literals
-#+build linux
+#+build !linux:android
 #+private
 package zephr
 
@@ -15,6 +15,7 @@ import "core:net"
 import "core:os"
 import "core:hash"
 import "core:strings"
+import "core:path/filepath"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:time"
@@ -28,7 +29,6 @@ import "3rdparty/glx"
 import "3rdparty/inotify"
 import "3rdparty/udev"
 
-when ODIN_PLATFORM_SUBTARGET != .Android {
 // TODO: support controller-specific stuff like haptics and adaptive triggers on DualSense
 // TODO: support controller audio devices (DS4, DualSense, Xbox Series)
 // TODO: support changing controller LEDs through evdev (maybe not lol cuz idk how this would work in Windows, I think
@@ -1296,13 +1296,27 @@ backend_change_vsync :: proc(on: bool) {
     glx.SwapIntervalEXT(l_os.x11_display, l_os.x11_window, on ? 1 : 0)
 }
 
-@(private = "file", disabled = RELEASE_BUILD)
-watch_shaders :: proc() {
-    wd := inotify.add_watch(l_os.inotify_fd, "engine/shaders", inotify.IN_MODIFY)
-
-    if wd < 0 {
-        log.errorf("Failed to watch shaders directory")
+backend_get_asset :: proc(asset_path: string) -> Asset { 
+    when RELEASE_BUILD {
+        final_path := asset_path
+    } else {
+        final_path := filepath.join({engine_rel_path, asset_path}, context.temp_allocator)
     }
+
+    data, err := os.read_entire_file_or_err(final_path)
+    if err != os.ERROR_NONE {
+        log.errorf("Failed to load asset \"%s\". Error: \"%v\"", final_path, err)
+        return Asset{}
+    }
+
+    return Asset{
+        data,
+        nil,
+    }
+}
+
+backend_free_asset :: proc(asset: Asset) {
+    delete(asset.data)
 }
 
 backend_gamepad_rumble :: proc(
@@ -1700,6 +1714,7 @@ evdev_device_info :: proc(
     return name, vendor_id, product_id
 }
 
+@(private = "file")
 evdev_check_gyroscope_properties :: proc(device: ^evdev.libevdev) -> bool {
     if evdev.has_event_code(device, EV_ABS, ABS_RX) &&
         evdev.has_event_code(device, EV_ABS, ABS_RY) &&
@@ -2343,6 +2358,16 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.DISABLED] = x11.cursorLibraryLoadCursor(l_os.x11_display, "crossed_circle")
 }
 
+@(private = "file", disabled = RELEASE_BUILD)
+watch_shaders :: proc() {
+    shaders_dir := strings.clone_to_cstring(filepath.join({engine_rel_path, "assets/shaders"}, context.temp_allocator), context.temp_allocator)
+    wd := inotify.add_watch(l_os.inotify_fd, shaders_dir, inotify.IN_MODIFY)
+
+    if wd < 0 {
+        log.errorf("Failed to watch shaders directory")
+    }
+}
+
 @(private = "file")
 enable_raw_mouse_input :: proc() {
     context.logger = logger
@@ -2495,6 +2520,7 @@ xdnd_enter :: proc(client_data_l: [5]int) {
     }
 }
 
+@(private = "file")
 xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
     actual_type: x11.Atom = x11.None
     actual_format: i32
@@ -2550,6 +2576,4 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
 
         return nil
     }
-}
-
 }

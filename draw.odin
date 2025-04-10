@@ -26,7 +26,7 @@ ANTIALIASING :: enum {
 
 mesh_shader: ^Shader
 @(private = "file")
-missing_texture: TextureId
+missing_texture: TextureId // TODO: we should just generate this on the fly in the shader(s)
 @(private = "file")
 multisample_fb: u32
 @(private = "file")
@@ -81,7 +81,7 @@ sort_meshes_by_transparency :: proc(i, j: Mesh) -> bool {
 
 @(private)
 init_renderer :: proc(window_size: m.vec2) {
-    l_mesh_shader, success := create_shader(create_resource_path("shaders/mesh.vert"), create_resource_path("shaders/mesh.frag"))
+    l_mesh_shader, success := create_shader({g_shaders[.MESH_VERT], g_shaders[.MESH_FRAG]})
 
     mesh_shader = l_mesh_shader
 
@@ -89,8 +89,11 @@ init_renderer :: proc(window_size: m.vec2) {
         log.error("Failed to load mesh shader")
     }
 
+    missing_tex_asset := get_asset("assets/textures/missing_texture.png")
+    defer free_asset(missing_tex_asset)
+
     missing_texture = load_texture(
-        "res/textures/missing_texture.png",
+        missing_tex_asset,
         true,
         false,
         gl.REPEAT,
@@ -117,10 +120,18 @@ resize_multisample_fb :: proc(width, height: i32) {
     _msaa := math.pow2_f32(msaa)
 
     gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, color_texture)
-    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB8, width, height, gl.FALSE)
+    when USING_GLES {
+        gl.TexStorage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB8, width, height, gl.FALSE)
+    } else {
+        gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB8, width, height, gl.FALSE)
+    }
 
     gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, depth_texture)
-    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.DEPTH24_STENCIL8, width, height, gl.FALSE)
+    when USING_GLES {
+        gl.TexStorage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.DEPTH24_STENCIL8, width, height, gl.FALSE)
+    } else {
+        gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.DEPTH24_STENCIL8, width, height, gl.FALSE)
+    }
 }
 
 @(private)
@@ -140,12 +151,20 @@ init_color_pass :: proc(size: m.vec2) {
 
     // Textures for both the color and depth attachments because renderbuffers just refuse to work
     gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, color_texture)
-    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB8, i32(size.x), i32(size.y), gl.FALSE)
+    when USING_GLES {
+        gl.TexStorage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB8, i32(size.x), i32(size.y), gl.FALSE)
+    } else {
+        gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.RGB8, i32(size.x), i32(size.y), gl.FALSE)
+    }
     gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D_MULTISAMPLE, color_texture, 0)
 
     // There's no need for stencil here but renderdoc crashes when loading a capture if it isn't there.
     gl.BindTexture(gl.TEXTURE_2D_MULTISAMPLE, depth_texture)
-    gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.DEPTH24_STENCIL8, i32(size.x), i32(size.y), gl.FALSE)
+    when USING_GLES {
+        gl.TexStorage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.DEPTH24_STENCIL8, i32(size.x), i32(size.y), gl.FALSE)
+    } else {
+        gl.TexImage2DMultisample(gl.TEXTURE_2D_MULTISAMPLE, i32(_msaa), gl.DEPTH24_STENCIL8, i32(size.x), i32(size.y), gl.FALSE)
+    }
     gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D_MULTISAMPLE, depth_texture, 0)
 
     status := gl.CheckFramebufferStatus(gl.FRAMEBUFFER)

@@ -93,25 +93,22 @@ DEFAULT_UI_CONSTRAINTS :: UiConstraints {
 }
 
 @(private)
-ui_init :: proc(font_path: string) {
+ui_init :: proc(font: []byte) {
     context.logger = logger
 
-    res := init_fonts(font_path)
+    res := init_fonts(font)
     if (res == -1) {
         log.fatal("Failed to initialize the freetype library")
         os.exit(1)
     } else if (res == -2) {
-        log.fatalf("Failed to load font file: \"%s\"", font_path)
+        log.fatal("Failed to load the font")
         os.exit(1)
     } else if (res != 0) {
         os.exit(1)
     }
 
-    l_ui_shader, success1 := create_shader(create_resource_path("shaders/ui.vert"), create_resource_path("shaders/ui.frag"))
-    l_color_chooser_shader, success2 := create_shader(
-        create_resource_path("shaders/ui.vert"),
-        create_resource_path("shaders/color_chooser.frag"),
-    )
+    l_ui_shader, success1 := create_shader({g_shaders[.UI_VERT], g_shaders[.UI_FRAG]})
+    l_color_chooser_shader, success2 := create_shader({g_shaders[.UI_VERT], g_shaders[.COLOR_CHOOSER]})
 
     ui_shader = l_ui_shader
     color_chooser_shader = l_color_chooser_shader

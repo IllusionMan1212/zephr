@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 package zephr
 
 import "core:container/queue"
@@ -9,67 +10,159 @@ import "core:strings"
 
 import gl "vendor:OpenGL"
 
+USING_GLES :: #config(USING_GLES, ODIN_PLATFORM_SUBTARGET == .Android)
+
+when RELEASE_BUILD || ODIN_PLATFORM_SUBTARGET == .Android {
+    g_shaders := [ShaderFileType]ShaderFile{
+        .UI_VERT = { src = #load("assets/shaders/ui.vert"), type = .VERT },
+        .UI_FRAG = { src = #load("assets/shaders/ui.frag"), type = .FRAG },
+        .FONT_VERT = { src = #load("assets/shaders/font.vert"), type = .VERT },
+        .FONT_FRAG = { src = #load("assets/shaders/font.frag"), type = .FRAG },
+        .COLOR_CHOOSER = { src = #load("assets/shaders/color_chooser.frag"), type = .FRAG },
+        .MESH_VERT = { src = #load("assets/shaders/mesh.vert"), type = .VERT },
+        .MESH_FRAG = { src = #load("assets/shaders/mesh.frag"), type = .FRAG },
+    }
+} else {
+    g_shaders := [ShaderFileType]ShaderFile{
+        .UI_VERT = { path = "assets/shaders/ui.vert", type = .VERT },
+        .UI_FRAG = { path = "assets/shaders/ui.frag", type = .FRAG },
+        .FONT_VERT = { path = "assets/shaders/font.vert", type = .VERT },
+        .FONT_FRAG = { path = "assets/shaders/font.frag", type = .FRAG },
+        .COLOR_CHOOSER = { path = "assets/shaders/color_chooser.frag", type = .FRAG },
+        .MESH_VERT = { path = "assets/shaders/mesh.vert", type = .VERT },
+        .MESH_FRAG = { path = "assets/shaders/mesh.frag", type = .FRAG },
+    }
+}
+
+@(rodata)
+shader_type_to_gl_type := [ShaderType]gl.Shader_Type{
+    .VERT = .VERTEX_SHADER,
+    .FRAG = .FRAGMENT_SHADER,
+    .GEOM = .GEOMETRY_SHADER,
+}
+
+extension_to_shader_type := map[string]ShaderType {
+    ".vert" = .VERT,
+    ".frag" = .FRAG,
+    ".geom" = .GEOM,
+}
+
+ShaderFileType :: enum {
+    UI_VERT,
+    UI_FRAG,
+    FONT_VERT,
+    FONT_FRAG,
+    COLOR_CHOOSER,
+    MESH_VERT,
+    MESH_FRAG,
+}
+
+ShaderType :: enum {
+    VERT,
+    FRAG,
+    GEOM,
+}
+
+ShaderFile :: struct {
+    path: string,
+    src:  string,
+    type: ShaderType,
+}
+
 Shader :: struct {
     program:       u32,
-    vertex_path:   string,
-    geometry_path: string,
-    has_geometry: bool,
-    fragment_path: string,
+    files: [ShaderType]ShaderFile,
 }
 
-create_shader :: proc(vertex_path: string, fragment_path: string) -> (^Shader, bool) {
-    shader := new(Shader)
+preprocess_shaders :: proc() {
+    for type in ShaderFileType {
+        when RELEASE_BUILD || ODIN_PLATFORM_SUBTARGET == .Android {
+            shader_src := g_shaders[type].src
+            when USING_GLES {
+                g_shaders[type].src = strings.join({"#version 320 es\nprecision mediump float;\n", shader_src}, "")
+            } else {
+                g_shaders[type].src = strings.join({"#version 330 core\n", shader_src}, "")
+            }
+        } else {
+            shader := g_shaders[type]
+            shader_asset := get_asset(shader.path)
+            defer free_asset(shader_asset)
+            delete(g_shaders[type].src)
 
-    program, ok := gl.load_shaders(vertex_path, fragment_path)
-    shader.program = program
-    shader.vertex_path = vertex_path
-    shader.fragment_path = fragment_path
-    shader.has_geometry = false
-
-    append(&zephr_ctx.shaders, shader)
-
-    return shader, ok
+            g_shaders[type].src = strings.join({"#version 330 core\n", string(shader_asset.data)}, "")
+        }
+    }
 }
 
-create_shader_with_geometry :: proc(vs_path, fs_path, geom_path: string) -> (shader: ^Shader, ok: bool) {
+create_shader :: proc(shader_files: []ShaderFile) -> (shader: ^Shader, ok: bool) {
     shader = new(Shader)
+    shader_ids := make([]u32, len(shader_files))
+    defer delete(shader_ids)
 
-    // Don't or_return when compiling because we want to be able to hot-reload these shaders if any of them fail to compile.
-    // We don't care about hot-reloading if we fail to read the shader file though.
+    for sh, i in shader_files {
+        id, _ok := gl.compile_shader_from_source(sh.src, shader_type_to_gl_type[sh.type])
+        shader_ids[i] = id
+        if !_ok {
+            compile_msg, compile_type, link_msg, link_type := gl.get_last_error_messages()
 
-    vs_data := os.read_entire_file(vs_path) or_return
-    defer delete(vs_data)
+            log.error("Failed to create shader")
+            log.error("\tCompile message:", compile_msg)
+            log.error("\tShader type:", compile_type)
+            log.error("\tLink message:", link_msg)
+            log.error("\tShader type:", link_type)
+        }
+    }
 
-    fs_data := os.read_entire_file(fs_path) or_return
-    defer delete(fs_data)
+    defer for id in shader_ids {
+        gl.DeleteShader(id)
+    }
 
-    geom_data := os.read_entire_file(geom_path) or_return
-    defer delete(geom_data)
+    program, _ok := gl.create_and_link_program(shader_ids)
 
-    vs_id, vs_ok := gl.compile_shader_from_source(string(vs_data), gl.Shader_Type.VERTEX_SHADER)
-    defer gl.DeleteShader(vs_id)
+    if !_ok {
+        compile_msg, compile_type, link_msg, link_type := gl.get_last_error_messages()
 
-    fs_id, fs_ok := gl.compile_shader_from_source(string(fs_data), gl.Shader_Type.FRAGMENT_SHADER)
-    defer gl.DeleteShader(fs_id)
+        log.error("Failed to create shader")
+        log.error("\tCompile message:", compile_msg)
+        log.error("\tShader type:", compile_type)
+        log.error("\tLink message:", link_msg)
+        log.error("\tShader type:", link_type)
+    }
 
-    geom_id, geom_ok := gl.compile_shader_from_source(string(geom_data), gl.Shader_Type.GEOMETRY_SHADER)
-    defer gl.DeleteShader(geom_id)
-
-    program_id := gl.create_and_link_program({vs_id, geom_id, fs_id}) or_return
-
-    shader.program = program_id
-    shader.vertex_path = vs_path
-    shader.fragment_path = fs_path
-    shader.geometry_path = geom_path
-    shader.has_geometry = true
+    // Attach program and the data about the shader files to the shader.
+    shader.program = program
+    for file in shader_files {
+        shader.files[file.type] = file
+    }
 
     append(&zephr_ctx.shaders, shader)
 
-    return shader, vs_ok && fs_ok && geom_ok
+    return shader, true
 }
 
-@(private, disabled = RELEASE_BUILD)
+update_shader :: proc(shader: ^Shader, shader_files: []ShaderFile) -> bool {
+    shader_ids := make([]u32, len(shader_files))
+    defer delete(shader_ids)
+
+    for sh, i in shader_files {
+        shader_ids[i] = gl.compile_shader_from_source(sh.src, shader_type_to_gl_type[sh.type]) or_return
+    }
+
+    defer for id in shader_ids {
+        gl.DeleteShader(id)
+    }
+
+    program := gl.create_and_link_program(shader_ids) or_return
+
+    gl.DeleteProgram(shader.program)
+    shader.program = program
+
+    return true
+}
+
+@(private, disabled = RELEASE_BUILD || ODIN_PLATFORM_SUBTARGET == .Android)
 update_shaders_if_changed :: proc() {
+    when ODIN_PLATFORM_SUBTARGET != .Android {
     context.logger = logger
 
     if queue.len(zephr_ctx.changed_shaders_queue) == 0 {
@@ -81,33 +174,53 @@ update_shaders_if_changed :: proc() {
 
     if file != nil {
         for shader in &zephr_ctx.shaders {
-            if filepath.base(shader.vertex_path) == file^ || filepath.base(shader.fragment_path) == file^ || filepath.base(shader.geometry_path) == file^ {
+            if filepath.base(shader.files[.VERT].path) == file^ || filepath.base(shader.files[.FRAG].path) == file^ || filepath.base(shader.files[.GEOM].path) == file^ {
                 log.debugf("Hot-reloading shaders that depend on \"%s\"", file^)
 
-                program: u32
-                ok: bool
-                if shader.has_geometry {
-                    new_shader, new_shader_ok := create_shader_with_geometry(shader.vertex_path, shader.fragment_path, shader.geometry_path) 
-                    ok = new_shader_ok
-                    program = new_shader.program
-                } else {
-                    program, ok = gl.load_shaders(shader.vertex_path, shader.fragment_path)
-                }
+                type := extension_to_shader_type[filepath.ext(file^)]
+                shader_files := make([dynamic]ShaderFile, 0, len(shader.files))
+                defer delete(shader_files)
 
-                if !ok {
+                shader_asset := get_asset(shader.files[type].path)
+                defer free_asset(shader_asset)
+                if len(shader_asset.data) == 0 {
                     log.errorf(
-                        "Failed to hot-reload shader %d. Vert: %s, Frag: %s",
+                        "Failed to hot-reload shader with ID %d (File read error). Vert: \"%s\", Frag: \"%s\", Geom: \"%s\". ",
                         shader.program,
-                        shader.vertex_path,
-                        shader.fragment_path,
+                        shader.files[.VERT].path,
+                        shader.files[.FRAG].path,
+                        shader.files[.GEOM].path,
                     )
+
+                    return
                 }
 
-                gl.DeleteProgram(shader.program)
+                delete(shader.files[type].src)
+                shader.files[type].src = strings.join({"#version 330 core\n", string(shader_asset.data)}, "")
 
-                shader.program = program
+                for file in shader.files {
+                    if file.path == "" {
+                        continue
+                    }
+                    append(&shader_files, file)
+                }
+
+                new_shader_ok := update_shader(shader, shader_files[:])
+
+                if !new_shader_ok {
+                    log.errorf(
+                        "Failed to hot-reload shader with ID %d (Compilation error). Vert: \"%s\", Frag: \"%s\", Geom: \"%s\". ",
+                        shader.program,
+                        shader.files[.VERT].path,
+                        shader.files[.FRAG].path,
+                        shader.files[.GEOM].path,
+                    )
+
+                    return
+                }
             }
         }
+    }
     }
 }
 

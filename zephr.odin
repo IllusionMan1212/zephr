@@ -10,6 +10,8 @@ import "core:os"
 import "core:path/filepath"
 import "core:time"
 
+import "shared:android"
+
 import gl "vendor:OpenGL"
 
 // TODO: In the future stop drawing and processing things in the engine when the window is not focused
@@ -507,9 +509,16 @@ Touchscreen :: struct {
     finger_count: u8,
 }
 
+Asset :: struct {
+    data: []byte,
+    backend_ptr: rawptr,
+}
+
 Context :: struct {
+    logger_fd:                    os.Handle,
     should_quit:                  bool,
     screen_size:                  m.vec2,
+    was_app_started_at_least_once: bool,
     window:                       Window,
     timer:                        time.Stopwatch,
     font:                         Font,
@@ -563,8 +572,15 @@ COLOR_CYAN :: Color{0, 255, 255, 255}
 COLOR_ORANGE :: Color{255, 128, 0, 255}
 COLOR_PURPLE :: Color{128, 0, 255, 255}
 
+// TODO: This font is currently used for the UI elements, but we should allow the user to specify
+//       their own font for the UI elements.
+//       In the future, this font should only be used for the engine's editor.
+DEFAULT_FONT_PATH :: #config(DEFAULT_FONT_PATH, "assets/fonts/Rubik/Rubik-VariableFont_wght.ttf")
+
 @(private)
 engine_rel_path := filepath.dir(#file)
+@(private)
+DEFAULT_ENGINE_FONT :: #load(DEFAULT_FONT_PATH)
 
 @(private)
 zephr_ctx: Context
@@ -576,10 +592,14 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     logger_init()
     context.logger = logger
 
-    // TODO: This font is currently used for the UI elements, but we should allow the user to specify
-    //       their own font for the UI elements.
-    //       In the future, this font should only be used for the engine's editor.
-    engine_font_path := create_resource_path("res/fonts/Rubik/Rubik-VariableFont_wght.ttf")
+    // TODO: This is used as a quick hack so we don't reset the global shaders and have no way of #load-ing them again.
+    // Find a way to get rid of this.
+    // Maybe by not making the shaders global and just calling #load for them every time the activity is recreated.
+    if !zephr_ctx.was_app_started_at_least_once {
+        preprocess_shaders()
+    }
+
+    zephr_ctx.was_app_started_at_least_once = true
 
     //ok := audio_init();
     //log.assert(ok, "Failed to initialize audio");
@@ -599,7 +619,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     zephr_ctx.clear_color = {0.2, 0.2, 0.2, 1}
 
     init_renderer(window_size)
-    ui_init(engine_font_path)
+    ui_init(DEFAULT_ENGINE_FONT)
 
     backend_init_cursors()
 
@@ -627,6 +647,8 @@ deinit :: proc() {
     }
     log.destroy_multi_logger(logger)
     //audio_close()
+
+    zephr_ctx = {was_app_started_at_least_once = true}
 }
 
 get_time :: proc() -> time.Duration {
@@ -858,7 +880,8 @@ set_cursor :: proc(cursor: Cursor) {
 
 @(private)
 input_device_get_checked :: proc(id: u64, features: InputDeviceFeatures) -> ^InputDevice {
-    device := &zephr_ctx.input_devices_map[id]
+    device, ok := &zephr_ctx.input_devices_map[id]
+    log.assertf(ok, "Device with id: %d is not connected", id)
     log.assert(
         device.features & features == features,
         fmt.tprintf("expected features '0x%x' but got '0x%x'", features, device.features),
@@ -1306,21 +1329,37 @@ os_event_queue_drag_and_drop_file :: proc(paths: []string) {
 
 @(private)
 logger_init :: proc() {
-    log_file, err := os.open("zephr.log", os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o644)
-    if err != os.ERROR_NONE {
-        fmt.eprintln("[ERROR] Failed to open log file. Logs will not be written")
+    // NOTE: This guard is needed so we don't reopen the log file on activity recreation in android.
+    if zephr_ctx.logger_fd != os.Handle(0) {
         return
     }
+
+    when ODIN_PLATFORM_SUBTARGET == .Android {
+        log_file, err := os.open(create_appdata_path("zephr.log", context.temp_allocator), os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o664)
+        if err != os.ERROR_NONE {
+            android.__android_log_print(.ERROR, "zephr", "[ERROR] Failed to open log file. Logs will not be written. Error code: %d", err)
+            return
+        }
+        zephr_ctx.logger_fd = log_file
+    } else {
+        log_file, err := os.open("zephr.log", os.O_CREATE | os.O_WRONLY | os.O_TRUNC, 0o664)
+        if err != os.ERROR_NONE {
+            fmt.eprintln("[ERROR] Failed to open log file. Logs will not be written. Error code: %d", err)
+            return
+        }
+        zephr_ctx.logger_fd = log_file
+    }
+
     file_logger := log.create_file_logger(log_file)
     term_logger := log.create_console_logger(opt = TerminalLoggerOpts)
+
     logger = log.create_multi_logger(file_logger, term_logger)
 }
 
-@(private)
-create_resource_path :: proc(path: string) -> string {
-    when RELEASE_BUILD { // We want a relative path for builds that we distribute
-        return path
-    } else {
-        return filepath.join({engine_rel_path, path})
-    }
+get_asset :: proc(path: string) -> Asset {
+    return backend_get_asset(path)
+}
+
+free_asset :: proc(asset: Asset) {
+    backend_free_asset(asset)
 }
