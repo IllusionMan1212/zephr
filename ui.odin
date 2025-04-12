@@ -8,8 +8,6 @@ import "core:os"
 
 import gl "vendor:OpenGL"
 
-import "logger"
-
 UiIdHash :: u32
 
 Alignment :: enum {
@@ -96,7 +94,7 @@ DEFAULT_UI_CONSTRAINTS :: UiConstraints {
 
 @(private)
 ui_init :: proc(font: []byte) {
-    context.logger = logger.logger
+    context.logger = logger
 
     res := init_fonts(font)
     if (res == -1) {

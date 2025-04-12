@@ -4,7 +4,6 @@ import m "core:math/linalg/glsl"
 import "core:path/filepath"
 import "core:log"
 import "core:strings"
-import "../logger"
 
 import gl "vendor:OpenGL"
 import stb "vendor:stb/image"
@@ -18,6 +17,10 @@ ebo: u32
 @(private = "file")
 ui_shader: u32
 
+
+// TODO: we're redefining stuff that already exists in the zephr package because they'll cause a cyclic importation.
+// The main reason the new ui code is in a separate package is for namespacing (which is retarded)
+// The fix is to flatten it out and just prefix all the ui stuff with ui_.
 @(private)
 engine_rel_path := filepath.dir(#file)
 
@@ -35,8 +38,6 @@ load_texture :: proc(
     min_filter: i32 = gl.LINEAR_MIPMAP_LINEAR,
     mag_filter: i32 = gl.LINEAR,
 ) -> TextureId {
-    context.logger = logger.logger
-
     texture_id: TextureId
     width, height, channels: i32
     path_c_str := strings.clone_to_cstring(path, context.temp_allocator)
@@ -189,7 +190,6 @@ instance_image :: proc(rect: Rect, texture: TextureId, tint: Color, blur: int) {
 }
 
 draw :: proc(projection: m.mat4) {
-    context.logger = logger.logger
     projection := projection
 
     root := ui_state.root

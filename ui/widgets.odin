@@ -1,7 +1,6 @@
 package zephr_ui
 
 import "core:log"
-import "../logger"
 
 ImageDrawData :: struct {
     texture: TextureId,
@@ -44,7 +43,6 @@ text :: proc(str: string) {
 
 @(private)
 image_draw :: proc(box: ^Box, user_data: rawptr) {
-    context.logger = logger.logger
     draw_data := cast(^ImageDrawData)user_data
     log.assert(draw_data.texture != 0, "Invalid texture ID")
 
@@ -52,7 +50,6 @@ image_draw :: proc(box: ^Box, user_data: rawptr) {
 }
 
 image :: proc(texture: TextureId, tint: Color = {1, 1, 1, 1}, blur: int = 0, caller := #caller_location) {
-    context.logger = logger.logger
     box := create_box_with_id({}, Id(0), caller)
     image_data := new(ImageDrawData, build_allocator())
     image_data.texture = texture

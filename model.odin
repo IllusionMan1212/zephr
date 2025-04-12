@@ -13,8 +13,6 @@ import "core:time"
 import gl "vendor:OpenGL"
 import "vendor:cgltf"
 
-import "logger"
-
 #assert(size_of(Vertex) == 96)
 Vertex :: struct {
     position:   m.vec3,
@@ -1075,7 +1073,7 @@ load_gltf_model :: proc(
     Model,
     bool,
 ) {
-    context.logger = logger.logger
+    context.logger = logger
 
     file_path_cstr := strings.clone_to_cstring(file_path)
     defer delete(file_path_cstr)

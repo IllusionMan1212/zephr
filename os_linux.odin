@@ -29,8 +29,6 @@ import "3rdparty/glx"
 import "3rdparty/inotify"
 import "3rdparty/udev"
 
-import "logger"
-
 // TODO: support controller-specific stuff like haptics and adaptive triggers on DualSense
 // TODO: support controller audio devices (DS4, DualSense, Xbox Series)
 // TODO: support changing controller LEDs through evdev (maybe not lol cuz idk how this would work in Windows, I think
@@ -1153,7 +1151,7 @@ keyboard_keysym_to_keycode :: proc(key_sym: x11.KeySym) -> Keycode {
 @(private = "file")
 x11_error_handler :: proc "c" (display: ^x11.Display, event: ^x11.XErrorEvent) -> i32 {
     context = runtime.default_context()
-    context.logger = logger.logger
+    context.logger = logger
 
     buf := make([^]u8, 2048)
     defer free(buf)
@@ -1164,7 +1162,7 @@ x11_error_handler :: proc "c" (display: ^x11.Display, event: ^x11.XErrorEvent) -
 }
 
 backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
-    context.logger = logger.logger
+    context.logger = logger
 
     l_os.x11_display = x11.OpenDisplay(nil)
 
@@ -1328,7 +1326,7 @@ backend_gamepad_rumble :: proc(
     duration: time.Duration,
     delay: time.Duration,
 ) {
-    context.logger = logger.logger
+    context.logger = logger
 
     device_backend := linux_input_device(device)
     effect: evdev.ff_effect
@@ -2372,7 +2370,7 @@ watch_shaders :: proc() {
 
 @(private = "file")
 enable_raw_mouse_input :: proc() {
-    context.logger = logger.logger
+    context.logger = logger
 
     ev, err: i32
     if !x11.QueryExtension(l_os.x11_display, "XInputExtension", &l_os.xinput_opcode, &ev, &err) {

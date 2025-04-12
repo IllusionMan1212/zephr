@@ -8,8 +8,6 @@ import "core:path/filepath"
 import "core:os"
 import "core:strings"
 
-import "logger"
-
 import gl "vendor:OpenGL"
 
 USING_GLES :: #config(USING_GLES, ODIN_PLATFORM_SUBTARGET == .Android)
@@ -165,7 +163,7 @@ update_shader :: proc(shader: ^Shader, shader_files: []ShaderFile) -> bool {
 @(private, disabled = RELEASE_BUILD || ODIN_PLATFORM_SUBTARGET == .Android)
 update_shaders_if_changed :: proc() {
     when ODIN_PLATFORM_SUBTARGET != .Android {
-    context.logger = logger.logger
+    context.logger = logger
 
     if queue.len(zephr_ctx.changed_shaders_queue) == 0 {
         return

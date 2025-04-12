@@ -8,8 +8,6 @@ import "core:log"
 import "core:hash"
 import "core:strings"
 
-import "../logger"
-
 ui_state: State
 
 Id :: u32
@@ -383,8 +381,6 @@ box_equip_custom_draw :: proc(box: ^Box, custom_draw: BoxCustomDrawFunctionType,
 }
 
 print :: proc() {
-    context.logger = logger.logger
-
     // DFS
     iter_children :: proc(node: ^Box) {
         for child := node.first; child != nil; child = child.next {
@@ -519,8 +515,6 @@ padding :: proc(size: Size) {
 }
 
 init :: proc() {
-    context.logger = logger.logger
-
     err := virtual.arena_init_growing(&ui_state.arenas[0], mem.Megabyte * 16)
     if err != nil {
         log.error("Failed to allocate memory for UI")
@@ -644,7 +638,6 @@ calc_sizes_downwards_dependent__in_place_rec :: proc(root: ^Box, axis: Axis) {
 
 @(private)
 layout_enforce_constraints__in_place_rec :: proc(root: ^Box, axis: Axis) {
-    context.logger = logger.logger
     //Temp scratch = scratch_begin(0, 0)
 
     // NOTE(rjf): The "layout axis" is the direction in which children
