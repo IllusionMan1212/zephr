@@ -1,5 +1,5 @@
 #+private
-package zephr_ui
+package zephr
 
 ParentNode :: struct {
     next: ^ParentNode,
@@ -169,47 +169,47 @@ auto_pop_stacks :: proc() {
         ui_state.parent_stack.auto_pop = false
     }
     if ui_state.layout_axis_stack.auto_pop {
-        pop_layout_axis()
+        ui_pop_layout_axis()
         ui_state.layout_axis_stack.auto_pop = false
     }
     if ui_state.fixed_x_stack.auto_pop {
-        pop_fixed_x()
+        ui_pop_fixed_x()
         ui_state.fixed_x_stack.auto_pop = false
     }
     if ui_state.fixed_y_stack.auto_pop {
-        pop_fixed_y()
+        ui_pop_fixed_y()
         ui_state.fixed_y_stack.auto_pop = false
     }
     if ui_state.fixed_width_stack.auto_pop {
-        pop_fixed_width()
+        ui_pop_fixed_width()
         ui_state.fixed_width_stack.auto_pop = false
     }
     if ui_state.fixed_height_stack.auto_pop {
-        pop_fixed_height()
+        ui_pop_fixed_height()
         ui_state.fixed_height_stack.auto_pop = false
     }
     if ui_state.pref_width_stack.auto_pop {
-        pop_pref_width()
+        ui_pop_pref_width()
         ui_state.pref_width_stack.auto_pop = false
     }
     if ui_state.pref_height_stack.auto_pop {
-        pop_pref_height()
+        ui_pop_pref_height()
         ui_state.pref_height_stack.auto_pop = false
     }
     if ui_state.flags_stack.auto_pop {
-        pop_flags()
+        ui_pop_flags()
         ui_state.flags_stack.auto_pop = false
     }
     if ui_state.background_color_stack.auto_pop {
-        pop_background_color()
+        ui_pop_background_color()
         ui_state.background_color_stack.auto_pop = false
     }
     if ui_state.text_color_stack.auto_pop {
-        pop_text_color()
+        ui_pop_text_color()
         ui_state.text_color_stack.auto_pop = false
     }
     if ui_state.border_color_stack.auto_pop {
-        pop_border_color()
+        ui_pop_border_color()
         ui_state.border_color_stack.auto_pop = false
     }
     // TODO:

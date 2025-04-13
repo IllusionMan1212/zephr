@@ -18,6 +18,7 @@ MSAASamples :: enum i32 {
     MSAA_4 = 2,
     MSAA_8,
     MSAA_16,
+    // Some GPUs support x32 but at that point it's just not worth it lol.
 }
 
 Antialiasing :: enum {

@@ -12,8 +12,6 @@ import "core:time"
 
 import "shared:android"
 
-import "ui"
-
 import gl "vendor:OpenGL"
 
 // TODO: In the future stop drawing and processing things in the engine when the window is not focused
@@ -523,7 +521,6 @@ Context :: struct {
     was_app_started_at_least_once: bool,
     window:                       Window,
     timer:                        time.Stopwatch,
-    font:                         Font,
     virt_mouse:                   Mouse,
     virt_keyboard:                Keyboard,
     virt_touchscreen:             Touchscreen,
@@ -533,7 +530,6 @@ Context :: struct {
     event_queue:                  queue.Queue(Event),
     input_devices_map:            map[u64]InputDevice,
     cursors:                      [Cursor]OsCursor,
-    ui:                           Ui,
     projection:                   m.mat4,
     shaders:                      [dynamic]^Shader,
     changed_shaders_queue:        queue.Queue(string),
@@ -611,7 +607,6 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
 
     backend_init(window_title, window_size, icon_path, window_non_resizable)
 
-    zephr_ctx.ui.elements = make([dynamic]UiElement, INIT_UI_STACK_SIZE)
     zephr_ctx.virt_mouse.pos = m.vec2{-1, -1}
     zephr_ctx.window.size = window_size
     zephr_ctx.window.non_resizable = window_non_resizable
@@ -620,8 +615,7 @@ init :: proc(icon_path: cstring, window_title: cstring, window_size: m.vec2, win
     zephr_ctx.clear_color = {0.2, 0.2, 0.2, 1}
 
     init_renderer(window_size)
-    ui.init()
-    ui_init(DEFAULT_ENGINE_FONT)
+    ui_init()
 
     backend_init_cursors()
 
@@ -640,14 +634,13 @@ deinit :: proc() {
     delete(zephr_ctx.keyboard_keycode_to_scancode)
     queue.destroy(&zephr_ctx.event_queue)
     queue.destroy(&zephr_ctx.changed_shaders_queue)
-    delete(zephr_ctx.ui.elements)
-    ui.shutdown()
+    ui_shutdown()
     delete(zephr_ctx.shaders)
 
-    free(font_shader)
-    free(ui_shader)
+    //free(font_shader)
+    //free(ui_shader)
     free(mesh_shader)
-    free(color_chooser_shader)
+    //free(color_chooser_shader)
 	logger_destroy()
     //audio_close()
 
@@ -672,14 +665,14 @@ quit :: proc() {
 
 @(private)
 consume_mouse_events :: proc() -> bool {
-    defer clear(&zephr_ctx.ui.elements)
+    //defer clear(&zephr_ctx.ui.elements)
 
-    #reverse for e in zephr_ctx.ui.elements {
-        if (inside_rect(e.rect, zephr_ctx.virt_mouse.pos) || (inside_rect(e.rect, zephr_ctx.virt_touchscreen.pos) && zephr_ctx.virt_touchscreen.is_pressed)) {
-            zephr_ctx.ui.hovered_element = e.id
-            return false
-        }
-    }
+    //#reverse for e in zephr_ctx.ui.elements {
+    //    if (inside_rect(e.rect, zephr_ctx.virt_mouse.pos) || (inside_rect(e.rect, zephr_ctx.virt_touchscreen.pos) && zephr_ctx.virt_touchscreen.is_pressed)) {
+    //        zephr_ctx.ui.hovered_element = e.id
+    //        return false
+    //    }
+    //}
 
     return true
 }
@@ -746,20 +739,20 @@ frame_end :: proc() {
     defer free_all(context.temp_allocator)
     update_shaders_if_changed()
 
-    if (zephr_ctx.ui.popup_open) {
-        draw_color_picker_popup(&zephr_ctx.ui.popup_parent_constraints)
-    }
-    zephr_ctx.ui.popup_open = false
+    //if (zephr_ctx.ui.popup_open) {
+    //    draw_color_picker_popup(&zephr_ctx.ui.popup_parent_constraints)
+    //}
+    //zephr_ctx.ui.popup_open = false
 
-    if consume_mouse_events() {
-        zephr_ctx.ui.hovered_element = 0
-    }
+    //if consume_mouse_events() {
+    //    zephr_ctx.ui.hovered_element = 0
+    //}
 
     backend_swapbuffers()
-    if zephr_ctx.ui.hovered_element == 0 && zephr_ctx.cursor != .ARROW && !zephr_ctx.virt_mouse.captured {
-        zephr_ctx.cursor = .ARROW
-        backend_set_cursor()
-    }
+    //if zephr_ctx.ui.hovered_element == 0 && zephr_ctx.cursor != .ARROW && !zephr_ctx.virt_mouse.captured {
+    //    zephr_ctx.cursor = .ARROW
+    //    backend_set_cursor()
+    //}
 }
 
 iter_events :: proc() -> ^Event {

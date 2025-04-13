@@ -420,7 +420,7 @@ handle_cmd :: proc "c" (app: ^android.android_app, cmd: android.AppCmd) {
                 gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
                 init_renderer({w, h})
-                ui_init(DEFAULT_ENGINE_FONT)
+                ui_init()
 
                 a_os.window_is_ready = true
             }

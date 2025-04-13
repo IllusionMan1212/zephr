@@ -4,9 +4,7 @@ import "base:intrinsics"
 import "core:math"
 import m "core:math/linalg/glsl"
 
-Color :: struct {
-    r, g, b, a: u8,
-}
+Color :: [4]f32
 
 orthographic_projection_2d :: proc(left, right, bottom, top: f32) -> m.mat4 {
     result := m.identity(m.mat4)
@@ -24,9 +22,9 @@ orthographic_projection_2d :: proc(left, right, bottom, top: f32) -> m.mat4 {
 mult_color :: proc(color: Color, scalar: f32) -> Color {
     color := color
 
-    color.r = clamp(cast(u8)(cast(f32)color.r * scalar), 0, 255)
-    color.g = clamp(cast(u8)(cast(f32)color.g * scalar), 0, 255)
-    color.b = clamp(cast(u8)(cast(f32)color.b * scalar), 0, 255)
+    color.r = clamp(color.r * scalar, 0, 1)
+    color.g = clamp(color.g * scalar, 0, 1)
+    color.b = clamp(color.b * scalar, 0, 1)
 
     return color
 }
@@ -64,7 +62,7 @@ hsv2rgb :: proc(h: f32, s: f32, v: f32) -> Color {
         b = x
     }
 
-    return (Color){(u8)((r + m) * 255), (u8)((g + m) * 255), (u8)((b + m) * 255), 255}
+    return (Color){r + m, g + m, b + m, 1}
 }
 
 determine_color_contrast :: proc(bg: Color) -> Color {

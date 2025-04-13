@@ -1,10 +1,19 @@
-layout (location = 0) in vec4 vertex;
+// per-instance data
+layout (location = 0) in vec4 rect; // x,y is point 0, zw is point 1
+layout (location = 1) in vec4 color;
 
-out vec2 v_TexCoords;
+out vec4 aColor;
+out vec2 aTexCoords;
 uniform mat4 projection;
-uniform mat4 model;
+//uniform mat4 model;
 
 void main() {
-  gl_Position = projection * model * vec4(vertex.xy, 0.0, 1.0);
-  v_TexCoords = vertex.zw;
+  float x = float(gl_VertexID / 2);
+  float y = float(gl_VertexID % 2);
+  vec2 vertex = vec2(x, y);
+  vec2 size = rect.zw - rect.xy;
+  vec2 pos = rect.xy + vertex * size;
+  gl_Position = projection * vec4(pos, 0.0, 1.0);
+  aColor = color;
+  aTexCoords = vec2(x, y);
 }

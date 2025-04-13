@@ -1,4 +1,4 @@
-package zephr_ui
+package zephr
 
 import m "core:math/linalg/glsl"
 import "core:path/filepath"
@@ -15,109 +15,18 @@ vbo: u32
 @(private = "file")
 ebo: u32
 @(private = "file")
-ui_shader: u32
-
-
-// TODO: we're redefining stuff that already exists in the zephr package because they'll cause a cyclic importation.
-// The main reason the new ui code is in a separate package is for namespacing (which is retarded)
-// The fix is to flatten it out and just prefix all the ui stuff with ui_.
-@(private)
-engine_rel_path := filepath.dir(#file)
+ui_shader: ^Shader
 
 @(private)
-create_resource_path :: proc(path: string) -> string {
-    return filepath.join({engine_rel_path, path})
-}
-
-load_texture :: proc(
-    path: string,
-    is_diffuse: bool,
-    generate_mipmap := true,
-    wrap_s: i32 = gl.REPEAT,
-    wrap_t: i32 = gl.REPEAT,
-    min_filter: i32 = gl.LINEAR_MIPMAP_LINEAR,
-    mag_filter: i32 = gl.LINEAR,
-) -> TextureId {
-    texture_id: TextureId
-    width, height, channels: i32
-    path_c_str := strings.clone_to_cstring(path, context.temp_allocator)
-    data := stb.load(path_c_str, &width, &height, &channels, 0)
-    if data == nil {
-        log.errorf("Failed to load texture: \"%s\"", path)
-        return 0
-    }
-    defer stb.image_free(data)
-
-    format := gl.RGBA
-    internal_format := gl.RGBA8
-
-    switch (channels) {
-        case 1:
-            format = gl.RED
-            internal_format = gl.R8
-            break
-        case 2:
-            format = gl.RG
-            internal_format = gl.RG8
-            break
-        case 3:
-            format = gl.RGB
-            internal_format = gl.SRGB8
-            break
-        case 4:
-            format = gl.RGBA
-            internal_format = gl.SRGB8_ALPHA8
-            break
-    }
-
-    if !is_diffuse {
-        internal_format = format
-    }
-    min_filter := min_filter
-    if min_filter == gl.LINEAR_MIPMAP_LINEAR && !generate_mipmap {
-        min_filter = gl.LINEAR
-    }
-
-    gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-
-    gl.GenTextures(1, &texture_id)
-    gl.BindTexture(gl.TEXTURE_2D, texture_id)
-
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap_s)
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap_t)
-
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min_filter)
-    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag_filter)
-
-    gl.TexImage2D(
-        gl.TEXTURE_2D,
-        0,
-        cast(i32)internal_format,
-        width,
-        height,
-        0,
-        cast(u32)format,
-        gl.UNSIGNED_BYTE,
-        data,
-    )
-
-    if generate_mipmap {
-        gl.GenerateMipmap(gl.TEXTURE_2D)
-    }
-
-    gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
-
-    return texture_id
-}
-
 init_drawing :: proc() {
     indices := [6]u32{0, 1, 2, 2, 3, 1}
 
-    shader_id, ok := gl.load_shaders("/home/illusion/Desktop/repos/fLWac/engine/shaders/ui2.vert", "/home/illusion/Desktop/repos/fLWac/engine/shaders/ui2.frag")
+    shader, ok := create_shader({g_shaders[.UI_VERT], g_shaders[.UI_FRAG]})
     if !ok {
         log.error("Failed to load ui shaders")
+        return
     }
-    ui_shader = shader_id
+    ui_shader = shader
 
     gl.GenVertexArrays(1, &vao)
     gl.GenBuffers(1, &vbo)
@@ -142,6 +51,7 @@ init_drawing :: proc() {
     gl.BindVertexArray(0)
 }
 
+@(private)
 instance_rect :: proc(rect: Rect, color: Color, border_thickness: int) {
     inst: DrawableInstance
     inst.rect = rect
@@ -154,6 +64,7 @@ instance_rect :: proc(rect: Rect, color: Color, border_thickness: int) {
     append(&ui_state.curr_draw_cmd.drawables, inst)
 }
 
+@(private)
 instance_image :: proc(rect: Rect, texture: TextureId, tint: Color, blur: int) {
     inst: DrawableInstance
     inst.rect = rect
@@ -189,7 +100,7 @@ instance_image :: proc(rect: Rect, texture: TextureId, tint: Color, blur: int) {
     ui_state.curr_draw_cmd = {}
 }
 
-draw :: proc(projection: m.mat4) {
+ui_draw :: proc(projection: m.mat4) {
     projection := projection
 
     root := ui_state.root
@@ -224,8 +135,8 @@ draw :: proc(projection: m.mat4) {
 
     iter_children(root)
 
-    gl.UseProgram(ui_shader)
-    gl.UniformMatrix4fv(gl.GetUniformLocation(ui_shader, "projection"), 1, false, raw_data(&projection))
+    gl.UseProgram(ui_shader.program)
+    gl.UniformMatrix4fv(gl.GetUniformLocation(ui_shader.program, "projection"), 1, false, raw_data(&projection))
     gl.BindVertexArray(vao)
     gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
 
@@ -237,11 +148,11 @@ draw :: proc(projection: m.mat4) {
     for cmd in ui_state.draw_cmds {
         gl.BufferData(gl.ARRAY_BUFFER, size_of(DrawableInstance) * len(cmd.drawables), raw_data(cmd.drawables), gl.STATIC_DRAW)
         if cmd.has_texture {
-            gl.Uniform1i(gl.GetUniformLocation(ui_shader, "blur"), cast(i32)cmd.blur)
-            gl.Uniform1i(gl.GetUniformLocation(ui_shader, "hasTexture"), 1)
+            gl.Uniform1i(gl.GetUniformLocation(ui_shader.program, "blur"), cast(i32)cmd.blur)
+            gl.Uniform1i(gl.GetUniformLocation(ui_shader.program, "hasTexture"), 1)
             gl.BindTexture(gl.TEXTURE_2D, cmd.tex)
         } else {
-            gl.Uniform1i(gl.GetUniformLocation(ui_shader, "hasTexture"), 0)
+            gl.Uniform1i(gl.GetUniformLocation(ui_shader.program, "hasTexture"), 0)
         }
         gl.DrawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_INT, nil, cast(i32)len(cmd.drawables))
 

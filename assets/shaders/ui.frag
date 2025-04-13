@@ -1,38 +1,35 @@
-in vec2 v_TexCoords;
 out vec4 FragColor;
+in vec4 aColor;
+in vec2 aTexCoords;
 
-uniform vec4 aColor;
-uniform float borderRadius;
-uniform float uiWidth;
-uniform float uiHeight;
+uniform sampler2D image;
+uniform int blur;
 uniform bool hasTexture;
 
-uniform sampler2D tex;
+#define SEPARATION 1.0
 
-const float smoothness = 0.7;
+// Working box blur.
+vec4 boxBlur(sampler2D tex) {
+  if (blur <= 0) { return texture(tex, aTexCoords) * aColor; }
 
-void main() {
-  float alpha = aColor.a;
-
-  if (borderRadius > 0.0) {
-    vec2 dimensions = v_TexCoords * vec2(uiWidth, uiHeight);
-    float xMax = uiWidth - borderRadius;
-    float yMax = uiHeight - borderRadius;
-
-    if (dimensions.x < borderRadius && dimensions.y < borderRadius) {
-      alpha *= 1.0 - smoothstep(borderRadius - smoothness, borderRadius + smoothness, length(dimensions - vec2(borderRadius)));
-    } else if (dimensions.x < borderRadius && dimensions.y > yMax) {
-      alpha *= 1.0 - smoothstep(borderRadius - smoothness, borderRadius + smoothness, length(dimensions - vec2(borderRadius, yMax)));
-    } else if (dimensions.x > xMax && dimensions.y < borderRadius) {
-      alpha *= 1.0 - smoothstep(borderRadius - smoothness, borderRadius + smoothness, length(dimensions - vec2(xMax, borderRadius)));
-    } else if (dimensions.x > xMax && dimensions.y > yMax) {
-      alpha *= 1.0 - smoothstep(borderRadius - smoothness, borderRadius + smoothness, length(dimensions - vec2(xMax, yMax)));
+  vec2 texSize = vec2(textureSize(tex, 0));
+  vec4 avg = vec4(0.0);
+  for (int x = -blur; x <= blur; x++) {
+    for (int y = -blur; y <= blur; y++) {
+      vec2 uv = clamp(aTexCoords + ((vec2(float(x), float(y)) * SEPARATION)) / texSize, vec2(0.0), vec2(1.0));
+      avg += texture(tex, uv);
     }
   }
 
+  avg /= pow(float(blur) * 2.0 + 1.0, 2.0);
+
+  return avg * aColor;
+}
+
+void main() {
   if (hasTexture) {
-    FragColor = texture(tex, v_TexCoords) * vec4(aColor.rgb, alpha);
+    FragColor = boxBlur(image);
   } else {
-    FragColor = vec4(aColor.rgb, alpha);
+    FragColor = aColor;
   }
 }
