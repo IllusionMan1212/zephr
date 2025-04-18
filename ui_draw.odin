@@ -38,12 +38,21 @@ init_drawing :: proc() {
     gl.EnableVertexAttribArray(0)
     gl.EnableVertexAttribArray(1)
     gl.EnableVertexAttribArray(2)
+    gl.EnableVertexAttribArray(3)
+    gl.EnableVertexAttribArray(4)
+    gl.EnableVertexAttribArray(5)
     gl.VertexAttribPointer(0, 4, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), 0)
     gl.VertexAttribPointer(1, 4, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), size_of(m.vec4))
-    gl.VertexAttribIPointer(2, 1, gl.INT, size_of(DrawableInstance), size_of(m.vec4) + (size_of(m.vec4) * 4))
+    gl.VertexAttribPointer(2, 4, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), size_of(m.vec4) * 2)
+    gl.VertexAttribPointer(3, 4, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), size_of(m.vec4) * 3)
+    gl.VertexAttribPointer(4, 4, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), size_of(m.vec4) * 4)
+    gl.VertexAttribPointer(5, 2, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), size_of(m.vec4) * 5)
     gl.VertexAttribDivisor(0, 1)
     gl.VertexAttribDivisor(1, 1)
     gl.VertexAttribDivisor(2, 1)
+    gl.VertexAttribDivisor(3, 1)
+    gl.VertexAttribDivisor(4, 1)
+    gl.VertexAttribDivisor(5, 1)
 
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(indices), &indices, gl.STATIC_DRAW)
@@ -52,7 +61,7 @@ init_drawing :: proc() {
 }
 
 @(private)
-instance_rect :: proc(rect: Rect, color: Color, border_thickness: int) {
+instance_rect :: proc(rect: Rect, color: Color, border_thickness: f32, border_smoothness: f32) {
     inst: DrawableInstance
     inst.rect = rect
     inst.colors[0] = color
@@ -60,6 +69,7 @@ instance_rect :: proc(rect: Rect, color: Color, border_thickness: int) {
     inst.colors[2] = color
     inst.colors[3] = color
     inst.border_thickness = border_thickness
+    inst.border_smoothness = border_smoothness
 
     append(&ui_state.curr_draw_cmd.drawables, inst)
 }
@@ -107,19 +117,12 @@ ui_draw :: proc(projection: m.mat4) {
 
     iter_children :: proc(node: ^Box) {
         for child := node.first; child != nil; child = child.next {
-            // TODO: passing the border thickness here isn't needed.
-            if .DrawBorder in child.flags {
-                instance_rect(child.rect, child.border_color, 2)
+            if .DrawBackground in child.flags {
+                instance_rect(child.rect, child.background_color, 0, 0)
             }
 
-            // TODO: make this configurable ??? or just hardcode it to 1px. OR just implement the border in the shader. IDK
-            if .DrawBackground in child.flags {
-                new_rect := child.rect
-                if .DrawBorder in child.flags {
-                    new_rect.min += 2
-                    new_rect.max -= 2
-                }
-                instance_rect(new_rect, child.background_color, 0)
+            if .DrawBorder in child.flags {
+                instance_rect(child.rect, child.border_color, child.border_thickness, child.border_smoothness)
             }
 
             if child.custom_draw != nil {
@@ -135,8 +138,8 @@ ui_draw :: proc(projection: m.mat4) {
 
     iter_children(root)
 
-    gl.UseProgram(ui_shader.program)
-    gl.UniformMatrix4fv(gl.GetUniformLocation(ui_shader.program, "projection"), 1, false, raw_data(&projection))
+    use_shader(ui_shader)
+    set_mat4f(ui_shader, "projection", projection)
     gl.BindVertexArray(vao)
     gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
 
@@ -148,11 +151,11 @@ ui_draw :: proc(projection: m.mat4) {
     for cmd in ui_state.draw_cmds {
         gl.BufferData(gl.ARRAY_BUFFER, size_of(DrawableInstance) * len(cmd.drawables), raw_data(cmd.drawables), gl.STATIC_DRAW)
         if cmd.has_texture {
-            gl.Uniform1i(gl.GetUniformLocation(ui_shader.program, "blur"), cast(i32)cmd.blur)
-            gl.Uniform1i(gl.GetUniformLocation(ui_shader.program, "hasTexture"), 1)
+            set_int(ui_shader, "blur", cast(i32)cmd.blur)
+            set_int(ui_shader, "hasTexture", 1)
             gl.BindTexture(gl.TEXTURE_2D, cmd.tex)
         } else {
-            gl.Uniform1i(gl.GetUniformLocation(ui_shader.program, "hasTexture"), 0)
+            set_int(ui_shader, "hasTexture", 0)
         }
         gl.DrawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_INT, nil, cast(i32)len(cmd.drawables))
 

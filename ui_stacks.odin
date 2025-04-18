@@ -56,6 +56,16 @@ BorderColorNode :: struct {
     v: Color,
 }
 
+BorderThicknessNode :: struct {
+    next: ^BorderThicknessNode,
+    v: f32,
+}
+
+BorderSmoothnessNode :: struct {
+    next: ^BorderSmoothnessNode,
+    v: f32,
+}
+
 FlagsNode :: struct {
     next: ^FlagsNode,
     v: Flags,
@@ -211,6 +221,14 @@ auto_pop_stacks :: proc() {
     if ui_state.border_color_stack.auto_pop {
         ui_pop_border_color()
         ui_state.border_color_stack.auto_pop = false
+    }
+    if ui_state.border_thickness_stack.auto_pop {
+        ui_pop_border_thickness()
+        ui_state.border_thickness_stack.auto_pop = false
+    }
+    if ui_state.border_smoothness_stack.auto_pop {
+        ui_pop_border_smoothness()
+        ui_state.border_smoothness_stack.auto_pop = false
     }
     // TODO:
 }

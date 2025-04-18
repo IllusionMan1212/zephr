@@ -52,6 +52,7 @@ Size :: struct {
     strictness: f32,
 }
 
+#assert(size_of(Rect) == 16)
 Rect :: struct #raw_union {
     using _: struct {
         x0: f32,
@@ -69,11 +70,13 @@ Rect :: struct #raw_union {
     },
 }
 
+#assert(size_of(DrawableInstance) == 88)
 DrawableInstance :: struct {
     rect: Rect,
     // Used as bg color when drawing background, text color when drawing text, border color when drawing borders.
     colors: [4]Color,
-    border_thickness: int,
+    border_thickness: f32,
+    border_smoothness: f32,
 }
 
 Box :: struct {
@@ -99,6 +102,8 @@ Box :: struct {
     background_color: Color,
     text_color: Color,
     border_color: Color,
+    border_thickness: f32,
+    border_smoothness: f32,
     //font: F_Tag,
     //font_size: f32,
     //tab_size: f32,
@@ -139,6 +144,8 @@ State :: struct {
     background_color_stack: Stack(BackgroundColorNode),
     text_color_stack: Stack(TextColorNode),
     border_color_stack: Stack(BorderColorNode),
+    border_thickness_stack: Stack(BorderThicknessNode),
+    border_smoothness_stack: Stack(BorderSmoothnessNode),
     flags_stack: Stack(FlagsNode),
 
     parent_nil_stack_top: ParentNode,
@@ -152,6 +159,8 @@ State :: struct {
     background_color_nil_stack_top: BackgroundColorNode,
     text_color_nil_stack_top: TextColorNode,
     border_color_nil_stack_top: BorderColorNode,
+    border_thickness_nil_stack_top: BorderThicknessNode,
+    border_smoothness_nil_stack_top: BorderSmoothnessNode,
     flags_nil_stack_top: FlagsNode,
 }
 
@@ -306,6 +315,8 @@ ui_create_box_with_id :: proc(flags: Flags, id: Id, caller := #caller_location) 
         box.background_color = ui_state.background_color_stack.top.v
         box.text_color = ui_state.text_color_stack.top.v
         box.border_color = ui_state.border_color_stack.top.v
+        box.border_thickness = ui_state.border_thickness_stack.top.v
+        box.border_smoothness = ui_state.border_smoothness_stack.top.v
         //box.overlay_color = ui_state.overlay_color_stack.top.v
         //box.font = ui_state.font_stack.top.v
         //box.font_size = ui_state.font_size_stack.top.v
@@ -460,6 +471,14 @@ ui_push_border_color :: #force_inline proc(color: Color) {
     stack_push(&ui_state.border_color_stack, Color, color)
 }
 
+ui_push_border_thickness :: #force_inline proc(thickness: f32) {
+    stack_push(&ui_state.border_thickness_stack, f32, thickness)
+}
+
+ui_push_border_smoothness :: #force_inline proc(smoothness: f32) {
+    stack_push(&ui_state.border_smoothness_stack, f32, smoothness)
+}
+
 ui_push_flags :: #force_inline proc(flags: Flags) {
     stack_push(&ui_state.flags_stack, Flags, flags)
 }
@@ -502,6 +521,14 @@ ui_pop_text_color :: #force_inline proc() {
 
 ui_pop_border_color :: #force_inline proc() {
     stack_pop(&ui_state.border_color_stack, &ui_state.border_color_nil_stack_top)
+}
+
+ui_pop_border_thickness :: #force_inline proc() {
+    stack_pop(&ui_state.border_thickness_stack, &ui_state.border_thickness_nil_stack_top)
+}
+
+ui_pop_border_smoothness :: #force_inline proc() {
+    stack_pop(&ui_state.border_smoothness_stack, &ui_state.border_smoothness_nil_stack_top)
 }
 
 ui_pop_flags :: #force_inline proc() {
@@ -794,6 +821,8 @@ init_nil_stacks :: proc() {
     ui_state.background_color_nil_stack_top.v = {1, 0, 1, 1}
     ui_state.text_color_nil_stack_top.v = {1, 0, 1, 1}
     ui_state.border_color_nil_stack_top.v = {1, 0, 1, 1}
+    ui_state.border_thickness_nil_stack_top.v = 0
+    ui_state.border_smoothness_nil_stack_top.v = 0
 }
 
 @(private = "file")
@@ -845,6 +874,14 @@ init_stacks :: proc() {
     ui_state.border_color_stack.top = &ui_state.border_color_nil_stack_top
     ui_state.border_color_stack.free = nil
     ui_state.border_color_stack.auto_pop = false
+
+    ui_state.border_thickness_stack.top = &ui_state.border_thickness_nil_stack_top
+    ui_state.border_thickness_stack.free = nil
+    ui_state.border_thickness_stack.auto_pop = false
+
+    ui_state.border_smoothness_stack.top = &ui_state.border_smoothness_nil_stack_top
+    ui_state.border_smoothness_stack.free = nil
+    ui_state.border_smoothness_stack.auto_pop = false
 }
 
 @(private)
