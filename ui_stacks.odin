@@ -66,6 +66,11 @@ BorderSmoothnessNode :: struct {
     v: f32,
 }
 
+BorderRadiusNode :: struct {
+    next: ^BorderRadiusNode,
+    v: f32,
+}
+
 FlagsNode :: struct {
     next: ^FlagsNode,
     v: Flags,
@@ -229,6 +234,10 @@ auto_pop_stacks :: proc() {
     if ui_state.border_smoothness_stack.auto_pop {
         ui_pop_border_smoothness()
         ui_state.border_smoothness_stack.auto_pop = false
+    }
+    if ui_state.border_radius_stack.auto_pop {
+        ui_pop_border_radius()
+        ui_state.border_radius_stack.auto_pop = false
     }
     // TODO:
 }

@@ -46,7 +46,7 @@ init_drawing :: proc() {
     gl.VertexAttribPointer(2, 4, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), size_of(m.vec4) * 2)
     gl.VertexAttribPointer(3, 4, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), size_of(m.vec4) * 3)
     gl.VertexAttribPointer(4, 4, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), size_of(m.vec4) * 4)
-    gl.VertexAttribPointer(5, 2, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), size_of(m.vec4) * 5)
+    gl.VertexAttribPointer(5, 3, gl.FLOAT, gl.FALSE, size_of(DrawableInstance), size_of(m.vec4) * 5)
     gl.VertexAttribDivisor(0, 1)
     gl.VertexAttribDivisor(1, 1)
     gl.VertexAttribDivisor(2, 1)
@@ -61,7 +61,7 @@ init_drawing :: proc() {
 }
 
 @(private)
-instance_rect :: proc(rect: Rect, color: Color, border_thickness: f32, border_smoothness: f32) {
+instance_rect :: proc(rect: Rect, color: Color, border_thickness: f32, border_smoothness: f32, border_radius: f32) {
     inst: DrawableInstance
     inst.rect = rect
     inst.colors[0] = color
@@ -70,6 +70,7 @@ instance_rect :: proc(rect: Rect, color: Color, border_thickness: f32, border_sm
     inst.colors[3] = color
     inst.border_thickness = border_thickness
     inst.border_smoothness = border_smoothness
+    inst.border_radius = border_radius
 
     append(&ui_state.curr_draw_cmd.drawables, inst)
 }
@@ -117,12 +118,17 @@ ui_draw :: proc(projection: m.mat4) {
 
     iter_children :: proc(node: ^Box) {
         for child := node.first; child != nil; child = child.next {
-            if .DrawBackground in child.flags {
-                instance_rect(child.rect, child.background_color, 0, 0)
-            }
 
-            if .DrawBorder in child.flags {
-                instance_rect(child.rect, child.border_color, child.border_thickness, child.border_smoothness)
+            if .DrawBackground in child.flags {
+                new_rect := child.rect
+                if .DrawBorder in child.flags {
+                    new_rect.min += child.border_thickness / 2
+                    new_rect.max -= child.border_thickness / 2
+                }
+                instance_rect(new_rect, child.background_color, 0, 0, child.border_radius)
+            }
+            if .DrawBorder in child.flags && child.border_thickness > 0 {
+                instance_rect(child.rect, child.border_color, child.border_thickness + 1, child.border_smoothness, child.border_radius)
             }
 
             if child.custom_draw != nil {

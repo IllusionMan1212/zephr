@@ -70,13 +70,14 @@ Rect :: struct #raw_union {
     },
 }
 
-#assert(size_of(DrawableInstance) == 88)
+#assert(size_of(DrawableInstance) == 92)
 DrawableInstance :: struct {
     rect: Rect,
     // Used as bg color when drawing background, text color when drawing text, border color when drawing borders.
     colors: [4]Color,
     border_thickness: f32,
     border_smoothness: f32,
+    border_radius: f32,
 }
 
 Box :: struct {
@@ -104,6 +105,7 @@ Box :: struct {
     border_color: Color,
     border_thickness: f32,
     border_smoothness: f32,
+    border_radius: f32,
     //font: F_Tag,
     //font_size: f32,
     //tab_size: f32,
@@ -146,6 +148,7 @@ State :: struct {
     border_color_stack: Stack(BorderColorNode),
     border_thickness_stack: Stack(BorderThicknessNode),
     border_smoothness_stack: Stack(BorderSmoothnessNode),
+    border_radius_stack: Stack(BorderRadiusNode),
     flags_stack: Stack(FlagsNode),
 
     parent_nil_stack_top: ParentNode,
@@ -161,6 +164,7 @@ State :: struct {
     border_color_nil_stack_top: BorderColorNode,
     border_thickness_nil_stack_top: BorderThicknessNode,
     border_smoothness_nil_stack_top: BorderSmoothnessNode,
+    border_radius_nil_stack_top: BorderRadiusNode,
     flags_nil_stack_top: FlagsNode,
 }
 
@@ -321,6 +325,7 @@ ui_create_box_with_id :: proc(flags: Flags, id: Id, caller := #caller_location) 
         //box.font = ui_state.font_stack.top.v
         //box.font_size = ui_state.font_size_stack.top.v
         //box.tab_size = ui_state.tab_size_stack.top.v
+        box.border_radius = ui_state.border_radius_stack.top.v
         //box.corner_radii[Corner_00] = ui_state.corner_radius_00_stack.top.v
         //box.corner_radii[Corner_01] = ui_state.corner_radius_01_stack.top.v
         //box.corner_radii[Corner_10] = ui_state.corner_radius_10_stack.top.v
@@ -479,6 +484,10 @@ ui_push_border_smoothness :: #force_inline proc(smoothness: f32) {
     stack_push(&ui_state.border_smoothness_stack, f32, smoothness)
 }
 
+ui_push_border_radius :: #force_inline proc(radius: f32) {
+    stack_push(&ui_state.border_radius_stack, f32, radius)
+}
+
 ui_push_flags :: #force_inline proc(flags: Flags) {
     stack_push(&ui_state.flags_stack, Flags, flags)
 }
@@ -529,6 +538,10 @@ ui_pop_border_thickness :: #force_inline proc() {
 
 ui_pop_border_smoothness :: #force_inline proc() {
     stack_pop(&ui_state.border_smoothness_stack, &ui_state.border_smoothness_nil_stack_top)
+}
+
+ui_pop_border_radius :: #force_inline proc() {
+    stack_pop(&ui_state.border_radius_stack, &ui_state.border_radius_nil_stack_top)
 }
 
 ui_pop_flags :: #force_inline proc() {
@@ -823,6 +836,7 @@ init_nil_stacks :: proc() {
     ui_state.border_color_nil_stack_top.v = {1, 0, 1, 1}
     ui_state.border_thickness_nil_stack_top.v = 0
     ui_state.border_smoothness_nil_stack_top.v = 0
+    ui_state.border_radius_nil_stack_top.v = 0
 }
 
 @(private = "file")
@@ -882,6 +896,10 @@ init_stacks :: proc() {
     ui_state.border_smoothness_stack.top = &ui_state.border_smoothness_nil_stack_top
     ui_state.border_smoothness_stack.free = nil
     ui_state.border_smoothness_stack.auto_pop = false
+
+    ui_state.border_radius_stack.top = &ui_state.border_radius_nil_stack_top
+    ui_state.border_radius_stack.free = nil
+    ui_state.border_radius_stack.auto_pop = false
 }
 
 @(private)

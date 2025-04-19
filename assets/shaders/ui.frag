@@ -1,7 +1,7 @@
 out vec4 FragColor;
 in vec4 aColor;
 in vec2 aTexCoords;
-in vec2 aBorder; // x - border thickness. y - border smoothness. Both in pixels.
+in vec3 aBorder; // x - border thickness. y - border smoothness. Both in pixels. z - border radius.
 in vec2 rectSize;
 
 uniform sampler2D image;
@@ -28,12 +28,8 @@ vec4 boxBlur(sampler2D tex) {
   return avg * aColor;
 }
 
-// Function to compute the SDF for a rectangle
-float rectangleSDF(vec2 p, float aspectRatio) {
-    p.y *= aspectRatio;
-    // Center the rectangle at (0.5, 0.5) in normalized space
-    vec2 d = abs(p - vec2(0.5, 0.5 * aspectRatio)) - vec2(0.5, 0.5 * aspectRatio); // Distance from the center to the edges
-    return max(d.x, d.y);
+float rect_sdf(vec2 pos, vec2 halfSize, float radius) {
+    return length(max(abs(pos) - halfSize + radius, 0.0)) - radius;
 }
 
 void main() {
@@ -44,28 +40,33 @@ void main() {
 
   float borderThickness = aBorder.x;
   float borderSmoothness = aBorder.y;
+  float borderRadius = aBorder.z;
 
-  float alpha = aColor.w;
-  if (borderThickness != 0) {
-    {
-      // Compute the SDF for the rectangle
-      float sdf = rectangleSDF(aTexCoords, rectSize.y / rectSize.x);
+  float alpha = aColor.a;
 
-      // Convert border thickness to normalized space
-      float borderWidthNormalized = borderThickness / rectSize.x;
-      float smoothnessNormalized = borderSmoothness / rectSize.x;
+  vec2 uv = aTexCoords * rectSize;
+  vec2 halfSize = rectSize * 0.5;
+  float radius = clamp(borderRadius, 0.0, min(halfSize.x, halfSize.y));
+  float borderSDF = 1.0;
 
-      float edge0 = borderWidthNormalized - smoothnessNormalized * 2.0; // Inner edge of the smooth range
-      float edge1 = borderWidthNormalized + smoothnessNormalized * 2.0;
+  if (borderThickness > 0) {
+      vec2 centeredPos = uv - halfSize; // Center UV space
 
-      // Small bias for edge1 to prevent flip-flopping when edge0 is bigger or equal to edge1
-      alpha = aColor.w - smoothstep(edge0, edge1 + 0.001, abs(sdf));
-
-      if (alpha <= 0.0) {
-        discard;
-      }
-    }
+      borderSDF = rect_sdf(centeredPos, halfSize - borderThickness, max(radius - borderThickness, 0));
+      alpha *= smoothstep(0.0, 1.0, borderSDF);
   }
 
-  FragColor = vec4(aColor.xyz, alpha);
+  vec2 cornerPos = abs(uv - halfSize);
+  vec2 rectEdge = halfSize - vec2(radius); // where corners start
+  vec2 cornerOffset = cornerPos - rectEdge;
+
+  float smoothness = 1.0;
+
+  // Only apply AA where both x and y are beyond the rectangle’s straight edges (i.e., in actual corners)
+  if (cornerOffset.x > 0.0 && cornerOffset.y > 0.0) {
+    float distToCorner = length(cornerOffset);
+    alpha *= 1.0 - smoothstep(radius - smoothness, radius + smoothness, distToCorner);
+  }
+
+  FragColor = vec4(aColor.rgb, alpha);
 }

@@ -4,11 +4,11 @@ layout (location = 1) in vec4 color00;
 layout (location = 2) in vec4 color01;
 layout (location = 3) in vec4 color10;
 layout (location = 4) in vec4 color11;
-layout (location = 5) in vec2 border; // x - border thickness. y - border smoothness
+layout (location = 5) in vec3 border; // x - border thickness. y - border smoothness. z - border radius.
 
 out vec4 aColor;
 out vec2 aTexCoords;
-out vec2 aBorder;
+out vec3 aBorder;
 out vec2 rectSize;
 uniform mat4 projection;
 
