@@ -23,9 +23,9 @@ import "core:time"
 import gl "vendor:OpenGL"
 import "vendor:stb/image"
 import x11 "vendor:x11/xlib"
+import "vendor:egl"
 
 import "3rdparty/evdev"
-import "3rdparty/glx"
 import "3rdparty/inotify"
 import "3rdparty/udev"
 
@@ -98,7 +98,9 @@ Os :: struct {
     x11_colormap:       x11.Colormap,
     xkb:                x11.XkbDescPtr,
     xim:                x11.XIM,
-    glx_context:        glx.Context,
+    egl_display: egl.Display,
+    egl_surface: egl.Surface,
+    egl_context: egl.Context,
     window_delete_atom: x11.Atom,
     xdnd:               XdndState,
     xinput_opcode:      i32,
@@ -838,62 +840,82 @@ get_active_monitor_dims :: proc(root: x11.Window) -> m.vec4 {
 x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstring, window_non_resizable: bool) {
     screen_num := x11.DefaultScreen(l_os.x11_display)
 
-    // Load up GL/GLX before creating the window to be able to use the FBConfig's visual info when creating the window.
-    gl.load_up_to(
-        3,
-        3,
-        proc(p: rawptr, name: cstring) {(cast(^rawptr)p)^ = glx.GetProcAddressARB(raw_data(string(name)))},
-    )
-
-    glx_major: i32
-    glx_minor: i32
-    glx.QueryVersion(l_os.x11_display, &glx_major, &glx_minor)
-
-    log.infof("Loaded GLX: %d.%d", glx_major, glx_minor)
-    
-    //odinfmt: disable
-    visual_attributes := []i32 {
-        glx.X_RENDERABLE, 1,
-        glx.DRAWABLE_TYPE, glx.WINDOW_BIT,
-        glx.X_VISUAL_TYPE, glx.TRUE_COLOR,
-        glx.RENDER_TYPE, glx.RGBA_BIT,
-        glx.BUFFER_SIZE, 8,
-        glx.RED_SIZE, 8,
-        glx.GREEN_SIZE, 8,
-        glx.BLUE_SIZE, 8,
-        glx.ALPHA_SIZE, 8,
-        glx.DEPTH_SIZE, 24,
-        glx.DOUBLEBUFFER, 1,
-        x11.None,
-    }
-    //odinfmt: enable
-
-    num_fbc: i32
-    fbc := glx.ChooseFBConfig(l_os.x11_display, screen_num, raw_data(visual_attributes), &num_fbc)
-    visual_info := glx.GetVisualFromFBConfig(l_os.x11_display, fbc[0])
-    defer x11.Free(visual_info)
-    defer x11.Free(fbc)
-
-    //odinfmt: disable
-    context_attributes := []i32 {
-        glx.CONTEXT_MAJOR_VERSION_ARB, 3,
-        glx.CONTEXT_MINOR_VERSION_ARB, 3,
-        glx.CONTEXT_PROFILE_MASK_ARB,  glx.CONTEXT_CORE_PROFILE_BIT_ARB,
-        x11.None,
-    }
-    //odinfmt: enable
-
-    l_os.glx_context = glx.CreateContextAttribsARB(l_os.x11_display, fbc[0], nil, true, raw_data(context_attributes))
-
-    if l_os.glx_context == nil {
-        log.error("Failed to create GLX context")
+    l_os.egl_display = egl.GetPlatformDisplay(.X11_KHR, l_os.x11_display, nil)
+    if l_os.egl_display == egl.NO_DISPLAY {
+        log.fatal("Failed to retrieve EGL display")
         return
     }
 
-    root := x11.RootWindow(l_os.x11_display, visual_info.screen)
-    active_monitor_dims := get_active_monitor_dims(root)
+    egl_major, egl_minor: i32
+    if !egl.Initialize(l_os.egl_display, &egl_major, &egl_minor) {
+        log.fatal("Failed to initialize EGL display")
+        return
+    }
 
-    l_os.x11_colormap = x11.CreateColormap(l_os.x11_display, root, visual_info.visual, x11.ColormapAlloc.AllocNone)
+    log.infof("Loaded EGL: %d.%d", egl_major, egl_minor)
+
+    // Bind to OpenGL. EGL binds to OpenGL ES by default
+    ok := egl.BindAPI(egl.OPENGL_API)
+    assert(cast(bool)ok)
+
+    //odinfmt: disable
+    when !ODIN_DEBUG {
+        context_attributes := []i32 {
+            egl.CONTEXT_MAJOR_VERSION, 3,
+            egl.CONTEXT_MINOR_VERSION, 3,
+            egl.CONTEXT_OPENGL_PROFILE_MASK,  egl.CONTEXT_OPENGL_CORE_PROFILE_BIT,
+            egl.NONE,
+        }
+    } else {
+        context_attributes := []i32 {
+            egl.CONTEXT_MAJOR_VERSION, 3,
+            egl.CONTEXT_MINOR_VERSION, 3,
+            egl.CONTEXT_OPENGL_PROFILE_MASK,  egl.CONTEXT_OPENGL_CORE_PROFILE_BIT,
+            egl.CONTEXT_OPENGL_DEBUG, 1,
+            egl.NONE,
+        }
+    }
+    //odinfmt: enable
+
+    l_os.egl_context = egl.CreateContext(l_os.egl_display, nil, egl.NO_CONTEXT, raw_data(context_attributes))
+    if l_os.egl_context == egl.NO_CONTEXT {
+        log.fatal("Failed to create EGL context")
+        return
+    }
+
+    gl.load_up_to(
+        3,
+        3,
+        proc(p: rawptr, name: cstring) {(cast(^rawptr)p)^ = egl.GetProcAddress(name)},
+    )
+
+    //odinfmt: disable
+    visual_attributes := []i32 {
+        egl.SURFACE_TYPE, egl.WINDOW_BIT,
+        egl.CONFORMANT, egl.OPENGL_BIT,
+        egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
+        egl.COLOR_BUFFER_TYPE, egl.RGB_BUFFER,
+
+        egl.RED_SIZE, 8,
+        egl.GREEN_SIZE, 8,
+        egl.BLUE_SIZE, 8,
+        egl.ALPHA_SIZE, 8,
+        egl.BUFFER_SIZE, 8,
+        egl.DEPTH_SIZE, 24,
+        egl.STENCIL_SIZE, 8,
+        egl.NONE,
+    }
+    //odinfmt: enable
+
+    configs: [64]egl.Config
+    num_config: i32 = 64
+    if !egl.ChooseConfig(l_os.egl_display, raw_data(visual_attributes), raw_data(configs[:]), num_config, &num_config) {
+        log.fatal("Failed to choose EGL config")
+        return
+    }
+
+    root := x11.DefaultRootWindow(l_os.x11_display)
+    active_monitor_dims := get_active_monitor_dims(root)
 
     attributes: x11.XSetWindowAttributes
     attributes.event_mask =  {
@@ -907,7 +929,6 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         .EnterWindow,
         .LeaveWindow,
     }
-    attributes.colormap = l_os.x11_colormap
 
     window_start_x :=
         (cast(i32)active_monitor_dims.z / 2 - cast(i32)window_size.x / 2) + cast(i32)active_monitor_dims.x
@@ -922,12 +943,30 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         cast(u32)window_size.x,
         cast(u32)window_size.y,
         0,
-        visual_info.depth,
+        x11.CopyFromParent,
         .InputOutput,
-        visual_info.visual,
+        nil,
         {.CWColormap, .CWEventMask},
         &attributes,
     )
+
+    surface_attributes := []i32 {
+        egl.RENDER_BUFFER, egl.BACK_BUFFER,
+        egl.NONE,
+    }
+
+    // Get the first surface that matches the config
+    for i in 0..<num_config {
+        l_os.egl_surface = egl.CreateWindowSurface(l_os.egl_display, configs[i], cast(egl.NativeWindowType)cast(uintptr)l_os.x11_window, raw_data(surface_attributes))
+        if l_os.egl_surface != egl.NO_SURFACE {
+            break
+        }
+    }
+
+    if l_os.egl_surface == egl.NO_SURFACE {
+        log.fatal("No surface was found")
+        os.exit(1)
+    }
 
     if (icon_path != "") {
         x11_assign_window_icon(icon_path, window_title)
@@ -1067,12 +1106,15 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
 
     x11.MapWindow(l_os.x11_display, l_os.x11_window)
 
-    glx.MakeCurrent(l_os.x11_display, l_os.x11_window, l_os.glx_context)
+    if !egl.MakeCurrent(l_os.egl_display, l_os.egl_surface, l_os.egl_surface, l_os.egl_context) {
+        log.fatal("Failed to make EGL context current")
+        return
+    }
 
     gl_version := gl.GetString(gl.VERSION)
     log.infof("GL Version: %s", gl_version)
 
-    glx.SwapIntervalEXT(l_os.x11_display, l_os.x11_window, 1)
+    egl.SwapInterval(l_os.egl_display, 1)
 
     // we enable blending for text
     gl.Enable(gl.BLEND)
@@ -1293,7 +1335,7 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
 }
 
 backend_change_vsync :: proc(on: bool) {
-    glx.SwapIntervalEXT(l_os.x11_display, l_os.x11_window, on ? 1 : 0)
+    egl.SwapInterval(l_os.egl_display, on ? 1 : 0)
 }
 
 backend_get_asset :: proc(asset_path: string) -> Asset { 
@@ -1744,16 +1786,17 @@ backend_shutdown :: proc() {
         bit_array.destroy(&device.keyboard.scancode_has_been_released_bitset)
     }
 
-    glx.MakeCurrent(l_os.x11_display, 0, nil)
-    glx.DestroyContext(l_os.x11_display, l_os.glx_context)
+    egl.MakeCurrent(l_os.egl_display, nil, nil, nil)
+    egl.DestroyContext(l_os.egl_display, l_os.egl_context)
+    egl.DestroySurface(l_os.egl_display, l_os.egl_surface)
+    egl.Terminate(l_os.egl_display)
 
     x11.DestroyWindow(l_os.x11_display, l_os.x11_window)
-    x11.FreeColormap(l_os.x11_display, l_os.x11_colormap)
     x11.CloseDisplay(l_os.x11_display)
 }
 
 backend_swapbuffers :: proc() {
-    glx.SwapBuffers(l_os.x11_display, l_os.x11_window)
+    egl.SwapBuffers(l_os.egl_display, l_os.egl_surface)
 }
 
 backend_get_os_events :: proc() {
