@@ -4,6 +4,8 @@ import m "core:math/linalg/glsl"
 
 import gl "vendor:OpenGL"
 
+// TODO: OBBs are usually represented by a center point, half extents and a rotation.
+// The current structure is an AABB. So we'll need to change this.
 OBB :: struct {
     min: m.vec3,
     max: m.vec3,

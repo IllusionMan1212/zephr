@@ -506,6 +506,8 @@ process_mesh :: proc(
         #partial switch attribute.type {
             case .position:
                 positions = make([]f32, accessor.count * 3)
+                // TODO: This is an AABB, not OBB
+                // TODO: This also defines the min and max BEFORE node transformations are applied
                 if accessor.has_min && accessor.has_max {
                     mesh_obb.min = m.min(mesh_obb.min, m.vec3{accessor.min[0], accessor.min[1], accessor.min[2]})
                     mesh_obb.max = m.max(mesh_obb.max, m.vec3{accessor.max[0], accessor.max[1], accessor.max[2]})
@@ -653,6 +655,8 @@ process_mesh :: proc(
         indices,
     )
 
+    assert(material != nil, "Material is somehow nil")
+
     return new_mesh(
             primitive_type,
             vertices,
@@ -704,6 +708,15 @@ process_node :: proc(
     translation := m.vec3{0, 0, 0}
     rotation := cast(m.quat)quaternion(x = 0, y = 0, z = 0, w = 1)
     scale := m.vec3{1, 1, 1}
+
+    // TODO: instancing works with cgltf 1.14 now. implement it???
+    // data.count tells us how many instances we have
+    if node.has_mesh_gpu_instancing {
+        log.info(node.mesh_gpu_instancing.attributes[0])
+        pos := make([]f32, node.mesh_gpu_instancing.attributes[0].data.count * 3)
+        process_accessor_vec3(node.mesh_gpu_instancing.attributes[0].data, pos)
+        log.info(pos)
+    }
 
     if node.has_matrix {
         transform = m.mat4 {
@@ -977,7 +990,7 @@ new_mesh :: proc(
             morph_weights_buf,
             morph_weights_texture,
             obb,
-        } \
+        }
     )
 }
 
@@ -1199,23 +1212,31 @@ load_gltf_model :: proc(
 }
 
 create_model_obb :: proc(nodes: []^Node, obb: ^OBB) {
+    // TODO: continue from here. the mesh OBBs are drawn correctly and are correct from the source
+    // model OBB is drawn Axis-Aligned for some reason. The reason is here.
+    // I don't think the above todo holds true anymore. But I'm keeping it until I clean up the whole
+    // AABB and OBB stuff.
     calc_transform_and_obb :: proc(node: ^Node, obb: ^OBB, parent_world_transform: m.mat4) {
-        transform: m.mat4
+        world_transform := node_local_transform(node)
         if node.parent != nil {
-            transform = parent_world_transform * node_local_transform(node)
-        } else {
-            transform = node_local_transform(node)
+            world_transform = parent_world_transform * world_transform
         }
 
-        for mesh in node.meshes {
+        temp_obb: OBB
+
+        for &mesh in node.meshes {
             for vert in mesh.vertices {
-                obb.min = m.min(obb.min, vert.position + m.vec3{transform[3][0], transform[3][1], transform[3][2]})
-                obb.max = m.max(obb.max, vert.position + m.vec3{transform[3][0], transform[3][1], transform[3][2]})
+                new := (world_transform * m.vec4{vert.position.x, vert.position.y, vert.position.z, 1}).xyz
+                temp_obb.min = m.min(temp_obb.min, new)
+                temp_obb.max = m.max(temp_obb.max, new)
             }
+
+            obb.min = m.min(obb.min, temp_obb.min)
+            obb.max = m.max(obb.max, temp_obb.max)
         }
 
         for child in node.children {
-            calc_transform_and_obb(child, obb, transform)
+            calc_transform_and_obb(child, obb, world_transform)
         }
     }
 
