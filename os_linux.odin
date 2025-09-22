@@ -1338,7 +1338,7 @@ backend_change_vsync :: proc(on: bool) {
     egl.SwapInterval(l_os.egl_display, on ? 1 : 0)
 }
 
-backend_get_asset :: proc(asset_path: string) -> Asset { 
+backend_get_asset :: proc(asset_path: string, loc := #caller_location) -> Asset {
     engine_rel_path := filepath.dir(#file)
 
     when RELEASE_BUILD {
@@ -1349,7 +1349,7 @@ backend_get_asset :: proc(asset_path: string) -> Asset {
 
     data, err := os.read_entire_file_or_err(final_path)
     if err != os.ERROR_NONE {
-        log.errorf("Failed to load asset \"%s\". Error: \"%v\"", final_path, err)
+        log.errorf("Failed to load asset \"%s\". Error: \"%v\"", final_path, err, location = loc)
         return Asset{}
     }
 
@@ -1359,8 +1359,8 @@ backend_get_asset :: proc(asset_path: string) -> Asset {
     }
 }
 
-backend_free_asset :: proc(asset: Asset) {
-    delete(asset.data)
+backend_free_asset :: proc(asset: Asset, loc := #caller_location) {
+    delete(asset.data, loc = loc)
 }
 
 backend_gamepad_rumble :: proc(

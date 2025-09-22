@@ -21,6 +21,10 @@ when RELEASE_BUILD || ODIN_PLATFORM_SUBTARGET == .Android {
         .COLOR_CHOOSER = { src = #load("assets/shaders/color_chooser.frag"), type = .FRAG },
         .MESH_VERT = { src = #load("assets/shaders/mesh.vert"), type = .VERT },
         .MESH_FRAG = { src = #load("assets/shaders/mesh.frag"), type = .FRAG },
+        .GIZMO_VERT = { src = #load("assets/shaders/gizmo.vert"), type =.VERT },
+        .GIZMO_FRAG = { src = #load("assets/shaders/gizmo.frag"), type = .FRAG },
+        .SKYBOX_VERT = { src = #load("assets/shaders/skybox.vert"), type = .VERT },
+        .SKYBOX_FRAG = { src = #load("assets/shaders/skybox.frag"), type = .FRAG },
     }
 } else {
     g_shaders := [ShaderFileType]ShaderFile{
@@ -31,6 +35,10 @@ when RELEASE_BUILD || ODIN_PLATFORM_SUBTARGET == .Android {
         .COLOR_CHOOSER = { path = "assets/shaders/color_chooser.frag", type = .FRAG },
         .MESH_VERT = { path = "assets/shaders/mesh.vert", type = .VERT },
         .MESH_FRAG = { path = "assets/shaders/mesh.frag", type = .FRAG },
+        .GIZMO_VERT = { path = "assets/shaders/gizmo.vert", type =.VERT },
+        .GIZMO_FRAG = { path = "assets/shaders/gizmo.frag", type = .FRAG },
+        .SKYBOX_VERT = { path = "assets/shaders/skybox.vert", type = .VERT },
+        .SKYBOX_FRAG = { path = "assets/shaders/skybox.frag", type = .FRAG },
     }
 }
 
@@ -55,6 +63,10 @@ ShaderFileType :: enum {
     COLOR_CHOOSER,
     MESH_VERT,
     MESH_FRAG,
+    GIZMO_VERT,
+    GIZMO_FRAG,
+    SKYBOX_VERT,
+    SKYBOX_FRAG,
 }
 
 ShaderType :: enum {

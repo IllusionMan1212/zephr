@@ -1354,10 +1354,10 @@ logger_init :: proc() {
     logger = log.create_multi_logger(file_logger, term_logger)
 }
 
-get_asset :: proc(path: string) -> Asset {
-    return backend_get_asset(path)
+get_asset :: proc(path: string, loc := #caller_location) -> Asset {
+    return backend_get_asset(path, loc)
 }
 
-free_asset :: proc(asset: Asset) {
-    backend_free_asset(asset)
+free_asset :: proc(asset: Asset, loc := #caller_location) {
+    backend_free_asset(asset, loc)
 }

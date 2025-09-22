@@ -345,16 +345,16 @@ backend_shutdown :: proc() {
     a_os = {}
 }
 
-backend_get_asset :: proc(asset_path: string) -> Asset {
+backend_get_asset :: proc(asset_path: string, loc := #caller_location) -> Asset {
     // NOTE: On Linux and Windows we have to pass the full path to assets.
     // on Android the assets directory is assumed so we gotta split.
     final_path := asset_path[strings.index(asset_path, "/") + 1:]
     // NOTE: Open all assets as a read-only buffer for now. We can expand later to support streaming or random access
     // if we need them.
     asset := android.AAssetManager_open(a_os.app.activity.assetManager, cstring(raw_data(final_path)), .BUFFER)
-    assert(asset != nil)
+    assert(asset != nil, loc)
     buf := android.AAsset_getBuffer(asset)
-    assert(buf != nil)
+    assert(buf != nil, loc)
     len := int(android.AAsset_getLength(asset))
 
     return Asset{
@@ -363,7 +363,8 @@ backend_get_asset :: proc(asset_path: string) -> Asset {
     }
 }
 
-backend_free_asset :: proc(asset: Asset) {
+backend_free_asset :: proc(asset: Asset, loc := #caller_location) {
+    log.debug("Freeing asset:", loc)
     android.AAsset_close(cast(^android.AAsset)asset.backend_ptr)
 }
 
