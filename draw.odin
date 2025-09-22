@@ -403,13 +403,15 @@ draw_mesh :: proc(mesh: Mesh, transform: m.mat4, joint_matrices: []m.mat4) {
 draw_lights :: proc(lights: []Light) {
     point_light_idx := 0
 
+    if len(lights) != 0 {
+        use_shader(mesh_shader)
+    }
+
     for light in lights {
         if light.type == .DIRECTIONAL {
-            use_shader(mesh_shader)
             set_vec3fv(mesh_shader, "dirLight.direction", light.direction)
             set_vec3fv(mesh_shader, "dirLight.diffuse", light.diffuse)
         } else if light.type == .POINT {
-            use_shader(mesh_shader)
             pos_c_str := strings.clone_to_cstring(
                 fmt.tprintf("pointLights[%d].position", point_light_idx),
                 context.temp_allocator,
@@ -480,7 +482,7 @@ color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
     // TODO: also sort by distance for transparent meshes
     // TODO: also sort ALL models first
     if len(entities) > 0 {
-        slice.sort_by(entities[0].model.nodes, sort_nodes)
+        //slice.sort_by(entities[0].model.nodes, sort_nodes)
 
         // TODO: sorting by distance should be taken into consideration too
         // when/if we have multiple transparent/translucent objects we want to render accurately.
@@ -499,7 +501,7 @@ color_pass :: proc(entities: []Entity, lights: []Light, camera: ^Camera) {
 
         apply_transform_hierarchy(&entity.model, model_mat)
         draw_model(&entity.model)
-        //draw_obb(entity.model.obb, entity.model.nodes[0].world_transform)
+        //draw_obb(entity.model.obb, model_mat)
         //draw_collision_shape()
     }
 

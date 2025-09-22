@@ -269,7 +269,7 @@ inside_rect :: proc(rect: Rect, point: m.vec2) -> bool {
         point.x >= rect.pos.x &&
         point.x <= rect.pos.x + rect.size.x &&
         point.y >= rect.pos.y &&
-        point.y <= rect.pos.y + rect.size.y \
+        point.y <= rect.pos.y + rect.size.y
     )
 }
 

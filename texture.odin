@@ -312,10 +312,10 @@ process_texture :: proc(
                     tex_path,
                     type == .DIFFUSE || type == .EMISSIVE,
                     true,
-                    sampler.wrap_s != 0 ? sampler.wrap_s : gl.REPEAT,
-                    sampler.wrap_t != 0 ? sampler.wrap_t : gl.REPEAT,
-                    sampler.min_filter != 0 ? sampler.min_filter : gl.LINEAR_MIPMAP_LINEAR,
-                    sampler.mag_filter != 0 ? sampler.mag_filter : gl.LINEAR,
+                    cast(i32)sampler.wrap_s,
+                    cast(i32)sampler.wrap_t,
+                    cast(i32)sampler.min_filter,
+                    cast(i32)sampler.mag_filter,
                 )
             } else {
                 texture.id = load_texture(tex_path, type == .DIFFUSE || type == .EMISSIVE)
@@ -332,10 +332,10 @@ process_texture :: proc(
                     cast(i32)data_len,
                     type == .DIFFUSE || type == .EMISSIVE,
                     true,
-                    sampler.wrap_s != 0 ? sampler.wrap_s : gl.REPEAT,
-                    sampler.wrap_t != 0 ? sampler.wrap_t : gl.REPEAT,
-                    sampler.min_filter != 0 ? sampler.min_filter : gl.LINEAR_MIPMAP_LINEAR,
-                    sampler.mag_filter != 0 ? sampler.mag_filter : gl.LINEAR,
+                    cast(i32)sampler.wrap_s,
+                    cast(i32)sampler.wrap_t,
+                    cast(i32)sampler.min_filter,
+                    cast(i32)sampler.mag_filter,
                 )
             } else {
                 texture.id = load_texture(data, cast(i32)data_len, type == .DIFFUSE || type == .EMISSIVE)

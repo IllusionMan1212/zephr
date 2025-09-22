@@ -63,7 +63,7 @@ new_dir_light :: proc(direction, diffuse: m.vec3) -> Light {
             vao = vao,
             vbo = vbo,
             ebo = ebo,
-        } \
+        }
     )
 }
 
@@ -109,6 +109,6 @@ new_point_light :: proc(position, diffuse: m.vec3, constant: f32 = 1.0, linear: 
             vao = vao,
             vbo = vbo,
             ebo = ebo,
-        } \
+        }
     )
 }

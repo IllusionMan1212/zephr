@@ -578,8 +578,6 @@ COLOR_PURPLE :: Color{128, 0, 255, 255}
 DEFAULT_FONT_PATH :: #config(DEFAULT_FONT_PATH, "assets/fonts/Rubik/Rubik-VariableFont_wght.ttf")
 
 @(private)
-engine_rel_path := filepath.dir(#file)
-@(private)
 DEFAULT_ENGINE_FONT :: #load(DEFAULT_FONT_PATH)
 
 @(private)
