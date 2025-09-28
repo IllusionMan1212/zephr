@@ -928,6 +928,7 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         .PointerMotion,
         .EnterWindow,
         .LeaveWindow,
+        .FocusChange,
     }
 
     window_start_x :=
@@ -2183,6 +2184,18 @@ backend_get_os_events :: proc() {
                 e.type = .WINDOW_RESIZED
                 e.window.width = cast(u32)xce.width
                 e.window.height = cast(u32)xce.height
+
+                queue.push(&zephr_ctx.event_queue, e)
+            }
+        } else if xev.type == .FocusIn {
+            if xev.xfocus.window == l_os.x11_window {
+                e.type = .WINDOW_GAINED_FOCUS
+
+                queue.push(&zephr_ctx.event_queue, e)
+            }
+        } else if xev.type == .FocusOut {
+            if xev.xfocus.window == l_os.x11_window {
+                e.type = .WINDOW_LOST_FOCUS
 
                 queue.push(&zephr_ctx.event_queue, e)
             }
