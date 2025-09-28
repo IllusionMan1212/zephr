@@ -17,6 +17,8 @@ import gl "vendor:OpenGL"
 // TODO: In the future stop drawing and processing things in the engine when the window is not focused
 //       This assumes the window is just completely hidden and not just out of focus (the user can still see it)
 
+// TODO: LEFT_ALT (probably RIGHT_ALT too) gets stuck in the virt key event if we navigate using ALT+TAB
+
 RELEASE_BUILD :: #config(RELEASE_BUILD, false)
 
 Cursor :: enum {
@@ -77,17 +79,16 @@ MouseButton :: enum {
 
 KeyMod :: bit_set[KeyModBits;u16]
 KeyModBits :: enum {
-    NONE        = 0,
-    LEFT_SHIFT  = 1,
-    RIGHT_SHIFT = 2,
-    LEFT_CTRL   = 3,
-    RIGHT_CTRL  = 4,
-    LEFT_ALT    = 5,
-    RIGHT_ALT   = 6,
-    LEFT_META   = 7,
-    RIGHT_META  = 8,
-    CAPS_LOCK   = 9,
-    NUM_LOCK    = 10,
+    LEFT_SHIFT  = 0,
+    RIGHT_SHIFT = 1,
+    LEFT_CTRL   = 2,
+    RIGHT_CTRL  = 3,
+    LEFT_ALT    = 4,
+    RIGHT_ALT   = 5,
+    LEFT_META   = 6,
+    RIGHT_META  = 7,
+    CAPS_LOCK   = 8,
+    NUM_LOCK    = 9,
 }
 
 Keycode :: distinct Scancode
@@ -701,8 +702,8 @@ frame_start :: proc() {
         }
 
         if .KEYBOARD in device.features {
-            device.keyboard.key_mod_has_been_pressed_bitset = {.NONE}
-            device.keyboard.key_mod_has_been_released_bitset = {.NONE}
+            device.keyboard.key_mod_has_been_pressed_bitset = {}
+            device.keyboard.key_mod_has_been_released_bitset = {}
             bit_array.clear(&device.keyboard.scancode_has_been_pressed_bitset)
             bit_array.clear(&device.keyboard.scancode_has_been_released_bitset)
             bit_array.clear(&device.keyboard.keycode_has_been_pressed_bitset)
@@ -720,8 +721,8 @@ frame_start :: proc() {
     zephr_ctx.virt_mouse.button_has_been_pressed_bitset = {.NONE}
     zephr_ctx.virt_mouse.button_has_been_released_bitset = {.NONE}
 
-    zephr_ctx.virt_keyboard.key_mod_has_been_pressed_bitset = {.NONE}
-    zephr_ctx.virt_keyboard.key_mod_has_been_released_bitset = {.NONE}
+    zephr_ctx.virt_keyboard.key_mod_has_been_pressed_bitset = {}
+    zephr_ctx.virt_keyboard.key_mod_has_been_released_bitset = {}
     bit_array.clear(&zephr_ctx.virt_keyboard.scancode_has_been_pressed_bitset)
     bit_array.clear(&zephr_ctx.virt_keyboard.scancode_has_been_released_bitset)
     bit_array.clear(&zephr_ctx.virt_keyboard.keycode_has_been_pressed_bitset)
@@ -1199,37 +1200,47 @@ os_event_queue_raw_key_changed :: proc(key: u64, is_pressed: bool, scancode: Sca
     keycode := zephr_ctx.keyboard_scancode_to_keycode[scancode]
     key_mod: KeyModBits
     #partial switch (keycode) {
-        case .LEFT_CTRL:
+        case .LEFT_CTRL, .RIGHT_CTRL, .LEFT_SHIFT, .RIGHT_SHIFT, .LEFT_ALT, .RIGHT_ALT, .LEFT_META, .RIGHT_META, .CAPS_LOCK, .NUM_LOCK_OR_CLEAR:
+        if keycode == .LEFT_CTRL {
             key_mod = .LEFT_CTRL
-        case .RIGHT_CTRL:
+        } else if keycode == .RIGHT_CTRL {
             key_mod = .RIGHT_CTRL
-        case .LEFT_SHIFT:
+        } else if keycode == .LEFT_SHIFT {
             key_mod = .LEFT_SHIFT
-        case .RIGHT_SHIFT:
+        } else if keycode == .RIGHT_SHIFT {
             key_mod = .RIGHT_SHIFT
-        case .LEFT_ALT:
+        } else if keycode == .LEFT_ALT {
             key_mod = .LEFT_ALT
-        case .RIGHT_ALT:
+        } else if keycode == .RIGHT_ALT {
             key_mod = .RIGHT_ALT
-        case .LEFT_META:
+        } else if keycode == .LEFT_META {
             key_mod = .LEFT_META
-        case .RIGHT_META:
+        } else if keycode == .RIGHT_META {
             key_mod = .RIGHT_META
+        } else if keycode == .CAPS_LOCK {
+            key_mod = .CAPS_LOCK
+        } else if keycode == .NUM_LOCK_OR_CLEAR {
+            key_mod = .NUM_LOCK
+        }
+
+        if is_pressed {
+            zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset |= {key_mod}
+            zephr_ctx.virt_keyboard.key_mod_has_been_pressed_bitset |= {key_mod}
+        } else {
+            zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset &= ~{key_mod}
+            zephr_ctx.virt_keyboard.key_mod_has_been_released_bitset |= {key_mod}
+        }
     }
 
     //
     // if is_pressed -> mark the scancode, keycode and key_mod as _pressed_ in the keyboard state
     // else ->  mark the scancode, keycode and key_mod as _released_ in the keyboard state
     if (is_pressed) {
-        device.keyboard.key_mod_is_pressed_bitset |= {key_mod}
-        device.keyboard.key_mod_has_been_pressed_bitset |= {key_mod}
         bit_array.set(&device.keyboard.scancode_is_pressed_bitset, scancode)
         bit_array.set(&device.keyboard.scancode_has_been_pressed_bitset, scancode)
         bit_array.set(&device.keyboard.keycode_is_pressed_bitset, keycode)
         bit_array.set(&device.keyboard.keycode_has_been_pressed_bitset, keycode)
     } else {
-        device.keyboard.key_mod_is_pressed_bitset &= ~{key_mod}
-        device.keyboard.key_mod_has_been_released_bitset |= {key_mod}
         bit_array.unset(&device.keyboard.scancode_is_pressed_bitset, scancode)
         bit_array.set(&device.keyboard.scancode_has_been_released_bitset, scancode)
         bit_array.unset(&device.keyboard.keycode_is_pressed_bitset, keycode)
@@ -1260,37 +1271,47 @@ os_event_queue_virt_key_changed :: proc(is_pressed: bool, scancode: Scancode) {
     keycode := zephr_ctx.keyboard_scancode_to_keycode[scancode]
     key_mod: KeyModBits
     #partial switch (keycode) {
-        case .LEFT_CTRL:
+        case .LEFT_CTRL, .RIGHT_CTRL, .LEFT_SHIFT, .RIGHT_SHIFT, .LEFT_ALT, .RIGHT_ALT, .LEFT_META, .RIGHT_META, .CAPS_LOCK, .NUM_LOCK_OR_CLEAR:
+        if keycode == .LEFT_CTRL {
             key_mod = .LEFT_CTRL
-        case .RIGHT_CTRL:
+        } else if keycode == .RIGHT_CTRL {
             key_mod = .RIGHT_CTRL
-        case .LEFT_SHIFT:
+        } else if keycode == .LEFT_SHIFT {
             key_mod = .LEFT_SHIFT
-        case .RIGHT_SHIFT:
+        } else if keycode == .RIGHT_SHIFT {
             key_mod = .RIGHT_SHIFT
-        case .LEFT_ALT:
+        } else if keycode == .LEFT_ALT {
             key_mod = .LEFT_ALT
-        case .RIGHT_ALT:
+        } else if keycode == .RIGHT_ALT {
             key_mod = .RIGHT_ALT
-        case .LEFT_META:
+        } else if keycode == .LEFT_META {
             key_mod = .LEFT_META
-        case .RIGHT_META:
+        } else if keycode == .RIGHT_META {
             key_mod = .RIGHT_META
+        } else if keycode == .CAPS_LOCK {
+            key_mod = .CAPS_LOCK
+        } else if keycode == .NUM_LOCK_OR_CLEAR {
+            key_mod = .NUM_LOCK
+        }
+
+        if is_pressed {
+            zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset |= {key_mod}
+            zephr_ctx.virt_keyboard.key_mod_has_been_pressed_bitset |= {key_mod}
+        } else {
+            zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset &= ~{key_mod}
+            zephr_ctx.virt_keyboard.key_mod_has_been_released_bitset |= {key_mod}
+        }
     }
 
     //
     // if is_pressed -> mark the scancode, keycode and key_mod as _pressed_ in the keyboard state
     // else ->  mark the scancode, keycode and key_mod as _released_ in the keyboard state
     if (is_pressed) {
-        zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset |= {key_mod}
-        zephr_ctx.virt_keyboard.key_mod_has_been_pressed_bitset |= {key_mod}
         bit_array.set(&zephr_ctx.virt_keyboard.scancode_is_pressed_bitset, scancode)
         bit_array.set(&zephr_ctx.virt_keyboard.scancode_has_been_pressed_bitset, scancode)
         bit_array.set(&zephr_ctx.virt_keyboard.keycode_is_pressed_bitset, keycode)
         bit_array.set(&zephr_ctx.virt_keyboard.keycode_has_been_pressed_bitset, keycode)
     } else {
-        zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset &= ~{key_mod}
-        zephr_ctx.virt_keyboard.key_mod_has_been_released_bitset |= {key_mod}
         bit_array.unset(&zephr_ctx.virt_keyboard.scancode_is_pressed_bitset, scancode)
         bit_array.set(&zephr_ctx.virt_keyboard.scancode_has_been_released_bitset, scancode)
         bit_array.unset(&zephr_ctx.virt_keyboard.keycode_is_pressed_bitset, keycode)
