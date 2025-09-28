@@ -754,8 +754,7 @@ frame_end :: proc() {
     }
 
     backend_swapbuffers()
-    if zephr_ctx.ui.hovered_element == 0 && zephr_ctx.cursor != .ARROW && !zephr_ctx.virt_mouse.captured {
-        zephr_ctx.cursor = .ARROW
+    if !zephr_ctx.virt_mouse.captured {
         backend_set_cursor()
     }
 }
@@ -874,7 +873,6 @@ is_cursor_captured :: proc() -> bool {
     return zephr_ctx.virt_mouse.captured
 }
 
-@(private)
 set_cursor :: proc(cursor: Cursor) {
     zephr_ctx.cursor = cursor
 }
