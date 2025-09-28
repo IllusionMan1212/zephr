@@ -24,6 +24,8 @@ Cursor :: enum {
     IBEAM,
     CROSSHAIR,
     HAND,
+    NWSE_RESIZE,
+    NESW_RESIZE,
     HRESIZE,
     VRESIZE,
     DISABLED,

@@ -2400,6 +2400,8 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.VRESIZE] = x11.CreateFontCursor(l_os.x11_display, .XC_sb_v_double_arrow)
 
     // non-standard cursors
+    zephr_ctx.cursors[.NWSE_RESIZE] = x11.cursorLibraryLoadCursor(l_os.x11_display, "bd_double_arrow")
+    zephr_ctx.cursors[.NESW_RESIZE] = x11.cursorLibraryLoadCursor(l_os.x11_display, "fd_double_arrow")
     zephr_ctx.cursors[.DISABLED] = x11.cursorLibraryLoadCursor(l_os.x11_display, "crossed_circle")
 }
 
