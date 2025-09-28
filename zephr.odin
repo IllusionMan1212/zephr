@@ -48,6 +48,7 @@ EventType :: enum {
     RAW_GYROSCOPE_CHANGED,
     RAW_KEY_PRESSED,
     RAW_KEY_RELEASED,
+    RAW_TEXT_INPUT_UTF8,
     RAW_MOUSE_BUTTON_PRESSED,
     RAW_MOUSE_BUTTON_RELEASED,
     RAW_MOUSE_SCROLL,
@@ -58,6 +59,7 @@ EventType :: enum {
     VIRT_MOUSE_MOVED,
     VIRT_KEY_PRESSED,
     VIRT_KEY_RELEASED,
+    VIRT_TEXT_INPUT_UTF8,
     VIRT_TOUCHSCREEN_PRESSED,
     VIRT_TOUCHSCREEN_RELEASED,
     VIRT_TOUCHSCREEN_MOVED,
@@ -432,6 +434,11 @@ Event :: struct {
             scancode:   Scancode,
             keycode:    Keycode,
             mods:       KeyMod,
+        },
+        text_input: struct {
+            device_id: u64, // 0 for virtual keyboard
+            bytes: [4]byte,
+            length: i32
         },
         mouse_button:    struct {
             device_id:     u64, // 0 for virtual mouse
@@ -1185,6 +1192,17 @@ os_event_queue_virt_touchscreen_tap :: proc(finger_idx, finger_count: u8, pos: m
 }
 
 @(private)
+os_event_queue_raw_key_input_utf8 :: proc(id: u64, bytes: [4]byte, length: i32) {
+    e: Event
+    e.type = .RAW_TEXT_INPUT_UTF8
+    e.text_input.device_id = id
+    e.text_input.bytes = bytes
+    e.text_input.length = length
+
+    queue.push(&zephr_ctx.event_queue, e)
+}
+
+@(private)
 os_event_queue_raw_key_changed :: proc(key: u64, is_pressed: bool, scancode: Scancode) {
     device := input_device_get_checked(key, {.KEYBOARD})
 
@@ -1253,6 +1271,17 @@ os_event_queue_raw_key_changed :: proc(key: u64, is_pressed: bool, scancode: Sca
     e.key.is_repeat = is_repeat
     e.key.scancode = scancode
     e.key.keycode = keycode
+
+    queue.push(&zephr_ctx.event_queue, e)
+}
+
+@(private)
+os_event_queue_virt_key_input_utf8 :: proc(bytes: [4]byte, length: i32) {
+    e: Event
+    e.type = .VIRT_TEXT_INPUT_UTF8
+    e.text_input.device_id = 0
+    e.text_input.bytes = bytes
+    e.text_input.length = length
 
     queue.push(&zephr_ctx.event_queue, e)
 }

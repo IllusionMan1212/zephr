@@ -98,9 +98,10 @@ Os :: struct {
     x11_colormap:       x11.Colormap,
     xkb:                x11.XkbDescPtr,
     xim:                x11.XIM,
-    egl_display: egl.Display,
-    egl_surface: egl.Surface,
-    egl_context: egl.Context,
+    xic:                x11.XIC,
+    egl_display:        egl.Display,
+    egl_surface:        egl.Surface,
+    egl_context:        egl.Context,
     window_delete_atom: x11.Atom,
     xdnd:               XdndState,
     xinput_opcode:      i32,
@@ -950,6 +951,14 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         {.CWColormap, .CWEventMask},
         &attributes,
     )
+
+    assert(l_os.xim != nil)
+    assert(l_os.x11_window != 0)
+    l_os.xic = x11.CreateIC(l_os.xim, x11.XNInputStyle, x11.XIMPreeditNothing | x11.XIMStatusNothing, x11.XNClientWindow, l_os.x11_window, x11.XNFocusWindow, l_os.x11_window, nil)
+
+    x11.SetICFocus(l_os.xic)
+
+    x11.SelectInput(l_os.x11_display, l_os.x11_window, {.EnterWindow, .LeaveWindow, .FocusChange, .StructureNotify, .KeyPress, .KeyRelease, .PointerMotion, .ButtonPress, .ButtonRelease})
 
     surface_attributes := []i32 {
         egl.RENDER_BUFFER, egl.BACK_BUFFER,
@@ -1988,32 +1997,31 @@ backend_get_os_events :: proc() {
 
                 switch ev.type {
                     case EV_KEY:
-                        // TODO: finish this
-                        //{
-                        //  // remove the control modifier, as it casues control codes to be returned
-                        //  XKeyEvent xkey = {0};
-                        //  xkey.type = KeyPress;
-                        //  xkey.serial = 0;
-                        //  xkey.send_event = false;
-                        //  xkey.display = os_backend->connection;
-                        //  xkey.window = os_window_backend->x11;
-                        //  xkey.root = DefaultRootWindow(os_backend->connection);
-                        //  xkey.time = 0;
-                        //  xkey.state |= (input_device->keyboard.key_mod_is_pressed_bitset & OS_KEY_MOD_SHIFT) ? ShiftMask : 0;
-                        //  xkey.state |= (input_device->keyboard.key_mod_is_pressed_bitset & OS_KEY_MOD_LEFT_ALT) ? Mod1Mask : 0;
-                        //  xkey.state |= (input_device->keyboard.key_mod_is_pressed_bitset & OS_KEY_MOD_RIGHT_ALT) ? Mod5Mask : 0;
-                        //  xkey.keycode = e->code + 8; // x11 keycode is evdev keycode + 8
+                        {
+                            xkey: x11.XKeyEvent
+                            xkey.type = .KeyPress
+                            xkey.serial = 0
+                            xkey.send_event = false
+                            xkey.display = l_os.x11_display
+                            xkey.window = l_os.x11_window
+                            xkey.root = x11.DefaultRootWindow(l_os.x11_display)
+                            xkey.time = 0
+                            xkey.state |= .LEFT_SHIFT in input_device.keyboard.key_mod_is_pressed_bitset || .RIGHT_SHIFT in input_device.keyboard.key_mod_is_pressed_bitset ? {.ShiftMask} : {}
+                            xkey.state |= .LEFT_ALT in input_device.keyboard.key_mod_is_pressed_bitset ? {.Mod1Mask} : {}
+                            xkey.state |= .RIGHT_ALT in input_device.keyboard.key_mod_is_pressed_bitset ? {.Mod5Mask} : {}
+                            xkey.keycode = cast(u32)ev.code + 8 // x11 keycode is evdev keycode + 8
 
-                        //  char string[4] = {0};
-                        //  X11KeySym keysym = 0;
-                        //  uint8_t string_length = Xutf8LookupString(os_window_backend->xic, &xkey, string, sizeof(string), &keysym, NULL);
+                            keysym: x11.KeySym
+                            str: [4]u8
+                            assert(l_os.xic != nil)
+                            string_length := x11.Xutf8LookupString(l_os.xic, &xkey, cast(^cstring)&str[0], 4, &keysym, nil)
 
-                        //  // do not send any keys like ctrl, shift, function, arrow, escape, return, backspace.
-                        //  // instead, send regular key events.
-                        //  if (string_length && !(keysym >= 0xfd00 && keysym <= 0xffff)) {
-                        //    os_event_queue_raw_key_input_utf8(input_device_id, string, string_length);
-                        //  }
-                        //}
+                            // do not send any keys like ctrl, shift, function, arrow, escape, return, backspace.
+                            // instead, send regular key events.
+                            if string_length != 0 && !(cast(u32)keysym >= 0xfd00 && cast(u32)keysym <= 0xffff) {
+                                os_event_queue_raw_key_input_utf8(id, str, string_length)
+                            }
+                        }
 
                         is_pressed := ev.value >= 1 // 0 == key release, 1 == key press, 2 == key repeat
                         scancode: Scancode
@@ -2271,21 +2279,21 @@ backend_get_os_events :: proc() {
                 }
             }
         } else if xev.type == .KeyPress || xev.type == .KeyRelease {
-            // TODO:
-            //{
-            //  // remove the control modifier, as it casues control codes to be returned
-            //  xe.xkey.state &= ~ControlMask;
+            {
+                // remove the control modifier, as it casues control codes to be returned
+                xev.xkey.state &= ~{.ControlMask}
 
-            //  char string[4] = {0};
-            //  X11KeySym keysym = 0;
-            //  uint8_t string_length = Xutf8LookupString(os_window_backend->xic, &xe.xkey, string, sizeof(string), &keysym, NULL);
+                keysym: x11.KeySym
+                str: [4]u8
+                assert(l_os.xic != nil)
+                string_length := x11.Xutf8LookupString(l_os.xic, &xev.xkey, cast(^cstring)&str[0], 4, &keysym, nil)
 
-            //  // do not send any keys like ctrl, shift, function, arrow, escape, return, backspace.
-            //  // instead, send regular key events.
-            //  if (string_length && !(keysym >= 0xfd00 && keysym <= 0xffff)) {
-            //    os_event_queue_virt_key_input_utf8(string, string_length);
-            //  }
-            //}
+                // do not send any keys like ctrl, shift, function, arrow, escape, return, backspace.
+                // instead, send regular key events.
+                if string_length != 0 && !(cast(u32)keysym >= 0xfd00 && cast(u32)keysym <= 0xffff) {
+                    os_event_queue_virt_key_input_utf8(str, string_length);
+                }
+            }
 
             // an X11 keycode is basically a scancode.
             // they both represent a physical key.
