@@ -1222,11 +1222,11 @@ os_event_queue_raw_key_changed :: proc(key: u64, is_pressed: bool, scancode: Sca
         }
 
         if is_pressed {
-            zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset |= {key_mod}
-            zephr_ctx.virt_keyboard.key_mod_has_been_pressed_bitset |= {key_mod}
+            device.keyboard.key_mod_is_pressed_bitset |= {key_mod}
+            device.keyboard.key_mod_has_been_pressed_bitset |= {key_mod}
         } else {
-            zephr_ctx.virt_keyboard.key_mod_is_pressed_bitset &= ~{key_mod}
-            zephr_ctx.virt_keyboard.key_mod_has_been_released_bitset |= {key_mod}
+            device.keyboard.key_mod_is_pressed_bitset &= ~{key_mod}
+            device.keyboard.key_mod_has_been_released_bitset |= {key_mod}
         }
     }
 
