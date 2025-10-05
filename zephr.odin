@@ -884,6 +884,14 @@ set_cursor :: proc(cursor: Cursor) {
     zephr_ctx.cursor = cursor
 }
 
+clipboard_copy :: proc(data: []byte) {
+    backend_clipboard_copy(data)
+}
+
+clipboard_paste :: proc(allocator := context.allocator) -> string {
+    return backend_clipboard_paste(allocator)
+}
+
 @(private)
 input_device_get_checked :: proc(id: u64, features: InputDeviceFeatures) -> ^InputDevice {
     device, ok := &zephr_ctx.input_devices_map[id]

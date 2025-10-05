@@ -104,6 +104,10 @@ Os :: struct {
     egl_context:        egl.Context,
     window_delete_atom: x11.Atom,
     xdnd:               XdndState,
+    clipboard:          struct{
+        atom: x11.Atom,
+        selection: []byte,
+    },
     xinput_opcode:      i32,
     udevice:            ^udev.udev,
     udev_monitor:       ^udev.udev_monitor,
@@ -114,6 +118,18 @@ Bindings :: [GamepadAction]LinuxEvdevBinding
 
 OsCursor :: x11.Cursor
 
+@(private = "file")
+ATOM_PAIR: x11.Atom
+@(private = "file")
+SAVE_TARGETS: x11.Atom
+@(private = "file")
+UTF8_STRING: x11.Atom
+@(private = "file")
+CLIPBOARD: x11.Atom
+@(private = "file")
+CLIPBOARD_TARGETS: x11.Atom
+@(private = "file")
+CLIPBOARD_MANAGER: x11.Atom
 @(private = "file")
 XA_STRING :: x11.Atom(31)
 @(private = "file")
@@ -997,6 +1013,17 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         1,
     )
 
+    // Initialize multi-use atoms
+    {
+        UTF8_STRING = x11.InternAtom(l_os.x11_display, "UTF8_STRING", false)
+        CLIPBOARD = x11.InternAtom(l_os.x11_display, "CLIPBOARD", false)
+        CLIPBOARD_TARGETS = x11.InternAtom(l_os.x11_display, "TARGETS", false)
+        CLIPBOARD_MANAGER = x11.InternAtom(l_os.x11_display, "CLIPBOARD_MANAGER", false)
+        ATOM_PAIR = x11.InternAtom(l_os.x11_display, "ATOM_PAIR", false)
+        SAVE_TARGETS = x11.InternAtom(l_os.x11_display, "SAVE_TARGETS", false)
+        l_os.clipboard.atom = x11.InternAtom(l_os.x11_display, "ZEPHR_CLIPBOARD", false)
+    }
+
     // define Xdnd atoms
     l_os.xdnd.xdnd_enter = x11.InternAtom(l_os.x11_display, "XdndEnter", false)
     l_os.xdnd.xdnd_leave = x11.InternAtom(l_os.x11_display, "XdndLeave", false)
@@ -1011,7 +1038,7 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         x11.InternAtom(l_os.x11_display, "text/plain", false),
         x11.InternAtom(l_os.x11_display, "text/plain;charset=utf-8", false),
         x11.InternAtom(l_os.x11_display, "text/uri-list", false),
-        x11.InternAtom(l_os.x11_display, "UTF8_STRING", false),
+        UTF8_STRING,
         x11.InternAtom(l_os.x11_display, "TEXT", false),
         x11.InternAtom(l_os.x11_display, "STRING", false),
     }
@@ -1037,7 +1064,6 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
 
     // set window name
     {
-        UTF8_STRING := x11.InternAtom(l_os.x11_display, "UTF8_STRING", false)
         x11.StoreName(l_os.x11_display, l_os.x11_window, window_title)
         text_property: x11.XTextProperty
         text_property.value = raw_data(string(window_title))
@@ -1796,6 +1822,27 @@ backend_shutdown :: proc() {
         bit_array.destroy(&device.keyboard.scancode_has_been_released_bitset)
     }
 
+    // Push the clipboard contents onto the clipboard manager on quit because clipboard data
+    // lives in the window and is destroyed with it.
+    x11.ConvertSelection(l_os.x11_display, CLIPBOARD_MANAGER, SAVE_TARGETS, x11.None, l_os.x11_window, x11.CurrentTime)
+
+    xev: x11.XEvent
+    start := time.now()
+    for {
+        elapsed := time.diff(start, time.now())
+
+        if elapsed > time.Second {
+            log.warn("Offloading clipboard contents to the clipboard managed timed-out")
+            break
+        }
+
+        x11.NextEvent(l_os.x11_display, &xev)
+
+        if xev.type == .SelectionNotify && xev.xselection.target == SAVE_TARGETS {
+            break
+        }
+    }
+
     egl.MakeCurrent(l_os.egl_display, nil, nil, nil)
     egl.DestroyContext(l_os.egl_display, l_os.egl_context)
     egl.DestroySurface(l_os.egl_display, l_os.egl_surface)
@@ -2404,6 +2451,40 @@ backend_get_os_events :: proc() {
             if paths := xdnd_receive_data(xev.xselection); paths != nil {
                 os_event_queue_drag_and_drop_file(paths)
             }
+        } else if xev.type == .SelectionRequest {
+            formats := [?]x11.Atom{UTF8_STRING}
+            request := &xev.xselectionrequest
+
+            reply: x11.XEvent
+            reply.type = .SelectionNotify
+            reply.xselection.serial = request.serial
+            reply.xselection.send_event = request.send_event
+            reply.xselection.property = x11.None
+            reply.xselection.display = request.display
+            reply.xselection.requestor = request.requestor
+            reply.xselection.selection = request.selection
+            reply.xselection.target = x11.None
+            reply.xselection.time = request.time
+
+            if request.target == CLIPBOARD_TARGETS {
+                targets := [?]x11.Atom{UTF8_STRING}
+
+                reply.xselection.property = request.property
+                reply.xselection.target = request.target
+                x11.ChangeProperty(l_os.x11_display, request.requestor, request.property, x11.XA_ATOM, 32, x11.PropModeReplace, raw_data(targets[:]), len(targets))
+            } else {
+                for format, i in formats {
+                    if request.target != format {
+                        continue
+                    }
+
+                    reply.xselection.property = request.property
+                    reply.xselection.target = request.target
+                    x11.ChangeProperty(l_os.x11_display, request.requestor, request.property, request.target, 8, x11.PropModeReplace, raw_data(l_os.clipboard.selection), cast(i32)len(l_os.clipboard.selection))
+                }
+            }
+
+            x11.SendEvent(l_os.x11_display, request.requestor, false, {}, &reply)
         }
     }
 }
@@ -2646,4 +2727,69 @@ xdnd_receive_data :: proc(xselection: x11.XSelectionEvent) -> []string {
 
         return nil
     }
+}
+
+backend_clipboard_copy :: proc(data: []byte) {
+    // if we're the owners of the clipboard, free the previous selection's memory
+    // in order to not leak.
+    if x11.GetSelectionOwner(l_os.x11_display, CLIPBOARD) == l_os.x11_window {
+        delete(l_os.clipboard.selection)
+    }
+
+    l_os.clipboard.selection = make([]byte, len(data))
+    copy(l_os.clipboard.selection, data)
+
+    x11.SetSelectionOwner(l_os.x11_display, CLIPBOARD, l_os.x11_window, x11.CurrentTime)
+}
+
+backend_clipboard_paste :: proc(allocator := context.allocator) -> string {
+    // Assign the logger because we might be calling this procedure from a "c" proc that
+    // its context initialized from the default context.
+    context.logger = logger
+
+    owner := x11.GetSelectionOwner(l_os.x11_display, CLIPBOARD)
+    if owner == x11.None {
+        return ""
+    } else if owner == l_os.x11_window {
+        return strings.clone_from_bytes(l_os.clipboard.selection, allocator)
+    } else {
+        x11.ConvertSelection(l_os.x11_display, CLIPBOARD, UTF8_STRING, l_os.clipboard.atom, l_os.x11_window, x11.CurrentTime)
+
+        xev: x11.XEvent
+
+        start := time.now()
+        for {
+            elapsed := time.diff(start, time.now())
+
+            if elapsed > time.Second {
+                log.warn("Clipboard paste timed-out")
+                return ""
+            }
+
+            x11.NextEvent(l_os.x11_display, &xev)
+
+            if xev.type == .SelectionNotify && xev.xselection.property == l_os.clipboard.atom {
+                break
+            }
+        }
+
+        actual_type: x11.Atom
+        actual_format: i32
+        count, bytes: uint
+        data: rawptr
+        res := x11.GetWindowProperty(l_os.x11_display, l_os.x11_window, l_os.clipboard.atom, 0, ~int(0), false, x11.AnyPropertyType, &actual_type, &actual_format, &count, &bytes, &data)
+        if res == cast(i32)x11.Status.Success {
+            if actual_type == UTF8_STRING {
+                defer x11.Free(data)
+                return strings.clone_from_ptr(cast(^byte)data, cast(int)count, allocator)
+            } else {
+                // TODO: if the data is too big we receive it in chunks
+                log.warnf("Unimplemented selection of type %v. Format of %v", actual_type, actual_format)
+            }
+        } else {
+            log.error("Failed to retrieve the clipboard data:", res)
+        }
+    }
+
+    return ""
 }
