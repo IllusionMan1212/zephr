@@ -7,6 +7,7 @@ import "base:runtime"
 import "core:container/bit_array"
 import "core:container/queue"
 import "core:fmt"
+import "core:c/libc"
 import "core:log"
 import m "core:math/linalg/glsl"
 import "core:mem"
@@ -109,6 +110,8 @@ Os :: struct {
         selection: []byte,
     },
     xinput_opcode:      i32,
+    caret_window_position: [2]f32,
+    is_any_input_focused: bool,
     udevice:            ^udev.udev,
     udev_monitor:       ^udev.udev_monitor,
     inotify_fd:         os.Handle,
@@ -970,11 +973,11 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
 
     assert(l_os.xim != nil)
     assert(l_os.x11_window != 0)
+    // We're supposed to create an IC for each input field in the program but one works just fine.
     l_os.xic = x11.CreateIC(l_os.xim, x11.XNInputStyle, x11.XIMPreeditNothing | x11.XIMStatusNothing, x11.XNClientWindow, l_os.x11_window, x11.XNFocusWindow, l_os.x11_window, nil)
 
-    x11.SetICFocus(l_os.xic)
-
-    x11.SelectInput(l_os.x11_display, l_os.x11_window, {.EnterWindow, .LeaveWindow, .FocusChange, .StructureNotify, .KeyPress, .KeyRelease, .PointerMotion, .ButtonPress, .ButtonRelease})
+    x11.UnsetICFocus(l_os.xic)
+    x11.SelectInput(l_os.x11_display, l_os.x11_window, {.Exposure, .EnterWindow, .LeaveWindow, .FocusChange, .StructureNotify, .KeyPress, .KeyRelease, .PointerMotion, .ButtonPress, .ButtonRelease})
 
     surface_attributes := []i32 {
         egl.RENDER_BUFFER, egl.BACK_BUFFER,
@@ -1140,6 +1143,14 @@ x11_create_window :: proc(window_title: cstring, window_size: m.vec2, icon_path:
         x11.Free(size_hints)
     }
 
+    {
+        wm_hints := x11.AllocWMHints()
+        wm_hints.input = true
+        wm_hints.flags += {.InputHint}
+        x11.SetWMHints(l_os.x11_display, l_os.x11_window, wm_hints)
+        x11.Free(wm_hints)
+    }
+
     x11.MapWindow(l_os.x11_display, l_os.x11_window)
 
     if !egl.MakeCurrent(l_os.egl_display, l_os.egl_surface, l_os.egl_surface, l_os.egl_context) {
@@ -1252,10 +1263,22 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
     }
 
     {
+        libc.setlocale(.ALL, "")
         // loads the XMODIFIERS environment variable to see what IME to use
         x11.SetLocaleModifiers("")
         l_os.xim = x11.OpenIM(l_os.x11_display, nil, nil, nil)
-        if (l_os.xim == nil) {
+        if l_os.xim == nil {
+            log.warn("Failed to open default IM, falling back to 'ibus'")
+            x11.SetLocaleModifiers("@im=ibus")
+            l_os.xim = x11.OpenIM(l_os.x11_display, nil, nil, nil)
+        }
+        if l_os.xim == nil {
+            log.warn("Failed to open ibus IM, falling back to 'fcitx'")
+            x11.SetLocaleModifiers("@im=fcitx")
+            l_os.xim = x11.OpenIM(l_os.x11_display, nil, nil, nil)
+        }
+        if l_os.xim == nil {
+            log.warn("Failed to open fcitx IM, falling back to 'none'. Only english is available for input")
             // fallback to internal input method
             x11.SetLocaleModifiers("@im=none")
             l_os.xim = x11.OpenIM(l_os.x11_display, nil, nil, nil)
@@ -2044,7 +2067,9 @@ backend_get_os_events :: proc() {
 
                 switch ev.type {
                     case EV_KEY:
-                        {
+                        is_pressed := ev.value >= 1 // 0 == key release, 1 == key press, 2 == key repeat
+
+                        if is_pressed {
                             xkey: x11.XKeyEvent
                             xkey.type = .KeyPress
                             xkey.serial = 0
@@ -2059,9 +2084,16 @@ backend_get_os_events :: proc() {
                             xkey.keycode = cast(u32)ev.code + 8 // x11 keycode is evdev keycode + 8
 
                             keysym: x11.KeySym
-                            str: [4]u8
+                            str := make([]byte, 4, context.temp_allocator)
                             assert(l_os.xic != nil)
-                            string_length := x11.Xutf8LookupString(l_os.xic, &xkey, cast(^cstring)&str[0], 4, &keysym, nil)
+                            status: x11.LookupStringStatus
+                            string_length := x11.Xutf8LookupString(l_os.xic, &xkey, cast(^cstring)&str[0], cast(i32)len(str), &keysym, &status)
+
+                            if status == .BufferOverflow {
+                                delete(str, context.temp_allocator)
+                                str = make([]byte, string_length, context.temp_allocator)
+                                string_length := x11.Xutf8LookupString(l_os.xic, &xkey, cast(^cstring)&str[0], cast(i32)len(str), &keysym, &status)
+                            }
 
                             // do not send any keys like ctrl, shift, function, arrow, escape, return, backspace.
                             // instead, send regular key events.
@@ -2070,7 +2102,6 @@ backend_get_os_events :: proc() {
                             }
                         }
 
-                        is_pressed := ev.value >= 1 // 0 == key release, 1 == key press, 2 == key repeat
                         scancode: Scancode
                         if ev.code < cast(u16)len(evdev_scancode_to_zephr_scancode_map) {
                             scancode = evdev_scancode_to_zephr_scancode_map[ev.code]
@@ -2223,6 +2254,13 @@ backend_get_os_events :: proc() {
 
         x11.NextEvent(l_os.x11_display, &xev)
 
+        // If XFilterEvent returns True, then some input method has filtered the event, and we should discard the event.
+        // Window must be passed as None, otherwise we don't receive any key events
+        if x11.FilterEvent(&xev, x11.None) {
+            // NOTE: We must continue instead of returning here in order to not buffer up events
+            continue
+        }
+
         if xev.type == .ConfigureNotify {
             xce := xev.xconfigure
 
@@ -2243,12 +2281,16 @@ backend_get_os_events :: proc() {
                 queue.push(&zephr_ctx.event_queue, e)
             }
         } else if xev.type == .FocusIn {
+            if l_os.is_any_input_focused {
+                x11.SetICFocus(l_os.xic)
+            }
             if xev.xfocus.window == l_os.x11_window {
                 e.type = .WINDOW_GAINED_FOCUS
 
                 queue.push(&zephr_ctx.event_queue, e)
             }
         } else if xev.type == .FocusOut {
+            x11.UnsetICFocus(l_os.xic)
             if xev.xfocus.window == l_os.x11_window {
                 e.type = .WINDOW_LOST_FOCUS
 
@@ -2326,14 +2368,20 @@ backend_get_os_events :: proc() {
                 }
             }
         } else if xev.type == .KeyPress || xev.type == .KeyRelease {
-            {
+            if xev.type == .KeyPress {
                 // remove the control modifier, as it casues control codes to be returned
                 xev.xkey.state &= ~{.ControlMask}
 
                 keysym: x11.KeySym
-                str: [4]u8
+                str := make([]byte, 4, context.temp_allocator)
                 assert(l_os.xic != nil)
-                string_length := x11.Xutf8LookupString(l_os.xic, &xev.xkey, cast(^cstring)&str[0], 4, &keysym, nil)
+                status: x11.LookupStringStatus
+                string_length := x11.Xutf8LookupString(l_os.xic, &xev.xkey, cast(^cstring)&str[0], cast(i32)len(str), &keysym, &status)
+                if status == .BufferOverflow {
+                    delete(str, context.temp_allocator)
+                    str = make([]byte, string_length, context.temp_allocator)
+                    string_length = x11.Xutf8LookupString(l_os.xic, &xev.xkey, cast(^cstring)&str[0], cast(i32)len(str), &keysym, &status)
+                }
 
                 // do not send any keys like ctrl, shift, function, arrow, escape, return, backspace.
                 // instead, send regular key events.
@@ -2487,6 +2535,27 @@ backend_get_os_events :: proc() {
             x11.SendEvent(l_os.x11_display, request.requestor, false, {}, &reply)
         }
     }
+}
+
+backend_update_caret_position :: proc "contextless" (pos: [2]f32) {
+    spot := x11.XPoint{cast(i16)pos.x, cast(i16)pos.y}
+    preedit_attr := x11.VaCreateNestedList(0,
+        x11.XNSpotLocation, &spot,
+    nil)
+    defer x11.Free(preedit_attr)
+
+    x11.SetICValues(l_os.xic, x11.XNPreeditAttributes, preedit_attr, nil)
+    l_os.caret_window_position = pos
+}
+
+backend_focus_input :: proc "contextless" () {
+    l_os.is_any_input_focused = true
+    x11.SetICFocus(l_os.xic)
+}
+
+backend_unfocus_input :: proc "contextless" () {
+    l_os.is_any_input_focused = false
+    x11.UnsetICFocus(l_os.xic)
 }
 
 backend_set_cursor :: proc() {
@@ -2744,7 +2813,7 @@ backend_clipboard_copy :: proc(data: []byte) {
 
 backend_clipboard_paste :: proc(allocator := context.allocator) -> string {
     // Assign the logger because we might be calling this procedure from a "c" proc that
-    // its context initialized from the default context.
+    // has its context initialized from the default context.
     context.logger = logger
 
     owner := x11.GetSelectionOwner(l_os.x11_display, CLIPBOARD)

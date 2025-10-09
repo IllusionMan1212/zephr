@@ -437,7 +437,7 @@ Event :: struct {
         },
         text_input: struct {
             device_id: u64, // 0 for virtual keyboard
-            bytes: [4]byte,
+            bytes: []byte,
             length: i32
         },
         mouse_button:    struct {
@@ -657,6 +657,18 @@ deinit :: proc() {
     //audio_close()
 
     zephr_ctx = {was_app_started_at_least_once = true}
+}
+
+update_caret_position :: proc "contextless" (pos: [2]f32) {
+    backend_update_caret_position(pos)
+}
+
+focus_input :: proc "contextless" () {
+    backend_focus_input()
+}
+
+unfocus_input :: proc "contextless" () {
+    backend_unfocus_input()
 }
 
 get_time :: proc() -> time.Duration {
@@ -1200,7 +1212,7 @@ os_event_queue_virt_touchscreen_tap :: proc(finger_idx, finger_count: u8, pos: m
 }
 
 @(private)
-os_event_queue_raw_key_input_utf8 :: proc(id: u64, bytes: [4]byte, length: i32) {
+os_event_queue_raw_key_input_utf8 :: proc(id: u64, bytes: []byte, length: i32) {
     e: Event
     e.type = .RAW_TEXT_INPUT_UTF8
     e.text_input.device_id = id
@@ -1284,7 +1296,7 @@ os_event_queue_raw_key_changed :: proc(key: u64, is_pressed: bool, scancode: Sca
 }
 
 @(private)
-os_event_queue_virt_key_input_utf8 :: proc(bytes: [4]byte, length: i32) {
+os_event_queue_virt_key_input_utf8 :: proc(bytes: []byte, length: i32) {
     e: Event
     e.type = .VIRT_TEXT_INPUT_UTF8
     e.text_input.device_id = 0
