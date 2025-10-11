@@ -2083,6 +2083,8 @@ backend_get_os_events :: proc() {
                             xkey.state |= .RIGHT_ALT in input_device.keyboard.key_mod_is_pressed_bitset ? {.Mod5Mask} : {}
                             xkey.keycode = cast(u32)ev.code + 8 // x11 keycode is evdev keycode + 8
 
+                            // NOTE: the temp allocator only works here because we free it in the call to
+                            // zephr.frame_end()
                             keysym: x11.KeySym
                             str := make([]byte, 4, context.temp_allocator)
                             assert(l_os.xic != nil)
@@ -2569,8 +2571,11 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.HAND] = x11.CreateFontCursor(l_os.x11_display, .XC_hand1)
     zephr_ctx.cursors[.HRESIZE] = x11.CreateFontCursor(l_os.x11_display, .XC_sb_h_double_arrow)
     zephr_ctx.cursors[.VRESIZE] = x11.CreateFontCursor(l_os.x11_display, .XC_sb_v_double_arrow)
+    zephr_ctx.cursors[.WAIT] = x11.CreateFontCursor(l_os.x11_display, .XC_watch)
 
     // non-standard cursors
+    zephr_ctx.cursors[.MOVE] = x11.cursorLibraryLoadCursor(l_os.x11_display, "move")
+    zephr_ctx.cursors[.PROGRESS] = x11.cursorLibraryLoadCursor(l_os.x11_display, "left_ptr_watch")
     zephr_ctx.cursors[.NWSE_RESIZE] = x11.cursorLibraryLoadCursor(l_os.x11_display, "bd_double_arrow")
     zephr_ctx.cursors[.NESW_RESIZE] = x11.cursorLibraryLoadCursor(l_os.x11_display, "fd_double_arrow")
     zephr_ctx.cursors[.DISABLED] = x11.cursorLibraryLoadCursor(l_os.x11_display, "crossed_circle")

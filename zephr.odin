@@ -30,7 +30,10 @@ Cursor :: enum {
     NESW_RESIZE,
     HRESIZE,
     VRESIZE,
+    MOVE,
     DISABLED,
+    WAIT,
+    PROGRESS,
     INVISIBLE,
 }
 

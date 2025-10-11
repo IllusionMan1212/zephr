@@ -397,12 +397,12 @@ win32_scancode_0xe000_to_zephr_scancode_map := []Scancode {
     0x32 = .NULL, // BROWSER_HOME
     0x35 = .KP_DIVIDE,
     /*
-	sc_printScreen:
-	- make: 0xE02A 0xE037
-	- break: 0xE0B7 0xE0AA
-	- MapVirtualKeyEx( VK_SNAPSHOT, MAPVK_VK_TO_VSC_EX, 0 ) returns scancode 0x54;
-	- There is no VK_KEYDOWN with VK_SNAPSHOT.
-	*/
+    sc_printScreen:
+    - make: 0xE02A 0xE037
+    - break: 0xE0B7 0xE0AA
+    - MapVirtualKeyEx( VK_SNAPSHOT, MAPVK_VK_TO_VSC_EX, 0 ) returns scancode 0x54;
+    - There is no VK_KEYDOWN with VK_SNAPSHOT.
+    */
     0x37 = .PRINT_SCREEN,
     0x38 = .RIGHT_ALT,
     0x46 = .CANCEL, /* CTRL + Pause */
@@ -1348,9 +1348,9 @@ window_proc :: proc "stdcall" (
         // win32.GetKeyboardState(key_state)
         // ret := win32.ToUnicode(win32_keycode, win32_scancode, key_state, utf16_string, CORE_ARRAY_COUNT(utf16_string), flags)
         // if ret > 0 {
-        // 	// CoreIAlctor frame_alctor = game_tls_frame_alctor();
-        // 	// CoreString string = os_windows_utf16_to_utf8(utf16_string, frame_alctor);
-        // 	os_event_queue_virt_key_input_utf8(string.data, string.size - 1);
+        //  // CoreIAlctor frame_alctor = game_tls_frame_alctor();
+        //  // CoreString string = os_windows_utf16_to_utf8(utf16_string, frame_alctor);
+        //  os_event_queue_virt_key_input_utf8(string.data, string.size - 1);
         // }
         case win32.WM_INPUT:
             switch wparam {
@@ -1526,9 +1526,9 @@ window_proc :: proc "stdcall" (
                         //win32.GetKeyboardState(key_state)
                         //int ret = win32.ToUnicode(win32_keycode, win32_scancode, key_state, utf16_string, len(utf16_string), flags)
                         //if ret > 0 {
-                        //	CoreIAlctor frame_alctor = game_tls_frame_alctor()
-                        //	CoreString string = os_windows_utf16_to_utf8(utf16_string, frame_alctor)
-                        //	os_event_queue_raw_key_input_utf8(input_device_id, string.data, string.size - 1)
+                        //  CoreIAlctor frame_alctor = game_tls_frame_alctor()
+                        //  CoreString string = os_windows_utf16_to_utf8(utf16_string, frame_alctor)
+                        //  os_event_queue_raw_key_input_utf8(input_device_id, string.data, string.size - 1)
                         //}
                         case win32.RIM_TYPEHID:
                             if .TOUCHPAD in input_device.features {
@@ -2310,6 +2310,51 @@ backend_init_cursors :: proc() {
     auto_cast win32.LoadImageW(
         nil,
         auto_cast win32._IDC_HAND,
+        win32.IMAGE_CURSOR,
+        0,
+        0,
+        win32.LR_DEFAULTSIZE | win32.LR_SHARED,
+    )
+    zephr_ctx.cursors[.MOVE] =
+    auto_cast win32.LoadImageW(
+        nil,
+        auto_cast win32.IDC_SIZEALL,
+        win32.IMAGE_CURSOR,
+        0,
+        0,
+        win32.LR_DEFAULTSIZE | win32.LR_SHARED,
+    )
+    zephr_ctx.cursors[.NWSE_RESIZE] =
+    auto_cast win32.LoadImageW(
+        nil,
+        auto_cast win32.IDC_SIZENWSE,
+        win32.IMAGE_CURSOR,
+        0,
+        0,
+        win32.LR_DEFAULTSIZE | win32.LR_SHARED,
+    )
+    zephr_ctx.cursors[.NESW_RESIZE] =
+    auto_cast win32.LoadImageW(
+        nil,
+        auto_cast win32.IDC_SIZENESW,
+        win32.IMAGE_CURSOR,
+        0,
+        0,
+        win32.LR_DEFAULTSIZE | win32.LR_SHARED,
+    )
+    zephr_ctx.cursors[.WAIT] =
+    auto_cast win32.LoadImageW(
+        nil,
+        auto_cast win32.IDC_WAIT,
+        win32.IMAGE_CURSOR,
+        0,
+        0,
+        win32.LR_DEFAULTSIZE | win32.LR_SHARED,
+    )
+    zephr_ctx.cursors[.PROGRESS] =
+    auto_cast win32.LoadImageW(
+        nil,
+        auto_cast win32.IDC_APPSTARTING,
         win32.IMAGE_CURSOR,
         0,
         0,
