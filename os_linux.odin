@@ -1398,7 +1398,7 @@ backend_change_vsync :: proc(on: bool) {
 }
 
 backend_get_asset :: proc(asset_path: string, loc := #caller_location) -> Asset {
-    engine_rel_path := filepath.dir(#file)
+    engine_rel_path := filepath.dir(#file, context.temp_allocator)
 
     when RELEASE_BUILD {
         final_path := asset_path
@@ -1829,6 +1829,8 @@ evdev_check_gyroscope_properties :: proc(device: ^evdev.libevdev) -> bool {
 }
 
 backend_shutdown :: proc() {
+    delete(SupportedControllers)
+
     for _, &device in zephr_ctx.input_devices_map {
         input_device_backend := linux_input_device(&device)
         evdev.free(input_device_backend.mouse_evdev)
@@ -2583,7 +2585,7 @@ backend_init_cursors :: proc() {
 
 @(private = "file", disabled = RELEASE_BUILD)
 watch_shaders :: proc() {
-    engine_rel_path := filepath.dir(#file)
+    engine_rel_path := filepath.dir(#file, context.temp_allocator)
 
     shaders_dir := strings.clone_to_cstring(filepath.join({engine_rel_path, "assets/shaders"}, context.temp_allocator), context.temp_allocator)
     wd := inotify.add_watch(l_os.inotify_fd, shaders_dir, inotify.IN_MODIFY)

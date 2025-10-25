@@ -647,6 +647,12 @@ deinit :: proc() {
     queue.destroy(&zephr_ctx.changed_shaders_queue)
     delete(zephr_ctx.ui.elements)
     delete(zephr_ctx.shaders)
+    bit_array.destroy(&zephr_ctx.virt_keyboard.keycode_is_pressed_bitset)
+    bit_array.destroy(&zephr_ctx.virt_keyboard.keycode_has_been_pressed_bitset)
+    bit_array.destroy(&zephr_ctx.virt_keyboard.keycode_has_been_released_bitset)
+    bit_array.destroy(&zephr_ctx.virt_keyboard.scancode_is_pressed_bitset)
+    bit_array.destroy(&zephr_ctx.virt_keyboard.scancode_has_been_pressed_bitset)
+    bit_array.destroy(&zephr_ctx.virt_keyboard.scancode_has_been_released_bitset)
 
     free(font_shader)
     free(ui_shader)
