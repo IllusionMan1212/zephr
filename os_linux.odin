@@ -2373,7 +2373,7 @@ backend_get_os_events :: proc() {
             }
         } else if xev.type == .KeyPress || xev.type == .KeyRelease {
             if xev.type == .KeyPress {
-                // remove the control modifier, as it casues control codes to be returned
+                // remove the control modifier, as it causes control codes to be returned
                 xev.xkey.state &= ~{.ControlMask}
 
                 keysym: x11.KeySym

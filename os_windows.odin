@@ -1,3 +1,4 @@
+#+feature dynamic-literals
 #+build windows
 #+private
 package zephr
@@ -12,6 +13,7 @@ import m "core:math/linalg/glsl"
 import "core:mem"
 import "core:mem/virtual"
 import "core:os"
+import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import win32 "core:sys/windows"
@@ -1235,7 +1237,7 @@ window_proc :: proc "stdcall" (
                     break
                 }
 
-                utf8_path, _ := win32.wstring_to_utf8(path, cast(int)res)
+                utf8_path, _ := win32.wstring_to_utf8(cstring16(&path[0]), cast(int)res)
                 append(&paths, utf8_path)
             }
 
@@ -1342,16 +1344,17 @@ window_proc :: proc "stdcall" (
                 return win32.DefWindowProcW(hwnd, msg, wparam, lparam)
             }
 
-        //wchar_t utf16_string[32]
-        // flags := 0x4 // do not change keyboard state
-        // key_state: [256]u8
-        // win32.GetKeyboardState(key_state)
-        // ret := win32.ToUnicode(win32_keycode, win32_scancode, key_state, utf16_string, CORE_ARRAY_COUNT(utf16_string), flags)
-        // if ret > 0 {
-        //  // CoreIAlctor frame_alctor = game_tls_frame_alctor();
-        //  // CoreString string = os_windows_utf16_to_utf8(utf16_string, frame_alctor);
-        //  os_event_queue_virt_key_input_utf8(string.data, string.size - 1);
-        // }
+            if msg == win32.WM_KEYDOWN {
+                utf16_string: [32]win32.wchar_t
+                flags: u32 = 0x4 // do not change keyboard state
+                key_state: [256]u8
+                win32.GetKeyboardState(cast(^win32.BYTE)&key_state[0])
+                ret := win32.ToUnicode(win32_keycode, cast(u32)win32_scancode, cast(^win32.BYTE)&key_state[0], &utf16_string[0], 32, flags)
+                if ret > 0 {
+                    str, _ := win32.utf16_to_utf8(utf16_string[:])
+                    os_event_queue_virt_key_input_utf8(transmute([]u8)str, cast(i32)len(str));
+                }
+            }
         case win32.WM_INPUT:
             switch wparam {
                 case 0:
@@ -1518,18 +1521,17 @@ window_proc :: proc "stdcall" (
                             scancode := win32_scancode_to_zephr_scancode(cast(u32)win32_scancode)
                             os_event_queue_raw_key_changed(key, is_pressed, scancode)
 
-                        //win32_keycode := win32.MapVirtualKeyW(cast(u32)win32_scancode, win32.MAPVK_VSC_TO_VK_EX)
+                            win32_keycode := win32.MapVirtualKeyW(cast(u32)win32_scancode, win32.MAPVK_VSC_TO_VK_EX)
 
-                        //wchar_t utf16_string[32]
-                        //UINT flags = 0x4 // do not change keyboard state
-                        //BYTE key_state[256]
-                        //win32.GetKeyboardState(key_state)
-                        //int ret = win32.ToUnicode(win32_keycode, win32_scancode, key_state, utf16_string, len(utf16_string), flags)
-                        //if ret > 0 {
-                        //  CoreIAlctor frame_alctor = game_tls_frame_alctor()
-                        //  CoreString string = os_windows_utf16_to_utf8(utf16_string, frame_alctor)
-                        //  os_event_queue_raw_key_input_utf8(input_device_id, string.data, string.size - 1)
-                        //}
+                            utf16_string: [32]win32.wchar_t
+                            flags: u32 = 0x4 // do not change keyboard state
+                            key_state: [256]u8
+                            win32.GetKeyboardState(cast(^win32.BYTE)&key_state[0])
+                            ret := win32.ToUnicode(win32_keycode, cast(u32)win32_scancode, cast(^win32.BYTE)&key_state[0], &utf16_string[0], len(utf16_string), flags)
+                            if ret > 0 {
+                                str, _ := win32.utf16_to_utf8(utf16_string[:])
+                                os_event_queue_raw_key_input_utf8(key, transmute([]u8)str, cast(i32)len(str));
+                            }
                         case win32.RIM_TYPEHID:
                             if .TOUCHPAD in input_device.features {
                                 has_touch := false
@@ -1814,7 +1816,7 @@ window_proc :: proc "stdcall" (
                     }
 
                     hid_device_handle := win32.CreateFileW(
-                        device_name,
+                        cstring16(&device_name[0]),
                         0,
                         win32.FILE_SHARE_READ | win32.FILE_SHARE_WRITE | win32.FILE_SHARE_DELETE,
                         nil,
@@ -1825,7 +1827,7 @@ window_proc :: proc "stdcall" (
                     if hid_device_handle == win32.INVALID_HANDLE_VALUE {
                         log.errorf(
                             "Got an invalid HID handle for input device: %s",
-                            win32.wstring_to_utf8(device_name, cast(int)device_name_len),
+                            win32.wstring_to_utf8(cstring16(&device_name[0]), cast(int)device_name_len),
                         )
                         break
                     }
@@ -2121,7 +2123,7 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
         style         = win32.CS_HREDRAW | win32.CS_VREDRAW | win32.CS_OWNDC,
         lpfnWndProc   = cast(win32.WNDPROC)window_proc,
         hInstance     = hInstance,
-        lpszClassName = class_name,
+        lpszClassName = cstring16(&class_name[0]),
         hIcon         = cast(win32.HICON)hIcon,
         hIconSm       = cast(win32.HICON)hIcon, // TODO: maybe we can have a 16x16 icon here. can be used on linux too
     }
@@ -2135,8 +2137,8 @@ backend_init :: proc(window_title: cstring, window_size: m.vec2, icon_path: cstr
     // Make process aware of system scaling per monitor
     win32.SetProcessDpiAwarenessContext(win32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 
-    init_legacy_gl(class_name, hInstance)
-    init_gl(class_name, window_title, window_size, window_non_resizable, hInstance)
+    init_legacy_gl(cstring16(&class_name[0]), hInstance)
+    init_gl(cstring16(&class_name[0]), window_title, window_size, window_non_resizable, hInstance)
 
     input_devices_types := []win32.RAWINPUTDEVICE {
          {
@@ -2318,7 +2320,7 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.MOVE] =
     auto_cast win32.LoadImageW(
         nil,
-        auto_cast win32.IDC_SIZEALL,
+        cstring16(win32._IDC_SIZEALL),
         win32.IMAGE_CURSOR,
         0,
         0,
@@ -2327,7 +2329,7 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.NWSE_RESIZE] =
     auto_cast win32.LoadImageW(
         nil,
-        auto_cast win32.IDC_SIZENWSE,
+        cstring16(win32._IDC_SIZENWSE),
         win32.IMAGE_CURSOR,
         0,
         0,
@@ -2336,7 +2338,7 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.NESW_RESIZE] =
     auto_cast win32.LoadImageW(
         nil,
-        auto_cast win32.IDC_SIZENESW,
+        cstring16(win32._IDC_SIZENESW),
         win32.IMAGE_CURSOR,
         0,
         0,
@@ -2345,7 +2347,7 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.WAIT] =
     auto_cast win32.LoadImageW(
         nil,
-        auto_cast win32.IDC_WAIT,
+        cstring16(win32._IDC_WAIT),
         win32.IMAGE_CURSOR,
         0,
         0,
@@ -2354,7 +2356,7 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.PROGRESS] =
     auto_cast win32.LoadImageW(
         nil,
-        auto_cast win32.IDC_APPSTARTING,
+        cstring16(win32._IDC_APPSTARTING),
         win32.IMAGE_CURSOR,
         0,
         0,
@@ -2363,7 +2365,7 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.HRESIZE] =
     auto_cast win32.LoadImageW(
         nil,
-        auto_cast win32._IDC_SIZEWE,
+        cstring16(win32._IDC_SIZEWE),
         win32.IMAGE_CURSOR,
         0,
         0,
@@ -2372,7 +2374,7 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.VRESIZE] =
     auto_cast win32.LoadImageW(
         nil,
-        auto_cast win32._IDC_SIZENS,
+        cstring16(win32._IDC_SIZENS),
         win32.IMAGE_CURSOR,
         0,
         0,
@@ -2381,7 +2383,7 @@ backend_init_cursors :: proc() {
     zephr_ctx.cursors[.DISABLED] =
     auto_cast win32.LoadImageW(
         nil,
-        auto_cast win32._IDC_NO,
+        cstring16(win32._IDC_NO),
         win32.IMAGE_CURSOR,
         0,
         0,
@@ -2461,3 +2463,62 @@ backend_toggle_fullscreen :: proc(fullscreen: bool) {
         win32.SetWindowPos(w_os.hwnd, win32.HWND_TOP, 0, 0, w, h, win32.SWP_FRAMECHANGED)
     }
 }
+
+backend_get_asset :: proc(asset_path: string, loc := #caller_location) -> Asset {
+    engine_rel_path := filepath.dir(#file)
+
+    when RELEASE_BUILD {
+        final_path := asset_path
+    } else {
+        final_path := filepath.join({engine_rel_path, asset_path}, context.temp_allocator)
+    }
+
+    data, err := os.read_entire_file_or_err(final_path)
+    if err != os.ERROR_NONE {
+        log.errorf("Failed to load asset \"%s\". Error: \"%v\"", final_path, err, location = loc)
+        return Asset{}
+    }
+
+    return Asset{
+        data,
+        nil,
+    }
+}
+
+backend_free_asset :: proc(asset: Asset, loc := #caller_location) {
+    delete(asset.data, loc = loc)
+}
+
+backend_clipboard_copy :: proc(data: []byte) {
+    win32.OpenClipboard(w_os.hwnd)
+    defer win32.CloseClipboard()
+    win32.EmptyClipboard()
+
+    // + 1 for NUL byte
+    h_mem := cast(win32.HGLOBAL)win32.GlobalAlloc(win32.GMEM_MOVEABLE, len(data) + 1)
+
+    handle := cast(cstring)win32.GlobalLock(h_mem)
+    mem.copy(cast(rawptr)handle, raw_data(data), len(data))
+    win32.GlobalUnlock(h_mem)
+
+    // NOTE: only support ASCII text for now.
+    // unicode text is CF_UNICODETEXT
+    win32.SetClipboardData(win32.CF_TEXT, cast(win32.HANDLE)h_mem)
+}
+backend_clipboard_paste :: proc(allocator := context.allocator) -> string {
+    // Assign the logger because we might be calling this procedure from a "c" proc that
+    // has its context initialized from the default context.
+    context.logger = logger
+
+    win32.OpenClipboard(w_os.hwnd)
+    defer win32.CloseClipboard()
+    handle := win32.GetClipboardData(win32.CF_TEXT)
+    data := win32.GlobalLock(auto_cast handle)
+    defer win32.GlobalUnlock(auto_cast handle)
+
+    return strings.clone_from_cstring(cast(cstring)data, allocator)
+}
+
+backend_focus_input :: proc "contextless" () {}
+backend_unfocus_input :: proc "contextless" () {}
+backend_update_caret_position :: proc "contextless" (pos: [2]f32) {}
