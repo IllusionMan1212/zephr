@@ -1288,12 +1288,12 @@ window_proc :: proc "stdcall" (
         case win32.WM_MOUSEWHEEL:
             // This will be a multiple of win32.WHEEL_DELTA which is 120
             wheel_delta := win32.GET_WHEEL_DELTA_WPARAM(wparam)
-            scroll_rel := m.vec2{cast(f32)wheel_delta / win32.WHEEL_DELTA, 0}
+            scroll_rel := m.vec2{0, cast(f32)wheel_delta / win32.WHEEL_DELTA}
 
             os_event_queue_virt_mouse_scroll(scroll_rel)
         case win32.WM_MOUSEHWHEEL:
             wheel_delta := win32.GET_WHEEL_DELTA_WPARAM(wparam)
-            scroll_rel := m.vec2{0, cast(f32)wheel_delta / win32.WHEEL_DELTA}
+            scroll_rel := m.vec2{cast(f32)wheel_delta / win32.WHEEL_DELTA, 0}
 
             os_event_queue_virt_mouse_scroll(scroll_rel)
         case win32.WM_LBUTTONDOWN:
